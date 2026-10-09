@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Research Agent</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <span>Research Agent</span>
+    </div>
+    <div id="status" class="status" title="">connecting…</div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" aria-label="Sections">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-view="new" role="tab">New</button>
+        <button class="tab" data-view="projects" role="tab">Projects</button>
+        <button class="tab" data-view="memory" role="tab">Memory</button>
+        <button class="tab" data-view="skills" role="tab">Skills</button>
+      </div>
+      <div id="side-list" class="side-list"></div>
+    </nav>
+
+    <main>
+      <section id="view-new" class="view">
+        <form id="ask" class="ask">
+          <textarea id="question" rows="3" placeholder="Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”" required></textarea>
+          <div class="ask-row">
+            <input id="project" placeholder="Project name (optional)">
+            <label class="opt">Parallel
+              <select id="parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+            </label>
+            <label class="opt" title="Skip review, gap check and learning"><input type="checkbox" id="fast"> Fast</label>
+              <label class="opt" title="Quick answer: one tool loop, no plan or report"><input type="checkbox" id="quick"> Quick</label>
+            <button id="run" class="primary" type="submit">Research</button>
+            <button id="cancel" class="ghost" type="button" hidden>Cancel</button>
+          </div>
+        </form>
+        <div id="timeline" class="timeline"></div>
+        <article id="report" class="report" hidden></article>
+      </section>
+
+      <section id="view-project" class="view" hidden></section>
+      <section id="view-memory" class="view" hidden>
+        <form id="memory-search" class="row">
+          <input id="memory-q" placeholder="Search memory (facts, lessons, preferences)">
+          <button class="ghost" type="submit">Search</button>
+        </form>
+        <ul id="memory-list" class="memory-list"></ul>
+      </section>
+      <section id="view-skills" class="view" hidden>
+        <div id="skills-list" class="cards"></div>
+        <p class="muted">Add your own skills as Markdown files in <code>&lt;workspace&gt;/skills/</code>.</p>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

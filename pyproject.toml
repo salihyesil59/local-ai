@@ -1,0 +1,57 @@
+[project]
+name = "local-ai"
+dynamic = ["version"]
+description = "Local research assistant for LM Studio: MCP tool servers (library, compute, notebook, docs) and a research agent."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "mcp>=1.10",
+    "numpy>=1.24",
+    "openai>=1.40",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+library = ["pymupdf>=1.24", "libzim>=3.10"]
+compute = ["scipy>=1.10", "sympy>=1.12", "pint>=0.23", "matplotlib>=3.7", "jupyter_client>=8", "ipykernel>=6"]
+rerank = ["sentence-transformers>=3"]
+ui = ["starlette>=0.27", "uvicorn>=0.23", "markdown-it-py>=3"]
+all = ["local-ai[library,compute,ui]"]
+dev = ["local-ai[all]", "pytest>=8", "anyio>=4", "httpx>=0.24", "ruff>=0.6"]
+
+[project.scripts]
+local-ai = "local_ai.agent.__main__:cli"
+local-ai-index = "local_ai.servers.library.server:index_main"
+local-ai-docs = "local_ai.servers.docs.server:main"
+local-ai-library = "local_ai.servers.library.server:main"
+local-ai-compute = "local_ai.servers.compute.server:main"
+local-ai-notebook = "local_ai.servers.notebook.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "local_ai.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+local_ai = ["skills/*.md", "agent/web/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]  # the formatter wraps code; the remaining long lines are embedded HTML/CSS/SQL strings
+
+[tool.ruff.lint.isort]
+known-first-party = ["local_ai"]

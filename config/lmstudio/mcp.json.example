@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "library": {
+      "command": "C:\\Users\\salih\\Github\\ai\\local-ai\\.venv\\Scripts\\local-ai-library.exe",
+      "env": {
+        "LOCAL_AI_WORKSPACE": "C:\\Users\\salih\\local-ai-workspace",
+        "LOCAL_AI_LIBRARY": "C:\\Users\\salih\\physics-library",
+        "LOCAL_AI_ZIM_DIR": "C:\\Users\\salih\\wiki-zim",
+        "LOCAL_AI_EMBED_BACKEND": "none"
+      }
+    },
+    "compute": {
+      "command": "C:\\Users\\salih\\Github\\ai\\local-ai\\.venv\\Scripts\\local-ai-compute.exe",
+      "env": {
+        "LOCAL_AI_WORKSPACE": "C:\\Users\\salih\\local-ai-workspace"
+      }
+    },
+    "web": {
+      "command": "C:\\Users\\salih\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\uvx.exe",
+      "args": [
+        "--quiet",
+        "duckduckgo-mcp-server"
+      ]
+    }
+  }
+}

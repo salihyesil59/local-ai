@@ -1,0 +1,43 @@
+# Extension entries for Goose's config.yaml: %APPDATA%\Block\goose\config\config.yaml
+# Linux: ~/.config/goose/config.yaml, with commands in ~/local-ai/.venv/bin/ (no .exe) and `uvx` from PATH.
+extensions:
+  docs:
+    enabled: true
+    type: stdio
+    name: docs
+    display_name: Offline Docs
+    description: Offline programming documentation (DevDocs ZIM archives)
+    cmd: C:\Users\salih\Github\ai\local-ai\.venv\Scripts\local-ai-docs.exe
+    args: []
+    env_keys: []
+    envs:
+      LOCAL_AI_ZIM_DIR: C:\Users\salih\wiki-zim
+    timeout: 300
+  library:
+    enabled: false
+    type: stdio
+    name: library
+    display_name: Library
+    description: Own library, offline Wikipedia, docs and arXiv
+    cmd: C:\Users\salih\Github\ai\local-ai\.venv\Scripts\local-ai-library.exe
+    args: []
+    env_keys: []
+    envs:
+      LOCAL_AI_LIBRARY: C:\Users\salih\physics-library
+      LOCAL_AI_ZIM_DIR: C:\Users\salih\wiki-zim
+      LOCAL_AI_EMBED_BACKEND: none
+    timeout: 300
+  web:
+    enabled: false
+    type: stdio
+    name: web
+    display_name: Web Search
+    description: DuckDuckGo web search and page fetching
+    cmd: C:\Users\salih\AppData\Local\Programs\Python\Python313\Scripts\uvx.exe
+    args:
+    - --quiet
+    - duckduckgo-mcp-server
+    env_keys: []
+    envs: {}
+    timeout: 300
+GOOSE_CONTEXT_LIMIT: 131072
