@@ -124,3 +124,6 @@ when_to_use: when the agent should pick it
 ---
 Step-by-step instructions...
 ```
+
+Optional front matter `max_steps`, `max_tool_chars` and `max_tokens` raises the agent's limits for the
+sub-question that uses the skill (`paper-summary` does, to read a whole paper).

@@ -13,6 +13,7 @@ Break the user's question into 2-6 focused sub-questions that together answer it
 For each sub-question give search terms in the original language and in English.
 Mark sub-questions that need a calculation, unit conversion or numeric check with "needs_python": true.
 If one of the available skills fits a sub-question, put its name in "skill" (else "").
+If a skill covers the whole question (e.g. summarizing one named paper), plan a single sub-question with it.
 Use what is already known from memory to avoid redundant work, but plan to re-check facts you will cite.
 
 {LANGUAGE_RULES}
@@ -48,8 +49,10 @@ Rules:
 - Rely only on tool output. If the tools don't support a claim, say it is unknown.
 - If results are thin, rephrase the query (synonyms, English terms, broader/narrower) before giving up.
 {unit_rule}- When you have enough evidence, stop calling tools and reply with your findings for this
-  sub-question: concise bullet points, each with its [n] citation, plus any numbers with the
-  code that produced them.
+  sub-question. The report writer sees ONLY these findings, not the tool output, so make them
+  complete: definitions, methods, assumptions, formulas (LaTeX), numbers with units, results and
+  caveats, as detailed bullet points, each with its [n] citation, plus any numbers with the code
+  that produced them. Do your reasoning briefly; spend your words on the findings.
 {skill}"""
 
 QUICK = """\
@@ -97,7 +100,8 @@ Findings from earlier sub-questions (for context, don't repeat this work):
 
 FINALIZE_FINDINGS = (
     "Step limit reached. Without calling more tools, summarize your findings for this sub-question "
-    "as bullet points with [n] citations. Mark anything unverified as such."
+    "as detailed bullet points with [n] citations: keep the formulas, numbers and caveats you found. "
+    "Mark anything unverified as such."
 )
 
 GAP_CHECK = """\
@@ -122,6 +126,9 @@ section; it is generated automatically.
 
 Structure: a short direct answer first, then sections with the supporting details, then
 "Open questions / limitations". Put any code that produced key numbers in an appendix.
+Be thorough: the report is the only thing the user reads. Carry over every relevant detail from the
+findings (methods, assumptions, formulas, numbers, results, caveats) and explain it in full
+paragraphs rather than repeating the bullet points. Do not shorten to save space. Plan briefly, then write.
 If the findings mention `[figure saved: <path>]`, include the figure where it is discussed as
 `![short caption](<path>)`."""
 
@@ -165,6 +172,8 @@ found by automatic checks and a reviewer. Fix them using tools:
 - Reviewer issues: fix the reasoning, add the missing caveat, check units{units_hint}.
 Sources are listed with {list_sources} (project "{project}").
 When done, reply with the full corrected report in Markdown and nothing else (no References section).
+Change only what the problems require: keep every other section, detail and formula of the draft as it is.
+Do not shorten or summarize the report.
 
 {language_rules}"""
 

@@ -75,6 +75,8 @@ def test_skills_front_matter_and_override(tmp_path):
     builtin = load_skills([skill_dirs()[0]])
     assert {"derivation", "fermi-estimate", "dimensional-analysis", "literature-review"} <= set(builtin)
     assert builtin["fermi-estimate"]["description"]
+    assert builtin["paper-summary"]["limits"] == {"max_steps": 30, "max_tool_chars": 12000, "max_tokens": 16384}
+    assert builtin["derivation"]["limits"] == {}
     custom = tmp_path / "skills"
     custom.mkdir()
     (custom / "mine.md").write_text("---\nname: derivation\ndescription: my version\n---\nDo it my way.")

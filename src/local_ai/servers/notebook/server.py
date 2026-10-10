@@ -331,7 +331,8 @@ def build_server(notebook: Notebook | None = None, memory: Memory | None = None,
         skills = load_skills(skill_dirs)
         if name not in skills:
             return f"Error: unknown skill {name!r}. Available: {', '.join(skills) or 'none'}"
-        return skills[name]["body"]
+        limits = " ".join(f"{k}={v}" for k, v in skills[name]["limits"].items())
+        return (f"<!-- limits: {limits} -->\n" if limits else "") + skills[name]["body"]
 
     return mcp
 

@@ -313,3 +313,31 @@ async def test_streaming_rebuilds_message_and_emits_tokens(mcp_config):
     assert "".join(e["text"] for e in tokens if not e["thinking"]) == answer
     assert any(e["thinking"] for e in tokens)
     assert [e["kind"] for e in events].count("stream_end") == 2
+
+
+async def test_skill_limits_apply_to_its_sub_question(mcp_config):
+    library = mcp_config.parent / "library"
+    (library / "paper.txt").write_text("alpha " * 500 + "omega 299792458 " * 200, encoding="utf-8")  # 6200 characters
+    client = ScriptedClient(
+        {
+            "plan": [reply('{"language": "tr", "sub_questions": [{"question": "Özet", "skill": "paper-summary"}]}')],
+            "research": [
+                reply(calls=[("library__read_library", {"source": "paper.txt", "page": 1, "pages": 3})]),
+                reply("- omega 299792458 (p. 2)"),
+            ],
+            "write": [reply("omega 299792458")],
+        }
+    )
+    settings = AgentSettings(model="test", critic=False, gap_check=False, learn=False)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, console=Console(quiet=True))
+        await agent.run("paper.txt dosyasını özetle", project="ozet")
+
+    first, second = client.requests["research"]
+    assert (
+        "Read the WHOLE paper" in first["messages"][0]["content"] and "limits:" not in first["messages"][0]["content"]
+    )
+    assert first["max_tokens"] == 16384
+    assert (
+        "characters omitted" not in second["messages"][-1]["content"]
+    )  # over the default 6000, under the skill's 12000

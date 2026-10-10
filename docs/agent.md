@@ -19,6 +19,7 @@ local-ai --resume --project "kara-cisim-isimasinda-wien-yasasi-nasil-turetilir"
 | `--max-steps` | 12 | tool calls per sub-question |
 | `--max-tool-chars` | 6000 | tool output kept in context (head + tail) |
 | `--max-tokens` | 8192 | tokens per model reply, thinking included; stops a model stuck in a loop |
+| `--report-tokens` | 16384 | the same limit for the replies that write and correct the report |
 | `--servers` | all | e.g. `library,compute,notebook` |
 | `--project` / `--resume` | | continue an interrupted run from its notes |
 | `--parallel` | 1 | sub-questions researched at the same time (enable parallel requests in LM Studio) |
@@ -65,6 +66,14 @@ from `library`, Wikipedia, docs and arXiv from `library`, calculations from `com
    lessons go to long-term memory.
 
 Identical read-only tool calls (searches, reads) are shared within a run, also between parallel sub-questions.
+
+## Summarizing a paper
+
+Ask for it in a normal run: `local-ai "https://arxiv.org/abs/2401.01234 makalesini ayrıntılı özetle" --fast`.
+The planner picks the `paper-summary` skill as the only sub-question. The skill reads the whole paper two pages
+at a time and writes long, section-by-section findings, from which the report is written. It raises the limits
+for that sub-question in its front matter (`max_steps: 30`, `max_tool_chars: 12000`, `max_tokens: 16384`), so a
+paper of up to ~60 pages is read in full; this needs a context length of 65536 or more in LM Studio.
 
 ## Web UI
 

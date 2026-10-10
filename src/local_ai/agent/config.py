@@ -64,6 +64,7 @@ class AgentSettings:
     max_steps: int = 12  # tool-calling steps per sub-question
     quick_steps: int = 6  # tool-calling steps for a quick answer
     max_tokens: int = 8192  # per completion, so a model stuck in a loop cannot run forever
+    report_tokens: int = 16384  # per completion that writes or corrects the report (thinking included)
     stream: bool = False  # stream model output as "token" events (the web UI turns it on)
     max_tool_chars: int = 6000  # tool output kept in context (head + tail)
     verify_rounds: int = 1

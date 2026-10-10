@@ -40,6 +40,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--max-tool-chars", type=int, help="Characters of tool output kept in context (default: 6000).")
     p.add_argument("--temperature", type=float)
     p.add_argument("--max-tokens", type=int, help="Tokens per model reply, thinking included (default: 8192).")
+    p.add_argument(
+        "--report-tokens", type=int, help="Tokens for writing the report, thinking included (default: 16384)."
+    )
     p.add_argument("--no-critic", action="store_true", help="Skip the reviewer pass on the draft.")
     p.add_argument("--no-gap-check", action="store_true", help="Don't add sub-questions for gaps found after research.")
     p.add_argument("--no-learn", action="store_true", help="Don't save facts/lessons to long-term memory.")
@@ -70,7 +73,16 @@ async def main(argv: list[str] | None = None) -> int:
     console = Console()
 
     settings = AgentSettings()
-    for key in ("base_url", "model", "max_steps", "max_tool_chars", "temperature", "max_tokens", "parallel"):
+    for key in (
+        "base_url",
+        "model",
+        "max_steps",
+        "max_tool_chars",
+        "temperature",
+        "max_tokens",
+        "report_tokens",
+        "parallel",
+    ):
         value = getattr(args, key)
         if value is not None:
             setattr(settings, key, value)

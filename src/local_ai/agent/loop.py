@@ -38,6 +38,7 @@ from .tools import ToolRoles
 
 EventHandler = Callable[[dict], None]
 STREAM_FLUSH = 0.15  # seconds between "token" events while streaming
+SKILL_LIMITS = re.compile(r"<!-- limits: ((?:max_(?:steps|tool_chars|tokens)=\d+ ?)+)-->\n")
 CACHEABLE_ROLES = (
     "search",
     "read",
@@ -94,13 +95,19 @@ class ResearchAgent:
 
     # -- model + tools ---------------------------------------------------------
 
-    async def _complete(self, messages: list[dict], tools: list[dict] | None = None, index: int | None = None):
+    async def _complete(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        index: int | None = None,
+        max_tokens: int | None = None,
+    ):
         kwargs = dict(
             model=self.settings.model,
             messages=messages,
             temperature=self.settings.temperature,
             top_p=self.settings.top_p,
-            max_tokens=self.settings.max_tokens,
+            max_tokens=max_tokens or self.settings.max_tokens,
         )
         if tools:
             kwargs["tools"] = tools
@@ -185,6 +192,8 @@ class ResearchAgent:
         index: int | None = None,
         tools: list[dict] | None = None,
         max_steps: int | None = None,
+        max_tokens: int | None = None,
+        max_tool_chars: int | None = None,
     ) -> tuple[str, list[str]]:
         """Let the model call tools until it answers in plain text (or hits the step limit).
 
@@ -192,7 +201,7 @@ class ResearchAgent:
         tools = self.bridge.openai_tools() if tools is None else tools
         outputs: list[str] = []
         for _ in range(max_steps or self.settings.max_steps):
-            message = await self._complete(messages, tools, index=index)
+            message = await self._complete(messages, tools, index=index, max_tokens=max_tokens)
             content = strip_think(message.content)
             calls = [c.model_dump() if hasattr(c, "model_dump") else c for c in (message.tool_calls or [])]
             if not calls:
@@ -216,11 +225,15 @@ class ResearchAgent:
                     "tool_result", index=index, id=call["id"], name=name, output=trim(output, 4000), error=is_error
                 )
                 messages.append(
-                    {"role": "tool", "tool_call_id": call["id"], "content": trim(output, self.settings.max_tool_chars)}
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": trim(output, max_tool_chars or self.settings.max_tool_chars),
+                    }
                 )
 
         messages.append({"role": "user", "content": finalize_prompt})
-        message = await self._complete(messages, index=index)
+        message = await self._complete(messages, index=index, max_tokens=max_tokens)
         return strip_think(message.content), outputs
 
     def _record_python(self, args: str, output: str, is_error: bool) -> None:
@@ -308,6 +321,12 @@ class ResearchAgent:
         if sub.skill and self._has_nb("load_skill"):
             text, is_error = await self.bridge.call(f"{self.nb}__load_skill", {"name": sub.skill})
             skill_body = "" if is_error else text
+        # A skill may raise the limits for its sub-question (front matter, passed on by load_skill).
+        limits = {}
+        header = SKILL_LIMITS.match(skill_body)
+        if header:
+            limits = {key: int(value) for key, value in re.findall(r"(\w+)=(\d+)", header.group(1))}
+            skill_body = skill_body[header.end() :]
             self._log(f"Using skill: {sub.skill}" if skill_body else f"Unknown skill {sub.skill!r}")
         previous = "\n\n".join(
             f"Sub-question {j}: {s.question}\n{s.findings}" for j, s in enumerate(subs, 1) if s.findings
@@ -332,7 +351,7 @@ class ResearchAgent:
             },
         ]
         # Fresh message list per sub-question: earlier work enters only as its summary.
-        findings, outputs = await self._tool_loop(messages, prompts.FINALIZE_FINDINGS, index=i)
+        findings, outputs = await self._tool_loop(messages, prompts.FINALIZE_FINDINGS, index=i, **limits)
         sub.findings = findings
         await self._notebook(
             "write_note", project=project, title=f"finding-{i:02d}", content=f"# {sub.question}\n\n{findings}"
@@ -375,7 +394,8 @@ class ResearchAgent:
                         findings=self._findings(subs),
                     ),
                 },
-            ]
+            ],
+            max_tokens=self.settings.report_tokens,
         )
         return strip_think(message.content)
 
@@ -433,7 +453,9 @@ class ResearchAgent:
                 },
                 {"role": "user", "content": prompts.VERIFY_TASK.format(problems="\n".join(problems), draft=draft)},
             ]
-            revised, _ = await self._tool_loop(messages, "Reply now with the full corrected report only.")
+            revised, _ = await self._tool_loop(
+                messages, "Reply now with the full corrected report only.", max_tokens=self.settings.report_tokens
+            )
             if revised:
                 draft = revised
         remaining = self.check(draft, await self._sources(project))

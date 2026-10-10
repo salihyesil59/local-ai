@@ -6,6 +6,9 @@ description: Order-of-magnitude estimate when exact data is missing
 when_to_use: "how many / roughly how much" questions
 ---
 <step-by-step instructions>
+
+Optional front matter for skills that need more room than the agent's defaults, for the sub-question that uses
+the skill: max_steps (tool-calling steps), max_tool_chars (tool output kept in context), max_tokens (per reply).
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from pathlib import Path
 
 from local_ai.servers.common import BUILTIN_SKILLS, workspace_root
 
+LIMITS = ("max_steps", "max_tool_chars", "max_tokens")
 FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 
 
@@ -40,6 +44,7 @@ def parse_skill(path: Path) -> dict:
         "name": meta.get("name") or path.stem,
         "description": meta.get("description", ""),
         "when_to_use": meta.get("when_to_use", ""),
+        "limits": {k: int(meta[k]) for k in LIMITS if meta.get(k, "").isdigit()},
         "body": body.strip(),
         "path": str(path),
     }
