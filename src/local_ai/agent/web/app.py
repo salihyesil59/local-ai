@@ -210,7 +210,6 @@ def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None
         llm = LLM(
             state["client"],
             run_settings.model,
-            max_tokens=run_settings.max_tokens,
             temperature=run_settings.temperature,
             top_p=run_settings.top_p,
         )
