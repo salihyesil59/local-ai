@@ -65,7 +65,7 @@ def test_status_and_index(client):
     assert s["error"] is None and {"notebook", "library", "compute"} <= set(s["servers"])
     assert "html" in s["formats"]
     page = client.get("/")
-    assert page.status_code == 200 and "Research Agent" in page.text
+    assert page.status_code == 200 and "Local AI" in page.text
     assert client.get("/static/app.js").status_code == 200
 
 

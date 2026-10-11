@@ -98,6 +98,7 @@ instead of `;`. Everything else is the same as on Windows.
 local-ai "Kara cisim ışımasında Wien yasası nasıl türetilir?" -v --out report.md
 local-ai --quick "Hidrojenin taban durum enerjisi kaç eV?"   # fast answer, no report (~1 min)
 local-ai ui                                 # web interface on http://127.0.0.1:8765
+                                             # Research / Code switch; Code needs ..\local-coder (docs/agent.md)
 local-ai export <project> -f html -f docx   # html, md, bib, tex, docx, pdf
 local-ai data status                        # download / update ZIM archives and arXiv data
 ```

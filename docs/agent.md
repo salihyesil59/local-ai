@@ -91,6 +91,35 @@ PDF). The sidebar lists:
 
 It works offline, with no CDN or external assets.
 
+## Code mode
+
+The same page also writes code: switch **Research** to **Code**, give the absolute path of a project folder and the
+task. The agent of [local-coder](https://github.com/salihyesil59/local-coder) plans, writes files and runs the tests
+until they pass, and the page shows the plan with its steps, every turn (time, tokens, tool calls) and the model's
+thinking live. Leave the task empty to continue the plan in the folder. Cancel stops it; Compact shortens the
+conversation before the next reply (the model writes notes, the plan stays; it also happens by itself when the
+context gets long). The agent loads built-in coding skills (bug fix, new feature, refactor, from a paper, edge
+cases, CLI) and your own from `~/.local-coder/skills`.
+
+```powershell
+pip install -e ..\local-coder        # once; the Code switch needs it, the status bar says "code mode off" without it
+local-ai ui
+```
+
+Code mode uses the model, `temperature`, `top_p` and `--max-tokens` of the UI; it needs none of the MCP servers.
+One run at a time, research or code, because one model is loaded. Details of the loop:
+[local-coder docs/agent.md](https://github.com/salihyesil59/local-coder/blob/main/docs/agent.md).
+
+## Chats and folders
+
+Every run is a chat in the sidebar and is saved in `<workspace>/ui/` (an index plus the events of each run), so
+chats are still there after a restart. A chat that was running when the server stopped is shown as
+*interrupted*. Titles default to the start of the prompt; the **⋯** of a chat renames it, moves it to a folder or
+deletes it (not while it runs). **+ Folder** creates folders for your programs or topics; the **+** of a folder
+makes it the target of the next chat (shown above the prompt box), **⋯** renames or deletes it (its chats stay).
+A chat is one task with its history; to continue a code task, start a new chat with the same project folder and an
+empty task, which continues the plan in the folder.
+
 ## Export
 
 ```powershell

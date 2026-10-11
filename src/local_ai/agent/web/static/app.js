@@ -20,7 +20,11 @@ const api = async (path, opts = {}) => {
   return data;
 };
 
-const state = { status: {}, view: "new", currentRun: null, source: null, project: null };
+const state = { status: {}, view: "new", currentRun: null, source: null, project: null, mode: "research", folders: [], targetFolder: null };
+
+// Remembered per browser; storage may be unavailable, the page works without it.
+const remember = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
+const recall = (key) => { try { return localStorage.getItem(key) || ""; } catch { return ""; } };
 
 // -- status -----------------------------------------------------------------------
 async function loadStatus() {
@@ -29,7 +33,7 @@ async function loadStatus() {
     const s = state.status;
     const box = $("#status");
     box.classList.toggle("err", !!s.error);
-    box.textContent = s.error ? s.error : `${s.model || "model: auto"} · ${s.servers.join(", ") || "no servers"} · ${s.tools} tools`;
+    box.textContent = s.error ? s.error : `${s.model || "model: auto"} · ${s.servers.join(", ") || "no servers"} · ${s.tools} tools${s.code ? "" : " · code mode off"}`;
     box.title = `Workspace: ${s.workspace}\nLM Studio: ${s.base_url}`;
   } catch (e) {
     $("#status").textContent = "server not reachable";
@@ -64,24 +68,179 @@ document.querySelectorAll(".tab").forEach((tab) =>
 );
 
 // -- runs -----------------------------------------------------------------------------
-async function renderRunsSidebar() {
-  const runs = await api("/api/runs").catch(() => []);
-  $("#side-list").replaceChildren(
-    ...(runs.length ? runs.map((r) =>
-      el("button", { class: "side-item" + (state.currentRun === r.id ? " active" : ""), onclick: () => attach(r.id) },
-        r.question, el("small", {}, r.status))) : [el("p", { class: "muted" }, "Runs from this session appear here.")])
-  );
+// Chats are sorted into the user's folders, like in LM Studio or Goose; titles can be renamed.
+const chatTitle = (r) => r.title || shortTitle(r.question);
+
+function collapsedFolders() {
+  try { return new Set(JSON.parse(recall("collapsed") || "[]")); } catch { return new Set(); }
 }
+
+function toggleFolder(id) {
+  const set = collapsedFolders();
+  set.has(id) ? set.delete(id) : set.add(id);
+  remember("collapsed", JSON.stringify([...set]));
+  renderRunsSidebar();
+}
+
+function closeMenu() { document.querySelectorAll(".menu").forEach((m) => m.remove()); }
+document.addEventListener("click", (ev) => { if (!ev.target.closest(".menu, .icon")) closeMenu(); });
+
+function showMenu(anchor, entries) {
+  closeMenu();
+  const rect = anchor.getBoundingClientRect();
+  const menu = el("div", { class: "menu", style: `top:${rect.bottom + 4}px;left:${Math.max(8, Math.min(rect.left, window.innerWidth - 200))}px` },
+    entries.map((e) => el("button", { class: e.danger ? "danger" : "", onclick: () => { closeMenu(); e.action(); } }, e.label)));
+  document.body.append(menu);
+}
+
+async function guarded(fn) {
+  try { await fn(); } catch (e) { alert(e.message); }
+  renderRunsSidebar();
+}
+
+function chatMenu(anchor, r) {
+  showMenu(anchor, [
+    { label: "Rename", action: () => {
+      const title = prompt("Chat title (empty = automatic)", r.title || shortTitle(r.question));
+      if (title !== null) guarded(() => api(`/api/runs/${r.id}`, { method: "PATCH", body: JSON.stringify({ title }) }));
+    } },
+    { label: "Move to folder…", action: () => showMenu(anchor, [
+      ...state.folders.filter((f) => f.id !== r.folder).map((f) => ({ label: f.name, action: () => guarded(() => api(`/api/runs/${r.id}`, { method: "PATCH", body: JSON.stringify({ folder: f.id }) })) })),
+      ...(r.folder ? [{ label: "No folder", action: () => guarded(() => api(`/api/runs/${r.id}`, { method: "PATCH", body: JSON.stringify({ folder: null }) })) }] : []),
+      { label: "New folder…", action: () => newFolder(async (f) => api(`/api/runs/${r.id}`, { method: "PATCH", body: JSON.stringify({ folder: f.id }) })) },
+    ]) },
+    { label: "Delete", danger: true, action: () => {
+      if (confirm(`Delete this chat?\n${chatTitle(r)}`)) guarded(async () => {
+        await api(`/api/runs/${r.id}`, { method: "DELETE" });
+        if (state.currentRun === r.id) { state.currentRun = null; $("#timeline").replaceChildren(); $("#plan-panel").hidden = true; $("#report").hidden = true; }
+      });
+    } },
+  ]);
+}
+
+function folderMenu(anchor, f) {
+  showMenu(anchor, [
+    { label: "Rename", action: () => {
+      const name = prompt("Folder name", f.name);
+      if (name && name.trim()) guarded(() => api(`/api/folders/${f.id}`, { method: "PATCH", body: JSON.stringify({ name }) }));
+    } },
+    { label: "Delete folder (chats stay)", danger: true, action: () => {
+      if (confirm(`Delete the folder "${f.name}"? Its chats move out of it.`)) guarded(async () => {
+        await api(`/api/folders/${f.id}`, { method: "DELETE" });
+        if (state.targetFolder === f.id) setTarget(null);
+      });
+    } },
+  ]);
+}
+
+function newFolder(then) {
+  const name = prompt("Folder name");
+  if (!name || !name.trim()) return;
+  guarded(async () => {
+    const folder = await api("/api/folders", { method: "POST", body: JSON.stringify({ name }) });
+    if (then) await then(folder);
+  });
+}
+
+// New chats go into the target folder (set with the + of a folder).
+function setTarget(id) {
+  state.targetFolder = id;
+  remember("target", id || "");
+  renderTarget();
+  renderRunsSidebar();
+}
+
+function renderTarget() {
+  const box = $("#target");
+  const folder = state.folders.find((f) => f.id === state.targetFolder);
+  if (!folder) { state.targetFolder = null; box.hidden = true; return; }
+  box.hidden = false;
+  box.replaceChildren("New chat goes into folder: ", el("strong", {}, folder.name), " ",
+    el("button", { class: "icon", type: "button", title: "No folder", onclick: () => setTarget(null) }, "✕"));
+}
+
+function chatRow(r) {
+  return el("div", { class: "side-row" + (state.currentRun === r.id ? " active" : "") },
+    el("button", { class: "side-item", onclick: () => attach(r.id), title: r.question },
+      el("span", { class: "t" }, chatTitle(r)), el("small", {}, `${r.mode === "code" ? "code" : "research"} · ${r.status}`)),
+    el("button", { class: "icon", title: "Rename, move, delete", onclick: (ev) => chatMenu(ev.currentTarget, r) }, "⋯"));
+}
+
+async function renderRunsSidebar() {
+  const [runs, folders] = await Promise.all([api("/api/runs").catch(() => []), api("/api/folders").catch(() => [])]);
+  state.folders = folders;
+  renderTarget();
+  const collapsed = collapsedFolders();
+  const items = [el("div", { class: "side-head" }, el("span", { class: "muted" }, "Chats"),
+    el("button", { class: "ghost small", type: "button", onclick: () => newFolder() }, "+ Folder"))];
+  for (const f of folders) {
+    const inside = runs.filter((r) => r.folder === f.id);
+    items.push(el("div", { class: "folder" + (state.targetFolder === f.id ? " target" : "") },
+      el("button", { class: "folder-name", onclick: () => toggleFolder(f.id) }, collapsed.has(f.id) ? "▸ " : "▾ ", f.name, el("small", {}, ` ${inside.length}`)),
+      el("button", { class: "icon", title: "New chats go into this folder", onclick: () => setTarget(state.targetFolder === f.id ? null : f.id) }, "＋"),
+      el("button", { class: "icon", title: "Folder menu", onclick: (ev) => folderMenu(ev.currentTarget, f) }, "⋯")));
+    if (!collapsed.has(f.id)) items.push(...inside.map((r) => el("div", { class: "indent" }, chatRow(r))));
+  }
+  const loose = runs.filter((r) => !folders.some((f) => f.id === r.folder));
+  if (folders.length && loose.length) items.push(el("div", { class: "group-label muted" }, "No folder"));
+  items.push(...loose.map(chatRow));
+  if (!runs.length && !folders.length) items.push(el("p", { class: "muted" }, "Your chats appear here."));
+  $("#side-list").replaceChildren(...items);
+}
+
+// A short sidebar title: the first line of the prompt, cut at a word, like a chat title.
+function shortTitle(text, max = 40) {
+  const line = (text || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+  if (line.length <= max) return line;
+  const cut = line.slice(0, max);
+  return cut.slice(0, Math.max(cut.lastIndexOf(" "), max / 2)).replace(/[\s.,;:]+$/, "") + "…";
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  remember("mode", mode);
+  const code = mode === "code";
+  document.querySelectorAll(".mode").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  document.querySelectorAll(".code-only").forEach((n) => (n.hidden = !code));
+  document.querySelectorAll(".research-only").forEach((n) => (n.hidden = code));
+  $("#run").textContent = code ? "Code" : "Research";
+  $("#question").required = !code; // code mode may continue an existing plan without a new task
+  $("#question").placeholder = code
+    ? "What to build, change or fix. Leave empty to continue the plan in the folder."
+    : "Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”";
+}
+document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+$("#browse").addEventListener("click", async () => {
+  const button = $("#browse");
+  button.disabled = true;
+  button.textContent = "Waiting for the dialog…";
+  try {
+    const { path } = await api("/api/pick-folder", { method: "POST", body: JSON.stringify({ initial: $("#folder").value.trim() }) });
+    if (path) { $("#folder").value = path; remember("folder", path); }
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Browse…";
+  }
+});
 
 $("#ask").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const question = $("#question").value.trim();
-  if (!question) return;
+  const code = state.mode === "code";
+  if (!question && !code) return;
   try {
-    const run = await api("/api/runs", {
-      method: "POST",
-      body: JSON.stringify({ question, project: $("#project").value.trim(), fast: $("#fast").checked, quick: $("#quick").checked, parallel: +$("#parallel").value }),
-    });
+    let body;
+    if (code) {
+      const folder = $("#folder").value.trim();
+      remember("folder", folder);
+      body = { mode: "code", question, folder, chat_folder: state.targetFolder };
+    } else {
+      body = { chat_folder: state.targetFolder, question, project: $("#project").value.trim(), fast: $("#fast").checked, quick: $("#quick").checked, parallel: +$("#parallel").value };
+    }
+    const run = await api("/api/runs", { method: "POST", body: JSON.stringify(body) });
     attach(run.id);
     renderRunsSidebar();
   } catch (e) {
@@ -98,6 +257,7 @@ function attach(runId) {
   const tl = $("#timeline");
   tl.replaceChildren();
   $("#report").hidden = true;
+  $("#plan-panel").hidden = true;
   const ctx = { cards: {}, calls: {}, current: null, live: {} };
   setRunning(true);
   const source = new EventSource(`/api/runs/${runId}/events`);
@@ -110,9 +270,18 @@ function attach(runId) {
   source.onerror = () => { source.close(); setRunning(false); };
 }
 
+$("#compact").addEventListener("click", async () => {
+  if (!state.currentRun) return;
+  try {
+    await api(`/api/runs/${state.currentRun}/compact`, { method: "POST" });
+    $("#timeline").append(el("div", { class: "log" }, "Compaction requested: it happens before the next model reply."));
+  } catch (e) { alert(e.message); }
+});
+
 function setRunning(on) {
   $("#run").disabled = on;
   $("#cancel").hidden = !on;
+  if (!on) $("#compact").hidden = true; // shown by the first "turn" event, which only code runs send
 }
 
 function card(ctx, key, title, badge) {
@@ -221,6 +390,32 @@ function renderEvent(e, ctx) {
       box.scrollIntoView({ behavior: "smooth", block: "start" });
       break;
     }
+    case "turn": {
+      $("#compact").hidden = false;
+      const key = `turn-${e.turn}`;
+      const info = [`${Math.round(e.seconds)} s`, e.tokens ? `${e.tokens} tokens` : null, e.finish === "length" ? "cut off" : null].filter(Boolean).join(" · ");
+      if (e.tool_calls.length || e.finish === "length") {
+        card(ctx, key, `Turn ${e.turn}`, info);
+        ctx.current = key;
+      } else {
+        tl.append(el("div", { class: "log" }, `Turn ${e.turn} · ${info} · no tool call`));
+      }
+      break;
+    }
+    case "state":
+      renderPlan(e);
+      break;
+    case "auto_verify":
+      tl.append(el("details", { class: "card" }, el("summary", {}, "The program ran verify for the model"), el("pre", {}, e.output)));
+      break;
+    case "compact":
+      tl.append(el("div", { class: "log" }, e.dropped
+        ? `Context compacted${e.manual ? " on request" : ""}: ${e.dropped} old messages replaced by the plan, the file list${e.noted ? " and the model's notes" : ""}.`
+        : "Nothing to compact yet."));
+      break;
+    case "outcome":
+      tl.append(el("div", { class: `log ${e.finished ? "success" : "warning"}` }, e.finished ? "Finished: verification passes." : `Stopped: ${e.reason}.`));
+      break;
     case "error":
       tl.append(el("div", { class: "card error-box" }, e.text));
       break;
@@ -229,6 +424,19 @@ function renderEvent(e, ctx) {
       break;
   }
   if (state.view === "new" && e.kind !== "report" && e.kind !== "answer") window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
+function renderPlan(e) {
+  const panel = $("#plan-panel");
+  panel.hidden = false;
+  const last = e.finished ? "ALL DONE" : e.last;
+  panel.replaceChildren(
+    el("h4", {}, "Plan", e.review ? el("span", { class: "badge" }, `review: ${e.review}`) : null),
+    el("div", { class: "muted" }, e.goal),
+    el("ul", { class: "steps" }, e.steps.map((s, i) => el("li", { class: s.done ? "done" : i === e.current ? "current" : "" }, s.text))),
+    el("details", {}, el("summary", {}, `Acceptance criteria (${e.criteria.length})`), el("ol", {}, e.criteria.map((c) => el("li", {}, c)))),
+    el("div", { class: `last ${e.finished ? "good" : /FAILED/.test(last) ? "bad" : ""}` }, `Last verify: ${last}`)
+  );
 }
 
 function prettyArgs(args) {
@@ -265,7 +473,7 @@ async function renderProjectsSidebar() {
   $("#side-list").replaceChildren(
     ...(projects.length ? projects.map((p) =>
       el("button", { class: "side-item" + (state.project === p.name ? " active" : ""), onclick: () => openProject(p.name) },
-        p.question || p.name, el("small", {}, p.has_report ? p.name : `${p.name} · no report yet`))) : [el("p", { class: "muted" }, "No projects yet.")])
+        el("span", { class: "t", title: p.question || p.name }, shortTitle(p.question || p.name)), el("small", {}, p.has_report ? p.name : `${p.name} · no report yet`))) : [el("p", { class: "muted" }, "No projects yet.")])
   );
 }
 
@@ -323,6 +531,9 @@ async function loadSkills() {
 }
 
 // -- init -------------------------------------------------------------------------------
+$("#folder").value = recall("folder");
+state.targetFolder = recall("target") || null;
+setMode(recall("mode") === "code" ? "code" : "research");
 loadStatus();
 setInterval(loadStatus, 15000);
 renderRunsSidebar();

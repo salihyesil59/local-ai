@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Research Agent</title>
+  <title>Local AI</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
-      <span>Research Agent</span>
+      <span>Local AI</span>
     </div>
     <div id="status" class="status" title="">connecting…</div>
   </header>
@@ -29,18 +29,31 @@
     <main>
       <section id="view-new" class="view">
         <form id="ask" class="ask">
+          <div class="modes" role="tablist" aria-label="Mode">
+            <button type="button" class="mode active" data-mode="research" role="tab">Research</button>
+            <button type="button" class="mode" data-mode="code" role="tab">Code</button>
+          </div>
+          <div id="target" class="target muted" hidden></div>
           <textarea id="question" rows="3" placeholder="Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”" required></textarea>
-          <div class="ask-row">
+          <div class="ask-row code-only" hidden>
+            <input id="folder" placeholder="Project folder, absolute path (e.g. C:\Users\you\Github\test\app)">
+            <button id="browse" class="ghost" type="button">Browse…</button>
+          </div>
+          <div class="ask-row research-only">
             <input id="project" placeholder="Project name (optional)">
             <label class="opt">Parallel
               <select id="parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
             </label>
             <label class="opt" title="Skip review, gap check and learning"><input type="checkbox" id="fast"> Fast</label>
               <label class="opt" title="Quick answer: one tool loop, no plan or report"><input type="checkbox" id="quick"> Quick</label>
+          </div>
+          <div class="ask-row">
             <button id="run" class="primary" type="submit">Research</button>
+            <button id="compact" class="ghost" type="button" title="Shorten the conversation before the next reply: the model writes notes, the plan stays" hidden>Compact</button>
             <button id="cancel" class="ghost" type="button" hidden>Cancel</button>
           </div>
         </form>
+        <div id="plan-panel" class="card plan-panel" hidden></div>
         <div id="timeline" class="timeline"></div>
         <article id="report" class="report" hidden></article>
       </section>
