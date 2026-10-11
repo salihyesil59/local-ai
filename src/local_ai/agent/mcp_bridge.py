@@ -100,7 +100,8 @@ class MCPBridge:
     def has(self, name: str) -> bool:
         return name in self.tools
 
-    def openai_tools(self) -> list[dict]:
+    def openai_tools(self, only_servers: list[str] | set[str] | None = None) -> list[dict]:
+        servers_filter = set(only_servers) if only_servers is not None else None
         return [
             {
                 "type": "function",
@@ -111,6 +112,7 @@ class MCPBridge:
                 },
             }
             for t in self.tools.values()
+            if servers_filter is None or t.server in servers_filter
         ]
 
     async def call(self, name: str, arguments: dict | str | None) -> tuple[str, bool]:

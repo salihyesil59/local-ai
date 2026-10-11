@@ -50,14 +50,40 @@ def search_arxiv(query: str, max_results: int = 5, newest_first: bool = False) -
     return truncate("\n\n".join(out)) if out else "No results."
 
 
-def read_arxiv(arxiv_id: str, page: int = 1, pages: int = 3) -> str:
-    """Read pages of an arXiv paper's PDF as text (e.g. arxiv_id='2401.01234'). Start with page 1 for the
-    abstract and introduction; read further pages as needed."""
-    arxiv_id = arxiv_id.strip().removeprefix("arXiv:")
-    if not re.fullmatch(r"[\w.\-/]+", arxiv_id):
+def extract_arxiv_id(raw: str) -> str:
+    s = raw.strip()
+    m = re.search(r"(\d{4}\.\d{4,5}(?:v\d+)?|[a-z\-]+(?:\.[a-z\-]+)?/\d{7}(?:v\d+)?)", s, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return s.removeprefix("arXiv:").removeprefix("arxiv:").strip()
+
+
+def read_arxiv(arxiv_id: str, page: int = 1, pages: int = 4, query: str = "") -> str:
+    """Read pages of an arXiv paper's PDF as text. Accepts an arXiv ID (e.g. '2401.01234') or full arXiv URL.
+    page/pages: 1-based page range to read.
+    query: optional search term inside the paper (e.g. 'algorithm', 'pseudocode', 'definition');
+           if provided, returns pages containing the query."""
+    aid = extract_arxiv_id(arxiv_id)
+    if not re.fullmatch(r"[\w.\-/]+", aid):
         return f"Invalid arXiv id: {arxiv_id}"
-    path = cache_dir("arxiv") / (arxiv_id.replace("/", "_") + ".pdf")
+    path = cache_dir("arxiv") / (aid.replace("/", "_") + ".pdf")
     if not path.exists():
-        path.write_bytes(http_get(f"https://arxiv.org/pdf/{arxiv_id}", timeout=60))
+        path.write_bytes(http_get(f"https://arxiv.org/pdf/{aid}", timeout=60))
+
+    if query.strip():
+        q = query.strip().lower()
+        import pymupdf
+
+        with pymupdf.open(path) as doc:
+            matching = [n for n in range(1, doc.page_count + 1) if q in doc[n - 1].get_text().lower()]
+            if matching:
+                selected_pages = matching[:pages]
+                pages_text = [f"--- page {n} ---\n{doc[n - 1].get_text()}" for n in selected_pages]
+                return truncate(
+                    f"arXiv:{aid} ({doc.page_count} pages, found '{query}' on pages {matching}):\n\n"
+                    + "\n\n".join(pages_text)
+                )
+            return f"arXiv:{aid} ({doc.page_count} pages): No pages found containing '{query}'."
+
     total, selected = pdf_pages(path, page, pages)
-    return truncate(f"arXiv:{arxiv_id} ({total} pages)\n\n" + "\n\n".join(selected))
+    return truncate(f"arXiv:{aid} ({total} pages)\n\n" + "\n\n".join(selected))

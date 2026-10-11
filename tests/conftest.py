@@ -42,3 +42,21 @@ def mcp_config(tmp_path):
     path = tmp_path / "mcp.json"
     path.write_text(json.dumps(config), encoding="utf-8")
     return path
+
+
+PYTEST = f'"{sys.executable}" -B -m pytest -x -q --tb=short -p no:cacheprovider'
+
+
+@pytest.fixture
+def project(tmp_path, monkeypatch):
+    """An empty project folder for coder tests."""
+    root = tmp_path / "project"
+    root.mkdir()
+    monkeypatch.setenv("LOCAL_CODER_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("LOCAL_CODER_PROJECT", raising=False)
+    return root
+
+
+def write_test(root, body):
+    (root / "test_it.py").write_text(body, encoding="utf-8")
+

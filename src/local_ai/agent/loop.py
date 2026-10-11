@@ -198,7 +198,7 @@ class ResearchAgent:
         """Let the model call tools until it answers in plain text (or hits the step limit).
 
         Returns (answer, raw outputs of the successful tool calls)."""
-        tools = self.bridge.openai_tools() if tools is None else tools
+        tools = self.bridge.openai_tools(self.settings.servers) if tools is None else tools
         outputs: list[str] = []
         for _ in range(max_steps or self.settings.max_steps):
             message = await self._complete(messages, tools, index=index, max_tokens=max_tokens)
@@ -496,7 +496,10 @@ class ResearchAgent:
         self.bridge.clear_cache()
         self.bridge.cacheable = {self.roles.get(r) for r in CACHEABLE_ROLES if self.roles.get(r)}
         self._phase("Quick answer")
-        tools = [t for t in self.bridge.openai_tools() if not t["function"]["name"].startswith(f"{self.nb}__")]
+        tools = [
+            t for t in self.bridge.openai_tools(self.settings.servers)
+            if not t["function"]["name"].startswith(f"{self.nb}__")
+        ]
         messages = [
             {
                 "role": "system",

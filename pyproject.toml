@@ -27,6 +27,7 @@ local-ai-docs = "local_ai.servers.docs.server:main"
 local-ai-library = "local_ai.servers.library.server:main"
 local-ai-compute = "local_ai.servers.compute.server:main"
 local-ai-notebook = "local_ai.servers.notebook.server:main"
+local-coder = "local_ai.coder.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -39,7 +40,7 @@ version = { attr = "local_ai.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-local_ai = ["skills/*.md", "agent/web/static/*"]
+local_ai = ["skills/*.md", "coder/skills/*.md", "agent/web/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

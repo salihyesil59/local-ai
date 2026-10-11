@@ -125,8 +125,8 @@ async def pick_folder_dialog(initial: str = "") -> str:
 
 
 def code_available() -> bool:
-    """Code mode needs the local-coder package (and its openai dependency)."""
-    return importlib.util.find_spec("local_coder") is not None
+    """Code mode is built-in."""
+    return True
 
 
 def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None) -> Starlette:
@@ -197,9 +197,10 @@ def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None
 
     async def run_code(run: Run, options: dict, run_settings: AgentSettings) -> None:
         """Code mode: the local-coder agent edits a project folder and runs its tests until they pass."""
-        from local_coder import state as coder_state
-        from local_coder.agent.llm import LLM
-        from local_coder.agent.loop import CoderAgent
+        from local_ai.coder import state as coder_state
+        from local_ai.coder.agent.llm import LLM
+        from local_ai.coder.agent.loop import CoderAgent
+        from local_ai.coder.agent.tools import Tool
 
         root = Path(str(options.get("folder", ""))).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
@@ -207,13 +208,44 @@ def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None
         if not task or task.startswith("(continue"):
             task = "Continue the existing plan and finish the task."
         run.push({"kind": "log", "text": f"Project folder: {root}"})
+
+        # Extra MCP tools based on selected servers
+        extra_tools = {}
+        bridge = state["bridge"]
+        selected_servers = options.get("servers")
+        if bridge:
+            allowed = set(selected_servers) if selected_servers is not None else {"library", "compute", "web"}
+            for name, btool in bridge.tools.items():
+                if btool.server in allowed and btool.server != "coder":
+                    def make_caller(tool_name):
+                        async def _mcp_call(**kw):
+                            text, is_err = await bridge.call(tool_name, kw)
+                            return text if not is_err else f"Error: {text}"
+                        return _mcp_call
+
+                    extra_tools[name] = Tool(
+                        name=name,
+                        description=f"[{btool.server}] {btool.description}".strip(),
+                        parameters=btool.input_schema,
+                        fn=make_caller(name),
+                    )
+
+        if extra_tools:
+            active_list = sorted({btool.server for btool in bridge.tools.values() if btool.public_name in extra_tools})
+            run.push({"kind": "log", "text": f"Active MCP servers: {', '.join(active_list)} ({len(extra_tools)} tools)"})
+
         llm = LLM(
             state["client"],
             run_settings.model,
             temperature=run_settings.temperature,
             top_p=run_settings.top_p,
         )
-        agent = CoderAgent(llm, root, emit=lambda kind, **data: run.push({"kind": kind, **data}))
+        agent = CoderAgent(
+            llm,
+            root,
+            emit=lambda kind, **data: run.push({"kind": kind, **data}),
+            extra_tools=extra_tools,
+        )
         run.agent = agent
         coder_state.moim_file().write_text(coder_state.IDLE, encoding="utf-8")
         outcome = await agent.run(task)
@@ -236,6 +268,8 @@ def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None
                     settings.model = ids[0]
                 run_settings = AgentSettings(**{**settings.__dict__})
                 run_settings.stream = True
+                if options.get("servers") is not None:
+                    run_settings.servers = list(options["servers"])
                 if options.get("mode") == "code":
                     await run_code(run, options, run_settings)
                     return

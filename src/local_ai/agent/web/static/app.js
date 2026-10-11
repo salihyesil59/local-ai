@@ -35,10 +35,60 @@ async function loadStatus() {
     box.classList.toggle("err", !!s.error);
     box.textContent = s.error ? s.error : `${s.model || "model: auto"} · ${s.servers.join(", ") || "no servers"} · ${s.tools} tools${s.code ? "" : " · code mode off"}`;
     box.title = `Workspace: ${s.workspace}\nLM Studio: ${s.base_url}`;
+    renderMcpSelectors();
   } catch (e) {
     $("#status").textContent = "server not reachable";
     $("#status").classList.add("err");
   }
+}
+
+// -- MCP servers selection (Goose-style) ------------------------------------------
+function renderMcpSelectors() {
+  const container = $("#mcp-selectors");
+  const section = $("#mcp-section");
+  if (!container || !section) return;
+  const servers = (state.status.servers || []).filter((s) => s !== "notebook" && s !== "coder");
+  if (!servers.length) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const key = "mcp_servers_" + state.mode;
+  let saved = null;
+  try {
+    const raw = recall(key);
+    if (raw) saved = new Set(JSON.parse(raw));
+  } catch {}
+
+  container.replaceChildren(...servers.map((s) => {
+    const checked = saved ? saved.has(s) : true;
+    const chip = el("label", { class: "mcp-chip" + (checked ? " active" : ""), title: `${s} MCP server` },
+      el("input", {
+        type: "checkbox",
+        value: s,
+        checked: checked,
+        onchange: (ev) => {
+          chip.classList.toggle("active", ev.target.checked);
+          saveMcpSelection();
+        }
+      }),
+      el("span", {}, s)
+    );
+    return chip;
+  }));
+}
+
+function saveMcpSelection() {
+  const container = $("#mcp-selectors");
+  if (!container) return;
+  const selected = Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map((cb) => cb.value);
+  remember("mcp_servers_" + state.mode, JSON.stringify(selected));
+}
+
+function getSelectedMcpServers() {
+  const container = $("#mcp-selectors");
+  if (!container) return undefined;
+  return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map((cb) => cb.value);
 }
 
 function fileUrl(path) {
@@ -208,6 +258,7 @@ function setMode(mode) {
   $("#question").placeholder = code
     ? "What to build, change or fix. Leave empty to continue the plan in the folder."
     : "Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”";
+  renderMcpSelectors();
 }
 document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
 
@@ -233,12 +284,13 @@ $("#ask").addEventListener("submit", async (ev) => {
   if (!question && !code) return;
   try {
     let body;
+    const servers = getSelectedMcpServers();
     if (code) {
       const folder = $("#folder").value.trim();
       remember("folder", folder);
-      body = { mode: "code", question, folder, chat_folder: state.targetFolder };
+      body = { mode: "code", question, folder, chat_folder: state.targetFolder, servers };
     } else {
-      body = { chat_folder: state.targetFolder, question, project: $("#project").value.trim(), fast: $("#fast").checked, quick: $("#quick").checked, parallel: +$("#parallel").value };
+      body = { chat_folder: state.targetFolder, question, project: $("#project").value.trim(), fast: $("#fast").checked, quick: $("#quick").checked, parallel: +$("#parallel").value, servers };
     }
     const run = await api("/api/runs", { method: "POST", body: JSON.stringify(body) });
     attach(run.id);
@@ -527,7 +579,10 @@ $("#memory-search").addEventListener("submit", (ev) => { ev.preventDefault(); lo
 async function loadSkills() {
   const skills = await api("/api/skills").catch(() => []);
   $("#skills-list").replaceChildren(...skills.map((s) =>
-    el("div", { class: "card" }, el("h4", {}, s.name), el("div", {}, s.description), s.when_to_use ? el("div", { class: "muted" }, `Use when: ${s.when_to_use}`) : null)));
+    el("div", { class: "card" },
+      el("h4", {}, s.name, s.category ? el("span", { class: `badge ${s.category}` }, s.category) : null),
+      el("div", {}, s.description),
+      s.when_to_use ? el("div", { class: "muted" }, `Use when: ${s.when_to_use}`) : null)));
 }
 
 // -- init -------------------------------------------------------------------------------

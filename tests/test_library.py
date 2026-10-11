@@ -153,3 +153,26 @@ def test_auto_index_budget_spreads_a_large_first_index(lib):
     stats = library.index_folder(papers, budget=0)
     assert stats["indexed"] == 1 and stats["pending"] == 1  # one file, then the budget is used up
     assert library.index_folder(papers, budget=0)["pending"] == 0
+
+
+def test_read_arxiv_extracts_id_and_searches_query(tmp_path, monkeypatch):
+    from local_ai.servers.library import arxiv
+
+    pdf_path = tmp_path / "2401.01234.pdf"
+    make_pdf(pdf_path, ["Title and abstract", "Algorithm 1: Quantum phase estimation steps...", "Discussion and results."])
+    monkeypatch.setattr(arxiv, "cache_dir", lambda name: tmp_path)
+    monkeypatch.setattr(arxiv, "http_get", lambda url, timeout=60: b"dummy")
+
+    # Raw id
+    res = arxiv.read_arxiv("2401.01234", page=1, pages=1)
+    assert "Title and abstract" in res
+
+    # URL format
+    res_url = arxiv.read_arxiv("https://arxiv.org/abs/2401.01234", page=2, pages=1)
+    assert "Quantum phase estimation" in res_url
+
+    # In-paper query search
+    res_query = arxiv.read_arxiv("2401.01234", query="estimation")
+    assert "found 'estimation' on pages [2]" in res_query
+    assert "Quantum phase estimation" in res_query
+

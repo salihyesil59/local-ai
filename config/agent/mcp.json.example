@@ -21,6 +21,13 @@
         "LOCAL_AI_WORKSPACE": "C:\\Users\\salih\\local-ai-workspace",
         "LOCAL_AI_EMBED_BACKEND": "none"
       }
+    },
+    "web": {
+      "command": "C:\\Users\\salih\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\uvx.exe",
+      "args": [
+        "--quiet",
+        "duckduckgo-mcp-server"
+      ]
     }
   }
 }

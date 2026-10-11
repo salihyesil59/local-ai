@@ -24,7 +24,11 @@ FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 
 
 def skill_dirs() -> list[Path]:
-    dirs = [BUILTIN_SKILLS, workspace_root() / "skills"]
+    coder_skills = BUILTIN_SKILLS.parent / "coder" / "skills"
+    dirs = [BUILTIN_SKILLS]
+    if coder_skills.is_dir():
+        dirs.append(coder_skills)
+    dirs.append(workspace_root() / "skills")
     dirs += [Path(p).expanduser() for p in os.environ.get("LOCAL_AI_SKILLS", "").split(os.pathsep) if p]
     return dirs
 
@@ -44,6 +48,7 @@ def parse_skill(path: Path) -> dict:
         "name": meta.get("name") or path.stem,
         "description": meta.get("description", ""),
         "when_to_use": meta.get("when_to_use", ""),
+        "category": "code" if "coder" in path.parts else "research",
         "limits": {k: int(meta[k]) for k in LIMITS if meta.get(k, "").isdigit()},
         "body": body.strip(),
         "path": str(path),

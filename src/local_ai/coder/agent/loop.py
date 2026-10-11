@@ -1,0 +1,301 @@
+"""The coding loop, run by this program.
+
+The model only decides what to write next. The program decides when the work is checked and when it is over:
+  - a reply that is cut off by max_tokens (a model stuck thinking) gets a nudge to act, not a longer wait;
+  - a reply without tool calls while the task is not finished makes the program run verify and show the result;
+  - several edits in a row without verify also make the program run it;
+  - the task ends only when the state on disk is finished (verify reported ALL DONE) or a limit is hit;
+  - a long conversation is compacted: the plan and the files are on disk, so old messages can go.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+from local_ai.coder import files as fl
+from local_ai.coder import server as sv
+from local_ai.coder import skills as sk
+from local_ai.coder import state as st
+from local_ai.coder.agent import prompts
+from local_ai.coder.agent.context import parse_inline_tool_calls, size, strip_think, trim
+from local_ai.coder.agent.llm import LLM, Reply
+from local_ai.coder.agent.tools import EDIT_TOOLS, Tool, coder_tools
+
+Emit = Callable[..., None]
+STREAM_FLUSH = 0.15  # seconds between "token" events
+TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
+
+
+@dataclass
+class Settings:
+    max_turns: int = 80  # model replies in one run
+    max_tool_chars: int = 6000  # tool output kept in context (head + tail)
+    edits_before_verify: int = 4  # edits in a row before the program runs verify itself
+    max_nudges: int = 6  # cut-off or early-stop replies in a row before giving up
+    context_chars: int = 150_000  # compact above this (about 45k tokens of code)
+    keep_messages: int = 8  # newest messages kept by a compaction
+    require_skill: bool = True  # the first plan is refused once, with the fitting skill attached
+    notes_tokens: int = 4096  # the model writes notes on the dropped part (thinking included); 0 = no notes
+
+
+def describe_error(error: Exception) -> str:
+    """One readable line for an exception; servers often answer with a whole HTML page."""
+    text = " ".join(re.sub(r"<[^>]+>", " ", str(error)).split())
+    return f"{type(error).__name__}: {text[:200]}" if text else type(error).__name__
+
+
+@dataclass
+class Outcome:
+    finished: bool
+    reason: str
+    summary: str = ""
+
+
+class CoderAgent:
+    def __init__(
+        self,
+        llm: LLM,
+        root: Path,
+        settings: Settings | None = None,
+        emit: Emit | None = None,
+        extra_tools: dict[str, Tool] | None = None,
+    ):
+        self.llm = llm
+        self.root = root
+        self.settings = settings or Settings()
+        self.emit = emit or (lambda kind, **data: None)
+        self.tools: dict[str, Tool] = coder_tools(root, self.settings.require_skill)
+        if extra_tools:
+            self.tools.update(extra_tools)
+        self.compact_requested = False
+
+    # -- helpers ---------------------------------------------------------------
+
+    async def call_tool(self, call: dict) -> str:
+        name = call["function"]["name"]
+        raw = call["function"].get("arguments") or "{}"
+        tool = self.tools.get(name)
+        if tool is None:
+            return f"Error: unknown tool {name!r}. Available tools: {', '.join(self.tools)}"
+        problem = self.bad_arguments(call)
+        if problem:
+            self.emit("tool_call", id=call["id"], name=name, arguments=raw)
+            self.emit("tool_result", id=call["id"], name=name, output=problem, error=True)
+            return problem
+        args = json.loads(raw) if raw.strip() else {}
+        self.emit("tool_call", id=call["id"], name=name, arguments=raw)
+        try:
+            if asyncio.iscoroutinefunction(tool.fn):
+                output = await tool.fn(**args)
+            else:
+                output = await asyncio.to_thread(tool.fn, **args)
+        except TypeError as e:
+            output = f"Error: wrong arguments for {name}: {e}"
+        except Exception as e:
+            output = f"Error: {e}"
+        self.emit("tool_result", id=call["id"], name=name, output=output, error=output.startswith("Error"))
+        self.emit_state()
+        return output
+
+    @staticmethod
+    def bad_arguments(call: dict) -> str | None:
+        """Why the tool call's arguments cannot be used, or None."""
+        raw = call["function"].get("arguments") or "{}"
+        try:
+            args = json.loads(raw) if raw.strip() else {}
+        except json.JSONDecodeError as e:
+            return f"Error: tool arguments are not valid JSON ({e}). Send a JSON object."
+        return None if isinstance(args, dict) else "Error: tool arguments must be a JSON object."
+
+    async def verify(self) -> str:
+        result = await asyncio.to_thread(sv.run_verify, self.root)
+        self.emit("auto_verify", output=result)
+        self.emit_state()
+        return result
+
+    async def complete(self, messages: list[dict], tools: list[dict] | None) -> Reply:
+        """One model reply; its text and thinking go out as batched "token" events (the format of local-ai's UI)."""
+        pending = {"text": "", "thinking": ""}
+        last = time.monotonic()
+
+        def flush() -> None:
+            for kind, text in pending.items():
+                if text:
+                    self.emit("token", text=text, thinking=kind == "thinking")
+                    pending[kind] = ""
+
+        def on_delta(kind: str, text: str) -> None:
+            nonlocal last
+            pending[kind] += text
+            if time.monotonic() - last > STREAM_FLUSH:
+                flush()
+                last = time.monotonic()
+
+        try:
+            return await self.llm.complete(messages, tools, on_delta)
+        finally:
+            flush()
+            self.emit("stream_end")
+
+    def emit_state(self) -> None:
+        """The plan and its progress, for a UI to show."""
+        state = st.load(self.root)
+        if state is None:
+            return
+        self.emit(
+            "state",
+            goal=state["goal"],
+            steps=state["steps"],
+            current=st.current(state),
+            criteria=state["criteria"],
+            review=state["review"],
+            last=st.last_line(state),
+            finished=st.finished(state),
+        )
+
+    def request_compact(self) -> None:
+        """Compact before the next model reply (the UI's Compact button)."""
+        self.compact_requested = True
+
+    @staticmethod
+    def transcript(messages: list[dict]) -> str:
+        """The dropped messages as short text for the model that writes the notes (the newest part is kept)."""
+        lines = []
+        for m in messages:
+            text = (m.get("content") or "").strip()
+            calls = "; ".join(
+                f"{c['function']['name']}({c['function']['arguments'][:200]})" for c in m.get("tool_calls") or []
+            )
+            lines.append(f"{m['role']}: {trim(text, 600)} {calls}".strip())
+        return "\n".join(lines)[-TRANSCRIPT_CHARS:]
+
+    async def notes(self, dropped: list[dict]) -> str:
+        """The model's own notes on the part that is dropped; "" when it fails (the plan and the files remain)."""
+        request = prompts.COMPACT_REQUEST.format(transcript=self.transcript(dropped))
+        messages = [
+            {"role": "system", "content": prompts.COMPACT_SYSTEM},
+            {"role": "user", "content": request},
+        ]
+        try:
+            reply = await self.llm.complete(messages, None, max_tokens=self.settings.notes_tokens)
+        except Exception as e:  # a failed summary must not stop the work
+            self.emit("log", text=f"Could not write notes for the compaction: {e}")
+            return ""
+        return "" if reply.finish_reason == "length" else strip_think(reply.content)
+
+    async def compact(self, messages: list[dict], manual: bool = False) -> list[dict]:
+        """Replace the middle of the conversation by the plan, the file list and the model's notes; the plan and
+        the files are on disk."""
+        start = max(2, len(messages) - self.settings.keep_messages)
+        while start > 2 and messages[start]["role"] == "tool":  # keep a tool result with its assistant call
+            start -= 1
+        if start <= 2:
+            self.emit("compact", dropped=0, noted=False, manual=manual)
+            return messages
+        note = await self.notes(messages[2:start]) if self.settings.notes_tokens else ""
+        state = st.load(self.root)
+        status = st.render(self.root, state) if state else "(no plan yet)"
+        summary = prompts.COMPACTED.format(
+            status=status, files=fl.list_files(self.root), notes=prompts.NOTES.format(note=note) if note else ""
+        )
+        self.emit("compact", dropped=start - 2, noted=bool(note), manual=manual)
+        return [*messages[:2], {"role": "user", "content": summary}, *messages[start:]]
+
+    def emit_turn(self, turn: int, reply: Reply) -> None:
+        self.emit(
+            "turn",
+            turn=turn,
+            seconds=reply.seconds,
+            tokens=reply.completion_tokens,
+            thinking_chars=reply.reasoning_chars,
+            finish=reply.finish_reason,
+            tool_calls=[c["function"]["name"] for c in reply.tool_calls],
+        )
+
+    # -- the loop --------------------------------------------------------------
+
+    async def run(self, task: str) -> Outcome:
+        state = st.load(self.root)
+        status = st.render(self.root, state) if state and not st.finished(state) else None
+        base_tools = coder_tools(self.root, False)
+        extra_names = [name for name in self.tools if name not in base_tools]
+        messages = [
+            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(sk.load_skills()), extra_names)},
+            {"role": "user", "content": prompts.first_message(task, self.root, status)},
+        ]
+        specs = [t.spec() for t in self.tools.values()]
+        edits = nudges = 0
+        wrap_up = False
+
+        for turn in range(1, self.settings.max_turns + 1):
+            if self.compact_requested or size(messages) > self.settings.context_chars:
+                manual, self.compact_requested = self.compact_requested, False
+                messages = await self.compact(messages, manual)
+            try:
+                reply = await self.complete(messages, None if wrap_up else specs)
+            except Exception as e:  # the server (LM Studio) failed; the plan and the files stay on disk
+                return Outcome(False, f"the model server failed: {describe_error(e)}")
+            self.emit_turn(turn, reply)
+            calls = reply.tool_calls or parse_inline_tool_calls(reply.content)
+            text = strip_think(reply.content)
+
+            if wrap_up:
+                return Outcome(True, "ALL DONE", text)
+
+            if reply.finish_reason == "length":
+                # Cut off, in the thinking or in the middle of a tool call. Nothing of it is kept or run: a half
+                # written call has broken JSON, which the server's chat template cannot take back in the history.
+                nudges += 1
+                if nudges > self.settings.max_nudges:
+                    return Outcome(False, "the model keeps running out of tokens without acting")
+                messages.append({"role": "user", "content": prompts.CUT_OFF_CALL if calls else prompts.CUT_OFF})
+                continue
+
+            if calls:
+                nudges = 0
+                # arguments that are not valid JSON must not stay in the history either
+                kept = [
+                    {**c, "function": {**c["function"], "arguments": "{}"}} if self.bad_arguments(c) else c
+                    for c in calls
+                ]
+                messages.append({"role": "assistant", "content": text or None, "tool_calls": kept})
+                for call in calls:
+                    output = await self.call_tool(call)
+                    name = call["function"]["name"]
+                    edits = edits + 1 if name in EDIT_TOOLS else (0 if name == "verify" else edits)
+                    content = trim(output, self.settings.max_tool_chars)
+                    messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
+                if edits >= self.settings.edits_before_verify and st.load(self.root):
+                    result = await self.verify()
+                    messages.append({"role": "user", "content": prompts.AUTO_VERIFY.format(edits=edits, result=result)})
+                    edits = 0
+            else:
+                messages.append({"role": "assistant", "content": text})
+                state = st.load(self.root)
+                if state is not None and st.finished(state):
+                    return Outcome(True, "ALL DONE", text)
+                nudges += 1
+                if nudges > self.settings.max_nudges:
+                    return Outcome(False, "the model stopped before the task was finished")
+                if state is None:
+                    messages.append({"role": "user", "content": prompts.NEEDS_PLAN})
+                else:
+                    result = await self.verify()
+                    messages.append({"role": "user", "content": prompts.STOPPED.format(result=result)})
+                    edits = 0
+
+            state = st.load(self.root)
+            if state is not None:
+                if state["repeats"] >= sv.REPEAT_STOP:
+                    return Outcome(False, f"the same failure happened {state['repeats']} times in a row")
+                if st.finished(state):
+                    messages.append({"role": "user", "content": prompts.SUMMARY})
+                    wrap_up = True
+
+        return Outcome(False, f"turn limit ({self.settings.max_turns}) reached")

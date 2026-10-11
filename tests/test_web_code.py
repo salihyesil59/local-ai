@@ -166,3 +166,50 @@ def test_compact_button_endpoint(tmp_path):
         assert client.post("/api/runs/r3/compact").status_code == 409
         assert client.post("/api/runs/none/compact").status_code == 404
     assert agent.asked == 1
+
+
+def test_code_mode_integrates_mcp_bridge_tools(tmp_path, monkeypatch):
+    from unittest.mock import patch
+    from local_ai.agent.mcp_bridge import BridgedTool
+
+    monkeypatch.setenv("LOCAL_CODER_HOME", str(tmp_path / "home"))
+    folder = tmp_path / "app"
+    folder.mkdir()
+
+    class FakeBridge:
+        def __init__(self):
+            self.tools = {
+                "web__search": BridgedTool("web__search", "web", "search", "Search web", {"type": "object"}),
+                "compute__eval": BridgedTool("compute__eval", "compute", "eval", "Evaluate math", {"type": "object"}),
+            }
+            self.called = []
+
+        async def call(self, name, kw):
+            self.called.append((name, kw))
+            return f"Result of {name}", False
+
+    mock_inst = FakeBridge()
+    plan = call("plan", goal="Add", steps=["add"], criteria=["1 + 1 == 2"], verify_command=PYTEST)
+    replies = [
+        ("", [{"name": "load_skill", "arguments": json.dumps({"name": "new-feature"})}]),
+        ("", [plan]),
+        ("", [{"name": "web__search", "arguments": json.dumps({"q": "test"})}]),
+        ("", [call("write_file", path="test_add.py", content=TEST_FILE)]),
+        ("", [call("verify", note="done")]),
+        ("", [call("verify", note="covers it")]),
+        ("Done.", []),
+    ]
+    with patch("local_ai.agent.web.app.MCPBridge") as MockBridgeClass:
+        MockBridgeClass.return_value.__aenter__.return_value = mock_inst
+        app = create_app([], AgentSettings(model="test"), client=ScriptedClient(replies))
+        with TestClient(app) as c:
+            run = c.post(
+                "/api/runs",
+                json={"mode": "code", "question": "Build", "folder": str(folder), "servers": ["web"]}
+            ).json()
+            events = read_events(c, run["id"])
+            tool_calls = [e for e in events if e.get("kind") == "tool_call"]
+            assert any(call_item["name"] == "web__search" for call_item in tool_calls)
+            assert len(mock_inst.called) == 1
+            assert mock_inst.called[0][0] == "web__search"
+

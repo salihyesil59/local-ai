@@ -74,4 +74,5 @@ class AgentSettings:
     learn: bool = True  # save verified facts/lessons to long-term memory
     max_gap_questions: int = 2
     parallel: int = 1  # sub-questions researched at the same time
+    servers: list[str] | None = None  # subset of servers active for this run (None = all)
     role_overrides: dict[str, str] = field(default_factory=dict)  # e.g. {"search": "library__search"}
