@@ -68,10 +68,11 @@ def test_code_mode_runs_the_agent_and_streams_its_events(tmp_path, monkeypatch):
     folder = tmp_path / "app"
     plan = call("plan", goal="Add", steps=["add"], criteria=["1 + 1 == 2"], verify_command=PYTEST)
     replies = [
+        ("", [{"name": "load_skill", "arguments": json.dumps({"name": "new-feature"})}]),
         ("", [plan]),
         ("", [call("write_file", path="test_add.py", content=TEST_FILE)]),
         ("", [call("verify", note="done")]),
-        ("", [call("verify", note="every criterion has its test")]),
+        ("", [call("verify", note="test_add covers it")]),
         ("Hazır.", []),
     ]
     with make_client(replies) as client:

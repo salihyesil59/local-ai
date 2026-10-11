@@ -16,10 +16,11 @@ from test_web_code import PYTEST, ScriptedClient, call, own_workspace  # noqa: E
 PLAN = call("plan", goal="Add", steps=["add"], criteria=["1 + 1 == 2"], verify_command=PYTEST)
 TEST_FILE = "def test_add():\n    assert 1 + 1 == 2\n"
 FINISHING = [
+    ("", [{"name": "load_skill", "arguments": json.dumps({"name": "new-feature"})}]),
     ("", [PLAN]),
     ("", [call("write_file", path="test_add.py", content=TEST_FILE)]),
     ("", [call("verify", note="done")]),
-    ("", [call("verify", note="every criterion has its test")]),
+    ("", [call("verify", note="test_add covers it")]),
     ("Hazır.", []),
 ]
 
