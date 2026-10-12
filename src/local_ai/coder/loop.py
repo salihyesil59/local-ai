@@ -5,7 +5,8 @@ The model only decides what to write next. The program decides when the work is 
   - a reply without tool calls while the task is not finished makes the program run verify and show the result;
   - the skill that fits the task is given with the task: the model does not reliably pick it itself;
   - several edits in a row without verify also make the program run it;
-  - the task ends only when the state on disk is finished (verify reported ALL DONE) or a limit is hit;
+  - the task ends only when the state on disk is finished (verify reported ALL DONE) or a limit is hit; a plan
+    that was finished before the run began belongs to an earlier task and does not count;
   - a long conversation is compacted: the plan and the files are on disk, so old messages can go;
   - a message the user sends while the agent works (steer) is shown to the model before its next reply.
 """
@@ -25,7 +26,7 @@ from local_ai.coder import state as st
 from local_ai.coder import workflow as wf
 from local_ai.coder.tools import EDIT_TOOLS, coder_tools
 from local_ai.core.llm import LLM, Reply, TokenBatcher
-from local_ai.core.text import parse_inline_tool_calls, size, strip_think, trim
+from local_ai.core.text import parse_inline_tool_calls, size, strip_think, strip_tool_calls, trim
 from local_ai.core.tools import Tool, parse_arguments
 
 Emit = Callable[..., None]
@@ -80,6 +81,7 @@ class CoderAgent:
         if extra_tools:
             self.tools.update(extra_tools)
         self.compact_requested = False
+        self.earlier_plan = False  # the plan on disk was finished before this run: it is not this task's
         self.steering: list[str] = []  # messages of the user that the model has not seen yet
 
     # -- helpers ---------------------------------------------------------------
@@ -105,6 +107,8 @@ class CoderAgent:
         except Exception as e:
             output = f"Error: {e}"
         self.emit("tool_result", id=call["id"], name=name, output=output, error=output.startswith("Error"))
+        if name == "plan" and output.startswith("Plan saved"):
+            self.earlier_plan = False  # this task has its own plan now
         self.emit_state()
         return output
 
@@ -131,7 +135,7 @@ class CoderAgent:
     def emit_state(self) -> None:
         """The plan and its progress, for a UI to show."""
         state = st.load(self.root)
-        if state is None:
+        if state is None or self.earlier_plan:
             return
         self.emit(
             "state",
@@ -217,6 +221,8 @@ class CoderAgent:
     async def run(self, task: str) -> Outcome:
         state = st.load(self.root)
         status = st.render(self.root, state) if state and not st.finished(state) else None
+        # A finished plan is the earlier task's: this task is done only after a plan of its own.
+        self.earlier_plan = state is not None and st.finished(state)
         base_tools = coder_tools(self.root, False)
         extra_names = [name for name in self.tools if name not in base_tools]
         skills = sk.load_skills()
@@ -226,7 +232,10 @@ class CoderAgent:
             self.emit("log", text=f"Skill given with the task: {given}")
         messages = [
             {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names)},
-            {"role": "user", "content": prompts.first_message(task, self.root, status, skills.get(given))},
+            {
+                "role": "user",
+                "content": prompts.first_message(task, self.root, status, skills.get(given), self.earlier_plan),
+            },
         ]
         specs = [t.spec() for t in self.tools.values()]
         edits = nudges = 0
@@ -247,6 +256,8 @@ class CoderAgent:
             self.emit_turn(turn, reply, context)
             calls = reply.tool_calls or parse_inline_tool_calls(reply.content)
             text = strip_think(reply.content)
+            if not reply.tool_calls:  # calls written as text are run (or dropped), not shown
+                text = strip_tool_calls(text)
 
             if wrap_up:
                 return Outcome(True, "ALL DONE", text)
@@ -283,13 +294,14 @@ class CoderAgent:
             else:
                 messages.append({"role": "assistant", "content": text})
                 state = st.load(self.root)
-                if state is not None and st.finished(state):
+                if state is not None and st.finished(state) and not self.earlier_plan:
                     return Outcome(True, "ALL DONE", text)
                 nudges += 1
                 if nudges > self.settings.max_nudges:
                     return Outcome(False, "the model stopped before the task was finished")
-                if state is None:
-                    messages.append({"role": "user", "content": prompts.NEEDS_PLAN})
+                if state is None or self.earlier_plan:
+                    nudge = prompts.NEEDS_NEW_PLAN if self.earlier_plan else prompts.NEEDS_PLAN
+                    messages.append({"role": "user", "content": nudge})
                 else:
                     result = await self.verify()
                     messages.append({"role": "user", "content": prompts.STOPPED.format(result=result)})
@@ -299,7 +311,7 @@ class CoderAgent:
             if state is not None:
                 if state["repeats"] >= wf.REPEAT_STOP:
                     return Outcome(False, f"the same failure happened {state['repeats']} times in a row")
-                if st.finished(state):
+                if st.finished(state) and not self.earlier_plan:
                     messages.append({"role": "user", "content": prompts.SUMMARY})
                     wrap_up = True
 

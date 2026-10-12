@@ -8,6 +8,9 @@ import uuid
 
 THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 INLINE_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+FUNCTION_CALL_RE = re.compile(r"<function=([\w.\-]+)>(.*?)</function>", re.DOTALL)
+PARAMETER_RE = re.compile(r"<parameter=(\w+)>\s*(.*?)\s*</parameter>", re.DOTALL)
+TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>.*?</tool_call>|<function=[\w.\-]+>.*?</function>", re.DOTALL)
 
 
 def strip_think(text: str | None) -> str:
@@ -30,9 +33,34 @@ def trim(text: str, max_chars: int) -> str:
     return f"{text[:head]}\n\n[... {dropped} characters omitted; request a narrower section if needed ...]\n\n{text[-tail:]}"
 
 
+def _parameter(value: str):
+    """A parameter written as text: a list, an object, a number or a boolean when it reads as one."""
+    if value[:1] in "[{" or re.fullmatch(r"-?\d+(\.\d+)?|true|false|null", value):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            pass
+    return value
+
+
+def strip_tool_calls(text: str) -> str:
+    """The text without the tool calls a model wrote into it."""
+    return TOOL_CALL_BLOCK_RE.sub("", text).strip()
+
+
 def parse_inline_tool_calls(content: str) -> list[dict]:
-    """Fallback for when the server leaves Qwen's <tool_call>{...}</tool_call> markup in the message content."""
+    """Fallback for when the server leaves a tool call in the message content: Qwen's
+    <tool_call>{...}</tool_call>, or <function=name><parameter=key>value</parameter></function>."""
     calls = []
+    for name, body in FUNCTION_CALL_RE.findall(content or ""):
+        args = {key: _parameter(value) for key, value in PARAMETER_RE.findall(body)}
+        calls.append(
+            {
+                "id": f"call_{uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)},
+            }
+        )
     for raw in INLINE_TOOL_CALL_RE.findall(content or ""):
         try:
             data = json.loads(raw)

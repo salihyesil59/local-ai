@@ -22,6 +22,13 @@ FINISHING = [
     ("", [call("verify", note="test_add covers it")]),
     ("Hazır.", []),
 ]
+# A follow-up message is a task of its own: a new plan, then verify until ALL DONE.
+FOLLOW_UP = [
+    ("", [call("plan", goal="Check", steps=["check add"], criteria=["1 + 1 == 2"], verify_command=PYTEST)]),
+    ("", [call("verify", note="test_add in test_add.py covers it")]),
+    ("", [call("verify", note="test_add in test_add.py covers 1 + 1 == 2")]),
+    ("Yine hazır.", []),
+]
 
 
 def make_client(replies=()):
@@ -115,7 +122,7 @@ def test_runs_can_be_deleted_but_not_while_running(tmp_path):
 
 
 def test_a_follow_up_message_continues_the_same_chat(tmp_path):
-    more = [("", [call("verify", note="test_add still covers it")]), ("Yine hazır.", [])]
+    more = FOLLOW_UP
     with make_client([*FINISHING, *more]) as client:
         run_id = start_code_run(client, tmp_path)
         assert client.post("/api/runs/nope/messages", json={"question": "x"}).status_code == 404
@@ -158,7 +165,7 @@ def test_a_chat_keeps_its_settings(tmp_path):
     }
     assert clean_settings(None) == {}
 
-    more = [("", [call("verify", note="test_add still covers it")]), ("Yine hazır.", [])]
+    more = FOLLOW_UP
     with make_client([*FINISHING, *more]) as client:
         chosen = {"temperature": 0.2, "max_turns": 30, "context_chars": 80_000}
         run_id = start_code_run(client, tmp_path, settings=chosen)

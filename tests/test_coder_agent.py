@@ -523,3 +523,48 @@ async def test_the_fitting_skill_is_given_with_the_task(project):
     await again.run(task)
     assert "The skill for this kind of task" not in client.requests[0]["messages"][1]["content"]
 
+
+@pytest.mark.anyio
+async def test_a_finished_plan_does_not_end_the_next_task(project):
+    done = [
+        say(calls=[plan_call()]),
+        say(calls=[call("write_file", path="test_it.py", content=PASSING)]),
+        say(calls=[call("verify", note="done")]),
+        say(calls=[call("verify", note="test_add covers it")]),
+        say("Bitti."),
+    ]
+    first, _, _ = make_agent(project, done)
+    assert (await first.run("Add things")).finished
+
+    # the next task: reading a file or stopping must not count as finished, the old plan is not this task's
+    agent, client, _ = make_agent(
+        project,
+        [
+            say(calls=[call("read_file", path="test_it.py")]),
+            say("It looks fine."),
+            say(calls=[plan_call()]),
+            say(calls=[call("verify", note="test_add in test_it.py covers it")]),
+            say(calls=[call("verify", note="test_add in test_it.py covers add(1, 1) == 2")]),
+            say("Simdi bitti."),
+        ],
+    )
+    outcome = await agent.run("Change it")
+    assert outcome.finished and outcome.summary == "Simdi bitti."
+    assert "belongs to an earlier task" in client.requests[0]["messages"][1]["content"]
+    assert "tools" in client.requests[1]  # after read_file the model still has its tools: no early wrap-up
+    assert client.requests[2]["messages"][-1]["content"] == prompts.NEEDS_NEW_PLAN
+
+
+def test_tool_calls_written_as_function_markup_are_parsed():
+    from local_ai.core.text import strip_tool_calls
+
+    content = (
+        "I will look.\n<tool_call>\n<function=edit_file>\n<parameter=path>\ncosmo.py\n</parameter>\n"
+        "<parameter=old>\na\nb\n</parameter>\n<parameter=steps>[\"x\", \"y\"]</parameter>\n"
+        "<parameter=start>3</parameter>\n</function>\n</tool_call>"
+    )
+    (found,) = parse_inline_tool_calls(content)
+    assert found["function"]["name"] == "edit_file"
+    assert json.loads(found["function"]["arguments"]) == {"path": "cosmo.py", "old": "a\nb", "steps": ["x", "y"], "start": 3}
+    assert strip_tool_calls(content) == "I will look."
+

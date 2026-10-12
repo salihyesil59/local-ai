@@ -70,6 +70,7 @@ const TR = {
   "Finished: verification passes.": "Bitti: doğrulama geçiyor.", "Stopped": "Durdu", "Run": "Çalıştırma", "Export:": "Dışa aktar:",
   // progress panel, files
   "Plan": "Plan", "steps": "adım", "Acceptance criteria": "Kabul kriterleri", "Last verify": "Son doğrulama", "review": "inceleme",
+  "History": "Geçmiş", "Verifications": "Doğrulamalar", "unchanged lines": "değişmeyen satır",
   "Files changed": "Değişen dosyalar", "Sub-questions": "Alt sorular", "Sub-question": "Alt soru", "Sources": "Kaynaklar",
   "Project files": "Proje dosyaları", "Close": "Kapat", "This file cannot be shown as text.": "Bu dosya metin olarak gösterilemiyor.",
   // citations

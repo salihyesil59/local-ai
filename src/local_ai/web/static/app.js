@@ -603,16 +603,17 @@ function newChat() {
   $("#question").focus();
 }
 
-function newContext() {
-  // cards, calls, live: what the current message has put on the timeline; panel: what the progress panel shows
-  return { cards: {}, calls: {}, live: {}, current: null, panel: { plan: null, files: new Map(), subs: [], sources: new Map(), tree: null, dirs: {}, treeOpen: false } };
+function newContext(title) {
+  // cards, calls, live: what the current message has put on the timeline; panel: what the progress panel shows;
+  // contents: the files the agent has written in this chat, to show what a later write changes
+  return { cards: {}, calls: {}, live: {}, current: null, contents: new Map(),
+    panel: { rounds: [newRound(title)], openRounds: {}, tree: null, dirs: {}, treeOpen: false } };
 }
 
-// A new message of the user: its turns and sub-questions start counting again.
-function nextMessage(ctx) {
+// A new message of the user: its turns start counting again, and the panel opens a new entry for it.
+function nextMessage(ctx, title) {
   Object.assign(ctx, { cards: {}, calls: {}, live: {}, current: null });
-  ctx.panel.subs = [];
-  ctx.panel.sources = new Map(); // a research follow-up has its own project and numbers
+  ctx.panel.rounds.push(newRound(title));
 }
 
 function attach(runId) {
@@ -628,7 +629,7 @@ function attach(runId) {
     setMode(run.mode === "code" ? "code" : "research");
     userBubble(run.question);
   }
-  const ctx = newContext();
+  const ctx = newContext(run ? run.question : "");
   setRunning(true);
   const source = new EventSource(`/api/runs/${runId}/events`);
   state.source = source;
@@ -716,20 +717,54 @@ function lineDiff(a, b) {
 const SIGN = { add: "+", del: "−", ctx: " " };
 const counts = (added, removed) => el("span", { class: "counts" }, el("span", { class: "plus" }, `+${added}`), " ", el("span", { class: "minus" }, `−${removed}`));
 
+const DIFF_CONTEXT = 3; // unchanged lines shown around a change
+
+// Fold the unchanged lines that are far from a change into one row.
+function foldContext(rows) {
+  const near = rows.map(() => false);
+  rows.forEach((r, i) => {
+    if (r[0] !== "ctx") for (let k = Math.max(0, i - DIFF_CONTEXT); k <= Math.min(rows.length - 1, i + DIFF_CONTEXT); k++) near[k] = true;
+  });
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (near[i]) { out.push(rows[i]); continue; }
+    let j = i;
+    while (j < rows.length && !near[j]) j++;
+    out.push(["gap", `⋯ ${j - i} ${t("unchanged lines")}`]);
+    i = j - 1;
+  }
+  return out;
+}
+
 function diffCall(e, a, ctx) {
   const lines = (s) => String(s ?? "").replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
   const edit = toolName(e.name) === "edit_file";
-  const rows = edit ? lineDiff(lines(a.old), lines(a.new)) : lines(a.content).map((t) => ["add", t]);
-  const added = rows.filter((r) => r[0] === "add").length, removed = rows.filter((r) => r[0] === "del").length;
-  const body = el("div", { class: "diff-body" }, rows.slice(0, DIFF_LINES).map(([kind, text]) =>
-    el("div", { class: `dl ${kind}` }, el("span", { class: "sign" }, SIGN[kind]), el("span", {}, text))));
-  if (rows.length > DIFF_LINES) body.append(el("div", { class: "dl more" }, `… ${rows.length - DIFF_LINES} ${t("more lines")}`));
   const path = String(a.path ?? "");
-  const file = ctx.panel.files.get(path) || { added: 0, removed: 0 };
-  ctx.panel.files.set(path, { added: file.added + added, removed: file.removed + removed });
-  renderPanel(ctx);
-  return el("details", { class: "call diff pending", open: rows.length <= DIFF_OPEN },
+  const known = ctx.contents.get(path); // what this chat wrote to the file before, if it did
+  let rows, after;
+  if (edit) {
+    rows = lineDiff(lines(a.old), lines(a.new));
+    if (known != null && typeof a.old === "string" && known.includes(a.old)) after = known.replace(a.old, () => String(a.new ?? ""));
+  } else {
+    after = String(a.content ?? "");
+    rows = known != null ? lineDiff(lines(known), lines(after)) : lines(after).map((line) => ["add", line]);
+  }
+  const added = rows.filter((r) => r[0] === "add").length, removed = rows.filter((r) => r[0] === "del").length;
+  const folded = foldContext(rows);
+  const body = el("div", { class: "diff-body" }, folded.slice(0, DIFF_LINES).map(([kind, text]) =>
+    kind === "gap" ? el("div", { class: "dl more" }, text) : el("div", { class: `dl ${kind}` }, el("span", { class: "sign" }, SIGN[kind]), el("span", {}, text))));
+  if (folded.length > DIFF_LINES) body.append(el("div", { class: "dl more" }, `… ${folded.length - DIFF_LINES} ${t("more lines")}`));
+  const d = el("details", { class: "call diff pending", open: folded.length <= DIFF_OPEN },
     el("summary", {}, el("span", {}, edit ? "edit" : "write"), el("span", { class: "path" }, path), counts(added, removed)), body);
+  const files = round(ctx).files;
+  d.commit = () => { // the tool has done it: count the change for this message and remember the file
+    const file = files.get(path) || { added: 0, removed: 0 };
+    files.set(path, { added: file.added + added, removed: file.removed + removed });
+    if (after != null) ctx.contents.set(path, after);
+    else ctx.contents.delete(path); // edited a file this chat has not seen whole
+    renderPanel(ctx);
+  };
+  return d;
 }
 
 function testCall(title) {
@@ -773,11 +808,16 @@ function renderToolResult(e, ctx) {
   if (!d) return;
   d.classList.remove("pending");
   if (e.error) d.classList.add("error");
-  if (d.classList.contains("test")) testResult(d, e.output);
-  else if (d.classList.contains("diff")) { d.append(el("div", { class: "call-note" }, e.output)); if (e.error) d.open = true; refreshFiles(ctx); }
+  if (d.classList.contains("test")) { testResult(d, e.output); round(ctx).verifies.push(verdict(e.output)); renderPanel(ctx); }
+  else if (d.classList.contains("diff")) {
+    d.append(el("div", { class: "call-note" }, e.output));
+    if (e.error) d.open = true;
+    else d.commit();
+    refreshFiles(ctx);
+  }
   else d.append(el("pre", {}, e.output));
   const n = d.source && !e.error && /\[(\d+)\]/.exec(e.output);
-  if (n) { ctx.panel.sources.set(+n[1], d.source); renderPanel(ctx); }
+  if (n) { round(ctx).sources.set(+n[1], d.source); renderPanel(ctx); }
 }
 
 // -- the files of a code project: a tree in the progress panel; a click shows the file ----------
@@ -799,7 +839,8 @@ function refreshFiles(ctx) {
 }
 
 function fileTree(ctx) {
-  const { tree, files, dirs } = ctx.panel;
+  const { tree, dirs } = ctx.panel;
+  const files = allFiles(ctx);
   const root = { dirs: {}, files: [] };
   for (const path of tree.files) {
     let node = root;
@@ -851,27 +892,58 @@ function section(title, extra, ...children) {
 
 const progress = (done, total) => el("div", { class: "progress" }, el("div", { style: `width:${total ? Math.round((100 * done) / total) : 0}%` }));
 
-function renderPanel(ctx) {
-  const { plan, files, subs, sources, tree } = ctx.panel;
+// What one message of the user led to; the panel shows the newest one open and the earlier ones as a history.
+function newRound(title) {
+  return { title, plan: null, files: new Map(), verifies: [], subs: [], sources: new Map() };
+}
+const round = (ctx) => ctx.panel.rounds[ctx.panel.rounds.length - 1];
+
+function totals(files) {
+  let added = 0, removed = 0;
+  for (const f of files.values()) { added += f.added; removed += f.removed; }
+  return { added, removed };
+}
+
+// The changes of the whole chat per file, for the file tree.
+function allFiles(ctx) {
+  const all = new Map();
+  for (const r of ctx.panel.rounds) {
+    for (const [path, f] of r.files) {
+      const sum = all.get(path) || { added: 0, removed: 0 };
+      all.set(path, { added: sum.added + f.added, removed: sum.removed + f.removed });
+    }
+  }
+  return all;
+}
+
+const VERDICT_SIGN = { pass: "✓", fail: "✕", warn: "•" };
+
+function roundParts(r) {
+  const { plan, files, verifies, subs, sources } = r;
   const parts = [];
   if (plan) {
     const done = plan.steps.filter((s) => s.done).length;
-    const last = plan.finished ? "ALL DONE" : plan.last;
-    const [cls, label] = plan.finished ? ["pass", "ALL DONE"] : /^PASSED/.test(last) ? ["pass", "PASSED"] : /^FAILED/.test(last) ? ["fail", "FAILED"] : ["", "NOT RUN"];
     parts.push(section(t("Plan"), el("span", {}, `${done}/${plan.steps.length} ${t("steps")}`),
       el("div", { class: "goal" }, plan.goal),
       progress(done, plan.steps.length),
       el("ul", { class: "steps" }, plan.steps.map((s, i) => el("li", { class: s.done ? "done" : i === plan.current ? "current" : "" }, s.text))),
       el("details", {}, el("summary", {}, `${t("Acceptance criteria")} (${plan.criteria.length})`), el("ol", {}, plan.criteria.map((c) => el("li", {}, c))))));
-    parts.push(section(t("Last verify"), plan.review ? el("span", {}, `${t("review")}: ${t(plan.review)}`) : null,
+  }
+  if (plan || verifies.length) {
+    const last = plan ? (plan.finished ? "ALL DONE" : plan.last) : "";
+    const [cls, label] = !plan ? verifies[verifies.length - 1]
+      : plan.finished ? ["pass", "ALL DONE"] : /^PASSED/.test(last) ? ["pass", "PASSED"] : /^FAILED/.test(last) ? ["fail", "FAILED"] : ["", "NOT RUN"];
+    parts.push(section(t("Verifications"), el("span", {}, plan && plan.review ? `${t("review")}: ${t(plan.review)}` : verifies.length || null),
+      // every verify of this message in order: the way from the first failure to ALL DONE
+      verifies.length ? el("div", { class: "verify-trail" }, verifies.map(([c, l]) => el("span", { class: `vdot ${c}`, title: l }, VERDICT_SIGN[c] || "•"))) : null,
       el("div", { class: "last-verify" }, el("span", { class: `verdict ${cls}` }, label),
         el("span", { class: "muted" }, last.replace(/^(PASSED|FAILED|ALL DONE|not run yet)\s*/, "")))));
   }
   if (files.size) {
-    parts.push(section(t("Files changed"), el("span", {}, files.size),
+    const sum = totals(files);
+    parts.push(section(t("Files changed"), counts(sum.added, sum.removed),
       el("ul", { class: "file-list" }, [...files].map(([path, f]) => el("li", {}, el("span", { class: "path", title: path }, path), counts(f.added, f.removed))))));
   }
-  if (tree && tree.files.length) parts.push(fileTree(ctx));
   if (subs.length) {
     const done = subs.filter((s) => s.state === "done").length;
     parts.push(section(t("Sub-questions"), el("span", {}, `${done}/${subs.length}`), progress(done, subs.length),
@@ -883,13 +955,45 @@ function renderPanel(ctx) {
         el("li", { title: s.quote || s.quotes?.[0] || "" }, el("span", { class: "n" }, `[${n}]`), s.title || s.source_id, " ",
           el("span", { class: "muted" }, [s.origin, s.locator].filter(Boolean).join(" · ")))))));
   }
+  return parts;
+}
+
+// One line for a message in the history: what was asked, how far it got, how much it changed.
+function roundSummary(r, number) {
+  const sum = totals(r.files);
+  const last = r.plan && r.plan.finished ? ["pass", "ALL DONE"] : r.verifies[r.verifies.length - 1];
+  const auto = /^\((continue|resume)\b/.test(r.title);
+  return el("summary", {},
+    el("span", { class: "round-title", title: r.title }, `${number}. ${shortTitle(auto ? t(r.title.slice(1, -1)) : r.title, 60)}`),
+    el("span", { class: "round-facts" },
+      r.plan ? el("span", { class: "muted" }, `${r.plan.steps.filter((s) => s.done).length}/${r.plan.steps.length}`) : null,
+      last ? el("span", { class: `verdict ${last[0]}` }, last[1]) : null,
+      r.files.size ? counts(sum.added, sum.removed) : null));
+}
+
+function renderPanel(ctx) {
+  const { rounds, tree, openRounds } = ctx.panel;
+  const shown = rounds.map((r, i) => [r, i, roundParts(r)]).filter(([, , parts]) => parts.length);
+  const parts = [];
+  if (shown.length === 1) parts.push(...shown[0][2]); // a chat with one message needs no history
+  else if (shown.length) {
+    const newest = shown[shown.length - 1][1];
+    parts.push(el("h4", { class: "history-head" }, t("History"), el("span", {}, shown.length)));
+    for (const [r, i, body] of [...shown].reverse()) { // newest first, open; the earlier ones fold
+      const summary = roundSummary(r, i + 1);
+      const entry = el("details", { class: "round" + (i === newest ? " newest" : ""), open: openRounds[i] ?? i === newest }, summary, ...body);
+      summary.addEventListener("click", () => { openRounds[i] = !entry.open; }); // what the user chose stays; the click comes before the change
+      parts.push(entry);
+    }
+  }
+  if (tree && tree.files.length) parts.push(fileTree(ctx));
   const panel = $("#side-panel");
   panel.hidden = !parts.length;
   panel.replaceChildren(...parts);
 }
 
 function sub(ctx, index, fields) {
-  const subs = ctx.panel.subs;
+  const subs = round(ctx).subs;
   while (subs.length < index) subs.push({ question: `${t("Sub-question")} ${subs.length + 1}` });
   Object.assign(subs[index - 1], fields);
   renderPanel(ctx);
@@ -897,9 +1001,10 @@ function sub(ctx, index, fields) {
 
 // After the report the notebook's source list is the truth (numbers, quotes).
 async function loadSources(ctx, project) {
+  const asked = round(ctx); // the message this report belongs to
   const p = await api(`/api/projects/${encodeURIComponent(project)}`).catch(() => null);
   if (!p) return;
-  ctx.panel.sources = new Map(p.sources.map((s) => [s.n, s]));
+  asked.sources = new Map(p.sources.map((s) => [s.n, s]));
   renderPanel(ctx);
 }
 
@@ -907,7 +1012,7 @@ async function loadSources(ctx, project) {
 function renderEvent(e, ctx) {
   switch (e.kind) {
     case "user":
-      nextMessage(ctx);
+      nextMessage(ctx, e.text);
       userBubble(e.text);
       break;
     case "steer": // sent while the agent was working
@@ -932,7 +1037,7 @@ function renderEvent(e, ctx) {
       append(el("details", { class: "card" }, el("summary", {}, t("Recalled from memory")), el("pre", {}, e.text)));
       break;
     case "plan":
-      ctx.panel.subs = e.sub_questions.map((s) => ({ ...s }));
+      round(ctx).subs = e.sub_questions.map((s) => ({ ...s }));
       renderPanel(ctx);
       append(el("div", { class: "card" }, el("h4", {}, t("Plan")),
         el("ol", {}, e.sub_questions.map((s) => el("li", {}, s.question, s.skill ? el("span", { class: "badge" }, s.skill) : null)))));
@@ -956,7 +1061,7 @@ function renderEvent(e, ctx) {
     }
     case "gaps":
       if (e.sub_questions.length) {
-        ctx.panel.subs.push(...e.sub_questions.map((q) => ({ question: q })));
+        round(ctx).subs.push(...e.sub_questions.map((q) => ({ question: q })));
         renderPanel(ctx);
         append(el("div", { class: "card" }, el("h4", {}, t("Gaps found — researching more")), el("ul", {}, e.sub_questions.map((q) => el("li", {}, q)))));
       }
@@ -997,7 +1102,7 @@ function renderEvent(e, ctx) {
       break;
     }
     case "state":
-      ctx.panel.plan = e;
+      round(ctx).plan = e;
       renderPanel(ctx);
       if (!ctx.panel.tree) refreshFiles(ctx);
       break;
@@ -1005,6 +1110,8 @@ function renderEvent(e, ctx) {
       const d = testCall(t("run by the program"));
       d.classList.remove("pending");
       testResult(d, e.output);
+      round(ctx).verifies.push(verdict(e.output));
+      renderPanel(ctx);
       append(el("div", { class: "card" }, el("div", { class: "calls" }, d)));
       break;
     }

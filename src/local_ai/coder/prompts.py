@@ -38,6 +38,15 @@ CUT_OFF_CALL = (
 AUTO_VERIFY = "You made {edits} edits without calling verify, so verify was run for you:\n{result}"
 STOPPED = "You stopped, but the task is not finished. verify was run for you:\n{result}"
 NEEDS_PLAN = "You stopped, but there is no plan yet. Call plan first, then implement the task."
+EARLIER_PLAN = (
+    "\n\nThe plan in {root} is finished: it belongs to an earlier task. This is a new task. Look at the code, "
+    "then call plan for it (a small change is a plan with one step) and work through it until verify reports "
+    "ALL DONE."
+)
+NEEDS_NEW_PLAN = (
+    "The plan in the project folder is finished and belongs to an earlier task; nothing has been done for this "
+    "one yet. Call plan for the user's request now, then implement it."
+)
 SUMMARY = "Verification reports ALL DONE. Reply now, without tools, with a short summary in Turkish of what changed."
 STEER = "The user sent this message while you were working. Follow it from now on:\n{message}"
 COMPACTED = (
@@ -53,9 +62,13 @@ COMPACT_REQUEST = (
 )
 
 
-def first_message(task: str, root: Path, status: str | None, skill: dict | None = None) -> str:
+def first_message(
+    task: str, root: Path, status: str | None, skill: dict | None = None, earlier_plan: bool = False
+) -> str:
+    """The task for the model. status: an unfinished plan to continue; earlier_plan: a finished one is on disk."""
     if status is None:
-        return task + (GIVEN_SKILL.format(name=skill["name"], body=skill["body"]) if skill else "")
+        given = GIVEN_SKILL.format(name=skill["name"], body=skill["body"]) if skill else ""
+        return task + given + (EARLIER_PLAN.format(root=root) if earlier_plan else "")
     return f"{task}\n\nA plan from an earlier run exists in {root}; continue it instead of starting over:\n{status}"
 
 

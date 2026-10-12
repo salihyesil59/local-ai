@@ -325,3 +325,19 @@ kbd { font: 11px var(--mono); border: 1px solid var(--border); border-radius: 4p
 .resizer:hover::after, .resizer:focus-visible::after, .resizer.dragging::after { background: var(--accent); }
 .resizer:focus-visible { outline: none; }
 body.resizing { cursor: col-resize; user-select: none; }
+
+/* -- the history of a chat in the progress panel: one entry per message ---------------------------------- */
+.history-head { margin: 0; }
+.round { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 14px; }
+.round:not([open]) { gap: 0; }
+.round.newest { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.round > summary { cursor: pointer; display: grid; gap: 4px; list-style: none; }
+.round > summary::-webkit-details-marker { display: none; }
+.round-title { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.round-facts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; font-family: var(--mono); }
+.verify-trail { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.vdot { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700;
+  background: var(--surface-2); color: var(--muted); }
+.vdot.pass { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.vdot.fail { background: color-mix(in srgb, var(--err) 18%, transparent); color: var(--err); }
+.vdot.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }

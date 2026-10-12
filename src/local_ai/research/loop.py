@@ -21,7 +21,7 @@ from rich.console import Console
 
 from local_ai.core.llm import TokenBatcher, read_stream
 from local_ai.core.mcp_bridge import MCPBridge
-from local_ai.core.text import extract_json, parse_inline_tool_calls, strip_think, trim
+from local_ai.core.text import extract_json, parse_inline_tool_calls, strip_think, strip_tool_calls, trim
 from local_ai.servers.common import write_notebook
 
 from . import prompts
@@ -168,7 +168,7 @@ class ResearchAgent:
             calls = [c.model_dump() if hasattr(c, "model_dump") else c for c in (message.tool_calls or [])]
             if not calls:
                 calls = parse_inline_tool_calls(message.content or "")
-                content = re.sub(r"<tool_call>.*?</tool_call>", "", content, flags=re.DOTALL).strip()
+                content = strip_tool_calls(content)
             if not calls:
                 return content, outputs
 
