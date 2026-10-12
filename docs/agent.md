@@ -122,6 +122,21 @@ cases, CLI) and your own from `~/.local-coder/skills`.
 Code mode uses the model, `temperature` and `top_p` of the UI; it needs none of the MCP servers, and can use
 the ones selected with the MCP chips. One run at a time, research or code, because one model is loaded.
 
+### Working in an existing repository
+
+A project that does not fit into the context (a library with dozens of files) is not read from top to bottom.
+From 12 source files on, the task comes with a map of the project (files, classes, functions; the files the
+task's words point to first and in detail) and the `existing-code` skill. The agent then looks places up:
+
+- `search(pattern, path, glob)`: where a name is defined and used, as `file:line: text`;
+- `outline(path)`: what a file defines, with line numbers, to read only that part with `read_file`;
+- `repo_map(path)`: a folder in more detail.
+
+`verify(tests="tests/test_x.py")` runs only the tests of the step (pytest); the review at the end runs the
+whole suite. When the plan is saved the tests run once: those that fail already, and that the plan does not
+name, are listed and not counted against the agent. Work on a branch: the agent edits the files in place and
+does not use git. Give it one bounded job per chat (a bug, a function, a module), not a rewrite of the library.
+
 ## Chats and folders
 
 Every run is a chat in the sidebar and is saved in `<workspace>/ui/` (an index plus the events of each run), so

@@ -496,7 +496,7 @@ async def test_pages_of_a_paper_are_kept_longer_than_other_tool_output(project):
     page = "equation " * 1000  # 9000 characters
     tools = {
         name: Tool(name, "", {"type": "object", "properties": {}}, lambda: page)
-        for name in ("library__read_pdf", "web__search")
+        for name in ("library__read_pdf", "web__search")  # web__search is not the coder's own search
     }
     script = [say(calls=[call("library__read_pdf"), call("web__search")]), say("stop"), say("stop")]
     client = FakeClient(script)

@@ -62,7 +62,8 @@ async def test_stdio_server_with_files(project):
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
         names = {t.name for t in (await session.list_tools()).tools}
-        assert names == {"plan", "verify", "status", "read_file", "write_file", "edit_file", "list_files"}
+        files = {"read_file", "write_file", "edit_file", "list_files", "search", "repo_map", "outline"}
+        assert names == {"plan", "verify", "status"} | files
 
         await call(
             session, "plan", goal="g", steps=["only"], criteria=["add(1, 1) == 2"], verify_command=PYTEST,

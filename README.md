@@ -22,7 +22,7 @@ and self-verifies — all sharing the same MCP tool servers.
 | `local-ai-compute` | `compute` | `python` (persistent kernel), `check_units`, `solve`, `reset`, `export_notebook` | Calculations you can verify |
 | `local-ai-notebook` | `notebook` | notes, sources, reports, exports, memory, skills | Research agent internals |
 | `local-ai-docs` | `docs` | `docs` | Coding agents (Goose, LM Studio) |
-| `local-coder` | `coder` | `plan`, `verify`, `status`; with `--files` also `read_file`, `write_file`, `edit_file`, `list_files` | Coding in Goose / LM Studio (`local-coder run` is the coding agent itself) |
+| `local-coder` | `coder` | `plan`, `verify`, `status`; with `--files` also `read_file`, `write_file`, `edit_file`, `list_files`, `search`, `repo_map`, `outline` | Coding in Goose / LM Studio (`local-coder run` is the coding agent itself) |
 
 Details: [docs/servers.md](docs/servers.md).
 

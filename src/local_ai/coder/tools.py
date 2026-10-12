@@ -5,12 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from local_ai.coder import files as fl
+from local_ai.coder import navigate as nav
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
 from local_ai.coder import workflow as wf
 from local_ai.core.tools import Tool
 
 NO_PLAN_YET = "Error: there is no plan yet. Call plan first; then edit files."
+VERIFY_TIMEOUT = 900  # seconds for one verify: the whole test suite of a large project
 
 
 def _schema(properties: dict, required: list[str]) -> dict:
@@ -41,8 +43,17 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
             )
         return wf.make_plan(root, goal, steps, criteria, verify_command)
 
-    def verify(note: str = "") -> str:
-        return wf.run_verify(root, note)
+    def verify(note: str = "", tests: str = "") -> str:
+        return wf.run_verify(root, note, VERIFY_TIMEOUT, tests)
+
+    def search(pattern: str, path: str = ".", glob: str = "") -> str:
+        return nav.search(root, pattern, path, glob)
+
+    def repo_map(path: str = ".") -> str:
+        return nav.repo_map(root, path)
+
+    def outline(path: str) -> str:
+        return nav.outline(root, path)
 
     def status() -> str:
         return wf.show_status(root)
@@ -85,8 +96,9 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
         Tool(
             "verify",
             "Run the tests for the current step. PASSED gives the next step (or the review); FAILED gives the failure "
-            "to fix. note: one line about what you did, or in the review what you added.",
-            _schema({"note": STR}, []),
+            "to fix. note: one line about what you did, or in the review what you added. tests: in a large project "
+            "the test files of the step ('tests/test_x.py'), only they run; the review always runs everything.",
+            _schema({"note": STR, "tests": STR}, []),
             verify,
         ),
         Tool(
@@ -119,6 +131,27 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
             "List the files under a folder of the project (caches and virtual environments are skipped).",
             _schema({"path": STR}, []),
             list_files,
+        ),
+        Tool(
+            "search",
+            "Find lines in the project: where a name is defined and where it is used. pattern is a regular "
+            "expression or plain text (lower case ignores case). path: a folder or file; glob: file names like "
+            "'*.py'. Returns file:line: text.",
+            _schema({"pattern": STR, "path": STR, "glob": STR}, ["pattern"]),
+            search,
+        ),
+        Tool(
+            "repo_map",
+            "Map of the project or of one folder: its source files with the classes and functions they define.",
+            _schema({"path": STR}, []),
+            repo_map,
+        ),
+        Tool(
+            "outline",
+            "What one file defines, with line numbers. Use it before reading a long file, then read only the part "
+            "you need with read_file(path, start, end).",
+            _schema({"path": STR}, ["path"]),
+            outline,
         ),
     ]
     return {t.name: t for t in tools}

@@ -4,7 +4,8 @@ Tools:
   plan(goal, steps, criteria, verify_command, project)   write the plan; returns the first step
   verify(note, timeout)                                  run the tests; next step on success, else the failure
   status()                                               plan and progress, to resume after a compaction or retry
-  read_file, write_file, edit_file, list_files           only with --files, for clients without file tools
+  read_file, write_file, edit_file, list_files,          only with --files, for clients without file tools
+  search, repo_map, outline
 
 Not a sandbox: the verify command runs as your user in the project folder.
 
@@ -16,12 +17,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from local_ai.coder import files as fl
+from local_ai.coder import navigate as nav
 from local_ai.coder import state as st
 from local_ai.coder import workflow as wf
 from local_ai.servers.common import FastMCP
 
 FILES_INSTRUCTIONS = (
-    "\nFile tools (read_file, write_file, edit_file, list_files) work inside the project folder; paths are "
+    "\nFile tools (read_file, write_file, edit_file, list_files, search, repo_map, outline) work inside the "
+    "project folder; paths are "
     "relative to it. There is no shell: tests run only through verify. Always pass the project argument (absolute "
     "folder path) to plan, since this server does not know which folder you work in."
 )
@@ -52,14 +55,16 @@ def build_server(files: bool = False) -> FastMCP:
         return wf.make_plan(root, goal, steps, criteria, verify_command)
 
     @mcp.tool()
-    def verify(note: str = "", timeout: float = 300) -> str:
+    def verify(note: str = "", timeout: float = 300, tests: str = "") -> str:
         """Run the verify command for the current step. Call it after every change.
 
         PASSED marks the step done and returns the next one, or the review after the last step.
         FAILED returns the failure to fix.
         note: one line about what you did in this step; in the review, what you added. timeout: seconds, at most 1800.
+        tests: in a large project the test files of the step, e.g. "tests/test_dates.py": only they run (pytest).
+          The review at the end always runs everything.
         """
-        return wf.run_verify(root, note, max(5.0, min(float(timeout), 1800.0)))
+        return wf.run_verify(root, note, max(5.0, min(float(timeout), 1800.0)), tests)
 
     @mcp.tool()
     def status() -> str:
@@ -87,6 +92,22 @@ def build_server(files: bool = False) -> FastMCP:
         def list_files(path: str = ".") -> str:
             """List the files under a folder of the project (caches and virtual environments are skipped)."""
             return fl.list_files(root, path)
+
+        @mcp.tool()
+        def search(pattern: str, path: str = ".", glob: str = "") -> str:
+            """Find lines in the project: where a name is defined and where it is used (file:line: text).
+            pattern: regular expression or plain text; path: a folder or file; glob: file names like '*.py'."""
+            return nav.search(root, pattern, path, glob)
+
+        @mcp.tool()
+        def repo_map(path: str = ".") -> str:
+            """Map of the project or one folder: its source files with the classes and functions they define."""
+            return nav.repo_map(root, path)
+
+        @mcp.tool()
+        def outline(path: str) -> str:
+            """What one file defines, with line numbers: read only the part you need with read_file."""
+            return nav.outline(root, path)
 
     return mcp
 

@@ -235,3 +235,57 @@ def test_a_note_must_name_a_file_or_a_test_of_the_project(project):
     # edited files need no note at all
     write_test(project, MORE)
     assert "REVIEW before you finish" in run_verify(project)
+
+
+def write_tests(project, **files):
+    for name, body in files.items():
+        (project / f"test_{name}.py").write_text(body, encoding="utf-8")
+
+
+def test_tests_that_failed_before_the_work_are_not_counted(project):
+    write_tests(project, old="def test_broken():\n    assert 1 == 2\n\n\ndef test_fine():\n    assert True\n")
+    out = make_plan(project, "Add add()", ["Add add() with its test"], ["add(1, 1) == 2"], PYTEST)
+    assert "1 tests fail already, before your changes: test_old.py::test_broken" in out
+    state = st.load(project)
+    assert state["baseline"] == ["test_old.py::test_broken"] and " -x" not in state["verify_command"]
+
+    write_tests(project, add=PASSING)  # the step's own test passes: the old failure does not hold the step back
+    passed = run_verify(project, note="test_add in test_add.py")
+    assert passed.startswith("PASSED (step 1/1") and "1 tests that failed before your changes not counted" in passed
+
+    write_tests(project, add=FAILING)  # a new failure counts, next to the old one
+    failed = run_verify(project, note="again")
+    assert failed.startswith("FAILED") and "test_add.py::test_add" in failed
+    write_tests(project, add=PASSING)
+    assert ALL_DONE in run_verify(project, note="test_add in test_add.py covers add(1, 1) == 2")
+    assert check(project)[0]  # `local-coder check` agrees
+
+
+def test_a_failing_test_the_plan_names_is_the_task_not_the_past(project):
+    write_tests(project, old="def test_broken():\n    assert 1 == 2\n")
+    out = make_plan(project, "Fix test_broken", ["Make test_broken in test_old.py pass"], ["test_broken passes"], PYTEST)
+    assert "fail already" not in out and "baseline" not in st.load(project)
+    assert run_verify(project, note="tried").startswith("FAILED")
+
+
+def test_verify_can_run_the_tests_of_the_step_only(project):
+    make_plan(project, "g", ["first", "second"], CRITERIA, PYTEST)
+    write_tests(project, add=PASSING, other=FAILING)
+    only = run_verify(project, note="test_add in test_add.py", tests="test_add.py")
+    assert only.startswith("PASSED (step 1/2") and "only test_add.py" in only  # test_other.py did not run
+    again = run_verify(project, note="test_add in test_add.py", tests="test_add.py::test_add")
+    assert again.startswith("PASSED (step 2/2")
+    # the review runs everything, whatever tests= says
+    assert run_verify(project, note="test_add in test_add.py", tests="test_add.py").startswith("FAILED (review")
+    write_tests(project, other=PASSING)
+    assert ALL_DONE in run_verify(project, note="test_add in test_add.py covers it", tests="test_add.py")
+
+
+def test_tests_that_cannot_be_chosen_run_everything(project):
+    make_plan(project, "g", ["only"], CRITERIA, PYTEST)
+    write_tests(project, add=PASSING)
+    out = run_verify(project, note="test_add in test_add.py", tests="nope.py; rm -rf x")
+    assert out.startswith("PASSED") and "all tests because" in out
+    assert vf.failed_tests("FAILED a.py::t1 - x\nERROR b.py - y\nFAILED a.py::t1 - again") == ["a.py::t1", "b.py"]
+    assert vf.every_failure("python -m pytest -x -q --maxfail=2 tests") == "python -m pytest -q tests"
+

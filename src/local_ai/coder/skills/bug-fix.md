@@ -4,7 +4,8 @@ description: Fix a reported bug at its cause, with a test that fails before and 
 when_to_use: the user reports wrong behaviour, an error or a failing test in existing code
 keywords: bug, fix, hata, düzelt, error, crash, broken, fails, çalışmıyor, wrong result
 ---
-1. Read the code the bug touches (list_files, read_file). Do not guess from the report alone.
+1. Read the code the bug touches (search for the names in the report, outline, read_file). Do not guess from the
+   report alone.
 2. Plan: step 1 reproduces the bug in a NEW failing test with the exact input and the expected output from the
    report. Step 2 fixes it. Criteria: the reproduction, plus every other behaviour the code must keep.
 3. Write the failing test first and call verify. It must fail for the reason in the report; if it passes, the test

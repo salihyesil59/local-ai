@@ -2,7 +2,16 @@ from local_ai.coder import prompts
 from local_ai.coder import skills as sk
 from local_ai.coder.tools import coder_tools
 
-BUILTIN = {"bug-fix", "new-feature", "refactor", "from-paper", "edge-cases", "cli-tool", "scientific-code"}
+BUILTIN = {
+    "bug-fix",
+    "new-feature",
+    "refactor",
+    "from-paper",
+    "edge-cases",
+    "cli-tool",
+    "scientific-code",
+    "existing-code",
+}
 
 
 def test_builtin_skills_are_complete(project):

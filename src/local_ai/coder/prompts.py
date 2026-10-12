@@ -10,7 +10,8 @@ SYSTEM = (
     "You are a coding agent. Your project folder is {root}. Reply to the user in Turkish; keep code, identifiers "
     "and comments in English.\n\n"
     "{instructions}\n\n"
-    "Tools: plan, verify, status, load_skill, read_file, write_file, edit_file, list_files. Paths are relative to "
+    "Tools: plan, verify, status, load_skill, read_file, write_file, edit_file, list_files, search, repo_map, "
+    "outline. Paths are relative to "
     "the project folder. There is no shell: tests run only through verify. This program checks your work for you: "
     "if you stop before verify reports ALL DONE, or edit several files without calling verify, it runs verify and "
     "shows you the result. Your reply is cut off when it gets too long, thinking included, so keep your reasoning "
@@ -25,6 +26,10 @@ SKILLS = (
 GIVEN_SKILL = (
     "\n\nThe skill for this kind of task is {name}. It is given here, you need not load it; follow it from "
     "the first step on:\n{body}"
+)
+LARGE_PROJECT = (
+    "\n\nThis is a large project: it does not fit into your context, so work as the existing-code skill says:\n"
+    "{skill}\n\n{map}"
 )
 CUT_OFF = (
     "Your last reply was cut off because it was too long (thinking included). Do not think it through again: "
@@ -63,13 +68,22 @@ COMPACT_REQUEST = (
 
 
 def first_message(
-    task: str, root: Path, status: str | None, skill: dict | None = None, earlier_plan: bool = False
+    task: str,
+    root: Path,
+    status: str | None,
+    skill: dict | None = None,
+    earlier_plan: bool = False,
+    overview: str = "",
 ) -> str:
-    """The task for the model. status: an unfinished plan to continue; earlier_plan: a finished one is on disk."""
+    """The task for the model. status: an unfinished plan to continue; earlier_plan: a finished one is on disk;
+    overview: for a large project, how to work in it and its map."""
     if status is None:
         given = GIVEN_SKILL.format(name=skill["name"], body=skill["body"]) if skill else ""
-        return task + given + (EARLIER_PLAN.format(root=root) if earlier_plan else "")
-    return f"{task}\n\nA plan from an earlier run exists in {root}; continue it instead of starting over:\n{status}"
+        return task + given + overview + (EARLIER_PLAN.format(root=root) if earlier_plan else "")
+    return (
+        f"{task}{overview}\n\nA plan from an earlier run exists in {root}; continue it instead of starting over:\n"
+        f"{status}"
+    )
 
 
 def system_prompt(root: Path, skills: str = "", extra_tools: list[str] | None = None) -> str:

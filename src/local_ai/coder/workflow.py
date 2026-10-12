@@ -17,6 +17,7 @@ from local_ai.coder import verify as vf
 
 REPEAT_HINT = 3  # same failure this many times in a row: change the approach
 REPEAT_STOP = 6  # ... this many times: stop and report to the user
+BASELINE_TIMEOUT = 900  # seconds for the run that finds the tests failing before the work begins
 # A step that is only about tests ("Write the tests", "Run all tests", "Test the edge cases"): tests belong to the
 # step that writes the code they check. A step that reproduces a bug in a failing test is fine.
 TEST_ONLY = re.compile(
@@ -40,6 +41,8 @@ INSTRUCTIONS = (
     "tests, fix what they uncover, call verify again.\n"
     "5. The task is finished only when verify reports ALL DONE. Never tell the user it works before that. Never "
     "weaken, skip or delete a test to make verify pass; a test that accepts several different results is weakened.\n"
+    "In a large project give verify the tests of the step (tests=\"tests/test_x.py\"): only they run; the review "
+    "at the end runs everything. Tests that already failed when the plan was saved are not counted.\n"
     "Call status when you are unsure where you are."
 )
 
@@ -85,16 +88,56 @@ def make_plan(root: Path, goal: str, steps: list[str], criteria: list[str], veri
                 "it into the step that implements what it tests, then call plan again."
             )
     state = st.new_state(goal.strip(), steps, criteria, verify_command.strip() or (vf.detect_command(root) or ""))
-    state["snapshot"] = vf.snapshot(root)
+    before = failing_before(root, state)
+    state["snapshot"] = vf.snapshot(root)  # after the run: tests may write files
     st.save(root, state)
     st.log_event(root, event="plan", goal=state["goal"], steps=len(steps), criteria=len(criteria))
     return (
-        f"Plan saved ({len(steps)} steps, {len(criteria)} criteria).\n{st.render(root, state)}\n\n"
+        f"Plan saved ({len(steps)} steps, {len(criteria)} criteria).\n{st.render(root, state)}{before}\n\n"
         f"Now implement step 1: {steps[0]}\nWrite its tests at the same time, then call verify."
     )
 
 
-def run_verify(root: Path, note: str = "", timeout: float = 300) -> str:
+def failing_before(root: Path, state: dict) -> str:
+    """Run the tests once before the work begins. Tests that fail already, and that the plan does not name, go
+    into state["baseline"]: verify does not count them. Returns what to tell the model about it."""
+    command = state["verify_command"]
+    if not command or not vf.has_tests(root):
+        return ""
+    full = vf.every_failure(command)
+    result = vf.run(full, root, BASELINE_TIMEOUT)
+    if result.timed_out:
+        return (
+            f"\n\nThe tests did not finish in {BASELINE_TIMEOUT} s. Give verify the tests of each step, for "
+            'example verify(tests="tests/test_module.py").'
+        )
+    asked = " ".join([state["goal"], *(s["text"] for s in state["steps"]), *state["criteria"]]).lower()
+    old = [] if result.passed else [t for t in vf.failed_tests(result.output) if not vf.test_mentioned(t, asked)]
+    if not old:
+        return ""
+    state["baseline"] = old
+    state["verify_command"] = full  # every failure must be reported, to tell the old ones from new ones
+    shown = ", ".join(old[:8]) + (f" and {len(old) - 8} more" if len(old) > 8 else "")
+    return (
+        f"\n\n{len(old)} tests fail already, before your changes: {shown}. They are not counted against you; "
+        "leave them alone unless the task is to fix them."
+    )
+
+
+def run_tests(state: dict, root: Path, command: str, timeout: float) -> tuple[bool, vf.Result, list[str]]:
+    """Run the command. Passed also when the only failures are tests that failed before the work began:
+    (passed, result, those tests)."""
+    result = vf.run(command, root, timeout)
+    if result.passed or result.timed_out or not state.get("baseline"):
+        return result.passed, result, []
+    failing = vf.failed_tests(result.output)
+    if failing and set(failing) <= set(state["baseline"]):
+        return True, result, failing
+    return False, result, []
+
+
+def run_verify(root: Path, note: str = "", timeout: float = 300, tests: str = "") -> str:
+    """Run the verify command and move the plan on. tests: only these tests for a step (the review runs all)."""
     state = st.load(root)
     if state is None:
         return NO_PLAN.format(root=root)
@@ -107,10 +150,19 @@ def run_verify(root: Path, note: str = "", timeout: float = 300) -> str:
     where = f"step {index + 1}/{total}" if index is not None else "review"
     # Same files as at the plan or the last passing verify: the model has not worked since then.
     unchanged = state["snapshot"] == vf.snapshot(root)
-    result = vf.run(command, root, timeout)
-    took = f"{result.seconds:.0f} s"
+    run_command, scope = command, ""
+    if tests.strip() and index is not None:
+        try:
+            run_command = vf.focused(command, tests, root)
+            scope = f", only {tests.strip()}"
+        except ValueError as e:
+            scope = f", all tests because {e}"
+    passed, result, ignored = run_tests(state, root, run_command, timeout)
+    took = f"{result.seconds:.0f} s{scope}"
+    if ignored:
+        took += f", {len(ignored)} tests that failed before your changes not counted"
 
-    if result.passed:
+    if passed:
         state.update(attempts=0, repeats=0, last={"passed": True, "line": "", "signature": ""})
         state["snapshot"] = vf.snapshot(root)  # taken after the run: tests may write files
         if st.finished(state):
@@ -169,7 +221,7 @@ def run_verify(root: Path, note: str = "", timeout: float = 300) -> str:
         else:
             advice = "Fix the cause (the code, not the test's expectation), then call verify again."
         message = (
-            f"FAILED ({where}, attempt {state['attempts']}, {took}): {command}\n"
+            f"FAILED ({where}, attempt {state['attempts']}, {took}): {run_command}\n"
             f"{vf.summarize(result.output)}\n\n{advice}"
         )
 
@@ -178,7 +230,7 @@ def run_verify(root: Path, note: str = "", timeout: float = 300) -> str:
         root,
         event="verify",
         step=(index + 1 if index is not None else "review"),
-        passed=result.passed,
+        passed=passed,
         seconds=round(result.seconds, 1),
         attempt=state["attempts"],
         repeats=state["repeats"],
@@ -209,7 +261,7 @@ def check(root: Path, timeout: float = 600) -> tuple[bool, str]:
         index = st.current(state)
         what = f"step {index + 1}/{len(state['steps'])}" if index is not None else "the review"
         return False, f"Not finished: {what} is open.\n{st.render(root, state)}"
-    result = vf.run(state["verify_command"], root, timeout)
-    if not result.passed:
+    passed, result, _ = run_tests(state, root, state["verify_command"], timeout)
+    if not passed:
         return False, f"Verification fails: {state['verify_command']}\n{vf.summarize(result.output)}"
     return True, ALL_DONE

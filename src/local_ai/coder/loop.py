@@ -4,6 +4,7 @@ The model only decides what to write next. The program decides when the work is 
   - a reply that is cut off by max_tokens (a model stuck thinking) gets a nudge to act, not a longer wait;
   - a reply without tool calls while the task is not finished makes the program run verify and show the result;
   - the skill that fits the task is given with the task: the model does not reliably pick it itself;
+  - in a large project the map of the project and the way to work in it come with the task as well;
   - several edits in a row without verify also make the program run it;
   - the task ends only when the state on disk is finished (verify reported ALL DONE) or a limit is hit; a plan
     that was finished before the run began belongs to an earlier task and does not count;
@@ -20,19 +21,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from local_ai.coder import files as fl
+from local_ai.coder import navigate as nav
 from local_ai.coder import prompts
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
 from local_ai.coder import workflow as wf
-from local_ai.coder.tools import EDIT_TOOLS, coder_tools
+from local_ai.coder.tools import EDIT_TOOLS, VERIFY_TIMEOUT, coder_tools
 from local_ai.core.llm import LLM, Reply, TokenBatcher
 from local_ai.core.text import parse_inline_tool_calls, size, strip_think, strip_tool_calls, trim
 from local_ai.core.tools import Tool, parse_arguments
 
 Emit = Callable[..., None]
-# Tools that read a paper or a book (the last part of an MCP tool name): their pages are kept whole, the
-# formulas in the middle of a page must not be cut out.
+# Tools that read a paper or a book, or show the way in a project (the last part of an MCP tool name): their
+# output is kept whole, the middle of a page or of a map must not be cut out.
 READ_TOOLS = ("read_arxiv", "read_pdf", "read_library")
+MAP_TOOLS = ("repo_map", "outline", "search")  # the coder's own
 TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
 
 
@@ -118,7 +121,7 @@ class CoderAgent:
         return parse_arguments(call["function"].get("arguments") or "{}")[1]
 
     async def verify(self) -> str:
-        result = await asyncio.to_thread(wf.run_verify, self.root)
+        result = await asyncio.to_thread(wf.run_verify, self.root, "", VERIFY_TIMEOUT)
         self.emit("auto_verify", output=result)
         self.emit_state()
         return result
@@ -230,11 +233,19 @@ class CoderAgent:
         if given:  # the skill comes with the task, so the first plan needs no gate
             self.tools.update(coder_tools(self.root, require_skill=False))
             self.emit("log", text=f"Skill given with the task: {given}")
+        overview = ""
+        project_map = await asyncio.to_thread(nav.task_map, self.root, task)
+        if project_map:  # a large project: the model must look places up, it cannot read everything
+            how = skills.get("existing-code", {}).get("body", "")
+            overview = prompts.LARGE_PROJECT.format(skill=how, map=project_map)
+            self.emit("log", text="Large project: its map is given with the task")
         messages = [
             {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names)},
             {
                 "role": "user",
-                "content": prompts.first_message(task, self.root, status, skills.get(given), self.earlier_plan),
+                "content": prompts.first_message(
+                    task, self.root, status, skills.get(given), self.earlier_plan, overview
+                ),
             },
         ]
         specs = [t.spec() for t in self.tools.values()]
@@ -283,7 +294,7 @@ class CoderAgent:
                     output = await self.call_tool(call)
                     name = call["function"]["name"]
                     edits = edits + 1 if name in EDIT_TOOLS else (0 if name == "verify" else edits)
-                    reading = name.rsplit("__", 1)[-1] in READ_TOOLS
+                    reading = name in MAP_TOOLS or name.rsplit("__", 1)[-1] in READ_TOOLS
                     limit = self.settings.max_read_chars if reading else self.settings.max_tool_chars
                     content = trim(output, limit)
                     messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})

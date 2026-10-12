@@ -101,6 +101,50 @@ def kill_tree(proc: subprocess.Popen) -> None:
         os.killpg(proc.pid, signal.SIGKILL)
 
 
+FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+)", re.MULTILINE)  # pytest's short summary
+EXIT_FIRST = re.compile(r"\s(?:-x|--exitfirst|--maxfail[= ]\d+)(?=\s|$)")
+TEST_ID = re.compile(r"[\w./\\\-\[\]:,=]+")
+
+
+def failed_tests(output: str) -> list[str]:
+    """The tests a pytest run reports as failed (tests/test_x.py::test_a), in order, each once."""
+    return list(dict.fromkeys(FAILED_TEST.findall(output)))
+
+
+def every_failure(command: str) -> str:
+    """The command without pytest's stop-at-the-first-failure options: all failing tests get reported."""
+    return EXIT_FIRST.sub("", command) if "pytest" in command else command
+
+
+def test_mentioned(test_id: str, text: str) -> bool:
+    """Whether a text (lower case) names the test or its file."""
+    file = test_id.split("::")[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    name = test_id.split("::")[-1].split("[")[0].lower() if "::" in test_id else ""
+    return file in text or bool(name and name in text)
+
+
+def has_tests(root: Path) -> bool:
+    """Whether the project has test files yet (a run before the first one would only say that there are none)."""
+    for _, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.endswith(".egg-info")]
+        for name in names:
+            stem = name.rsplit(".", 1)[0]
+            if Path(name).suffix in CODE_SUFFIXES and (stem.startswith("test_") or stem.endswith(("_test", ".test", ".spec"))):
+                return True
+    return False
+
+
+def focused(command: str, tests: str, root: Path) -> str:
+    """The command for some tests only (pytest: files or file::test). ValueError when that cannot be done."""
+    if "pytest" not in command:
+        raise ValueError("the verify command is not pytest")
+    chosen = tests.replace(",", " ").split()
+    for item in chosen:
+        if not TEST_ID.fullmatch(item) or not (root / item.split("::")[0]).exists():
+            raise ValueError(f"{item} is not a test file of the project")
+    return f"{command} {' '.join(chosen)}"
+
+
 def snapshot(root: Path) -> str:
     """Fingerprint of the project's files (path, size, modification time): tells whether anything was edited."""
     digest = hashlib.sha1()

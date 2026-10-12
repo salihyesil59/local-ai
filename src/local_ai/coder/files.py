@@ -6,6 +6,7 @@ Every path is relative to the project folder and may not leave it. The plan stat
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from local_ai.coder.state import STATE_DIR
@@ -75,12 +76,19 @@ def edit_file(root: Path, path: str, old: str, new: str) -> str:
 def walk(root: Path, base: Path | None = None) -> list[str]:
     """Files and folders (with a trailing /) under base, relative to root; caches and virtual environments
     are skipped."""
+    def skipped(name: str) -> bool:
+        return name in SKIP_DIRS or name.endswith(".egg-info")
+
+    found = []  # (path, is a folder); skipped folders are not entered: an environment has thousands of files
+    for folder, dirs, files in os.walk(base or root):
+        dirs[:] = [d for d in dirs if not skipped(d)]
+        found += [(Path(folder) / d, True) for d in dirs] + [(Path(folder) / f, False) for f in files]
     names = []
-    for item in sorted((base or root).rglob("*")):
+    for item, is_dir in sorted(found):
         rel = item.relative_to(root)
-        if any(part in SKIP_DIRS or part.endswith(".egg-info") for part in rel.parts):
+        if any(skipped(part) for part in rel.parts):
             continue
-        names.append(f"{rel.as_posix()}/" if item.is_dir() else rel.as_posix())
+        names.append(f"{rel.as_posix()}/" if is_dir else rel.as_posix())
     return names
 
 
