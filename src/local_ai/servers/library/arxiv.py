@@ -7,16 +7,9 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from local_ai.servers.common import cache_dir, http_get, library_dir, truncate
+from local_ai.servers.common import MAX_OUTPUT, cache_dir, http_get, library_dir, truncate
 
-
-def pdf_pages(path, page: int, pages: int) -> tuple[int, list[str]]:
-    """(page count, ["--- page n ---\\n<text>", ...]) for pages page .. page + pages - 1 of a PDF."""
-    import pymupdf
-
-    with pymupdf.open(path) as doc:
-        last = min(page + pages - 1, doc.page_count)
-        return doc.page_count, [f"--- page {n} ---\n{doc[n - 1].get_text()}" for n in range(max(page, 1), last + 1)]
+PAGE_BUDGET = MAX_OUTPUT - 400  # characters of whole pages in one reply (the rest is the header and a note)
 
 
 ATOM = {"a": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
@@ -61,7 +54,8 @@ def extract_arxiv_id(raw: str) -> str:
 
 def read_arxiv(arxiv_id: str, page: int = 1, pages: int = 4, query: str = "") -> str:
     """Read pages of an arXiv paper's PDF as text. Accepts an arXiv ID (e.g. '2401.01234') or full arXiv URL.
-    page/pages: 1-based page range to read.
+    page/pages: 1-based page range to read. Whole pages are returned, about two or three per call; when more
+    were asked for, the reply ends with the page to go on with.
     query: optional search term inside the paper (e.g. 'algorithm', 'pseudocode', 'definition');
            if provided, returns pages containing the query."""
     aid = extract_arxiv_id(arxiv_id)
@@ -75,30 +69,45 @@ def read_arxiv(arxiv_id: str, page: int = 1, pages: int = 4, query: str = "") ->
 
 
 def read_pages(path, label: str, page: int, pages: int, query: str = "") -> str:
-    """Pages page .. page + pages - 1 of a PDF as text, or with a query the first pages that contain it."""
-    if query.strip():
-        q = query.strip().lower()
-        import pymupdf
+    """Pages page .. page + pages - 1 of a PDF as text, or with a query the first pages that contain it.
+    Only whole pages are returned: when the pages asked for are longer than one reply, the reply ends with the
+    page to go on with."""
+    import pymupdf
 
-        with pymupdf.open(path) as doc:
-            matching = [n for n in range(1, doc.page_count + 1) if q in doc[n - 1].get_text().lower()]
-            if matching:
-                selected_pages = matching[:pages]
-                pages_text = [f"--- page {n} ---\n{doc[n - 1].get_text()}" for n in selected_pages]
-                return truncate(
-                    f"{label} ({doc.page_count} pages, found '{query}' on pages {matching}):\n\n"
-                    + "\n\n".join(pages_text)
-                )
-            return f"{label} ({doc.page_count} pages): No pages found containing '{query}'."
-
-    total, selected = pdf_pages(path, page, pages)
-    return truncate(f"{label} ({total} pages)\n\n" + "\n\n".join(selected))
+    with pymupdf.open(path) as doc:
+        total = doc.page_count
+        if query.strip():
+            q = query.strip().lower()
+            matching = [n for n in range(1, total + 1) if q in doc[n - 1].get_text().lower()]
+            if not matching:
+                return f"{label} ({total} pages): No pages found containing '{query}'."
+            head = f"{label} ({total} pages, found '{query}' on pages {matching}):"
+            wanted = matching[:pages]
+        else:
+            head = f"{label} ({total} pages)"
+            wanted = list(range(max(page, 1), min(page + pages - 1, total) + 1))
+        shown, used = [], len(head)
+        for n in wanted:
+            text = f"--- page {n} ---\n{doc[n - 1].get_text()}"
+            if shown and used + len(text) > PAGE_BUDGET:
+                break
+            shown.append(text)
+            used += len(text) + 2
+    rest = wanted[len(shown) :]
+    more = (
+        f"\n\n[Pages {', '.join(map(str, rest))} are not shown: they did not fit into this reply. "
+        f"Go on with page={rest[0]}.]"
+        if rest
+        else ""
+    )
+    return truncate(head + "\n\n" + "\n\n".join(shown), MAX_OUTPUT - len(more)) + more
 
 
 def read_pdf(path: str, page: int = 1, pages: int = 2, query: str = "") -> str:
     """Read pages of a PDF file on this computer as text: a paper the user points to that is not in the library.
     path: absolute path of the .pdf file (a relative path is looked up in the library folder).
-    page/pages: 1-based page range to read. The first line shows the page count.
+    page/pages: 1-based page range to read. The first line shows the page count. Whole pages are returned, about
+    two or three per call; when more were asked for, the reply ends with the page to go on with.
     query: optional search term inside the file (e.g. 'algorithm', 'pseudocode'); returns the pages containing it."""
     file = Path(path.strip().strip('"')).expanduser()
     if not file.is_absolute():

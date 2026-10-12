@@ -193,3 +193,18 @@ def test_read_pdf_reads_a_file_by_its_path(tmp_path, monkeypatch):
     (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
     assert arxiv.read_pdf(str(tmp_path / "notes.txt")).startswith("Error: no PDF file")
 
+
+def test_reading_returns_whole_pages_and_says_where_to_go_on(tmp_path):
+    from local_ai.servers.library import arxiv
+
+    paper = tmp_path / "long.pdf"
+    make_pdf(paper, [f"Page {n} starts. " + f"equation {n} " * 280 + f"Page {n} ends." for n in range(1, 9)])
+    reply = arxiv.read_pdf(str(paper), page=1, pages=6)
+    shown = [n for n in range(1, 9) if f"--- page {n} ---" in reply]
+    assert shown[0] == 1 and 2 <= len(shown) < 6 and len(reply) <= 12000
+    last = shown[-1]
+    assert f"Page {last} ends." in reply and f"Page {last + 1} starts." not in reply  # no page is cut
+    assert reply.endswith(f"Go on with page={last + 1}.]") and f"Pages {last + 1}," in reply
+    rest = arxiv.read_pdf(str(paper), page=last + 1, pages=1)
+    assert f"Page {last + 1} ends." in rest and "Go on with" not in rest
+

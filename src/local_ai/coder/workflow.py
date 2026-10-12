@@ -61,6 +61,10 @@ def review_text(state: dict) -> str:
         "input that triggers it, including badly written input (malformed numbers, unknown names), and every form "
         "an argument may take (for example a number, a list or a tuple) on every function the request says accepts "
         "it; check that the result has the form the request names (an error value or an exception of that type). "
+        "Every function the request asks for also needs one test that compares its result with a number or value "
+        "that does not come from your own code: from the request, from the source you implement, a closed form, "
+        "or a calculation by hand written in the test. A relation between two of your functions, a value at zero "
+        "or an error case alone does not count: a wrong constant or unit passes all of them. "
         "Write the missing tests, fix what they uncover, then call verify with a note that names the tests that "
         "cover the criteria (for example test_parse_dates in tests/test_dates.py)."
     )

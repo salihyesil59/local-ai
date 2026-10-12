@@ -505,3 +505,21 @@ async def test_pages_of_a_paper_are_kept_longer_than_other_tool_output(project):
     read, searched = (m["content"] for m in client.requests[1]["messages"] if m["role"] == "tool")
     assert read == page and "characters omitted" in searched and len(searched) < 6500
 
+
+@pytest.mark.anyio
+async def test_the_fitting_skill_is_given_with_the_task(project):
+    task = "Implement the algorithm of the paper arxiv.org/abs/1412.6980"
+    agent, client, events = make_agent(project, [say(calls=[plan_call()]), say("stop")], require_skill=True, max_nudges=0)
+    await agent.run(task)
+    first = client.requests[0]["messages"][1]["content"]
+    assert first.startswith(task) and "The skill for this kind of task is from-paper" in first
+    assert "library__read_pdf" in first  # its body
+    assert st.load(project) is not None  # the first plan is not refused
+    assert ("log", {"text": "Skill given with the task: from-paper"}) in events
+
+    # a task without a keyword gets no skill, and a running plan is continued without one
+    assert "The skill for this kind of task" not in prompts.first_message("something unrelated", project, None)
+    again, client, _ = make_agent(project, [say("stop"), say("stop")], require_skill=True, max_nudges=0)
+    await again.run(task)
+    assert "The skill for this kind of task" not in client.requests[0]["messages"][1]["content"]
+

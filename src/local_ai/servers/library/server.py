@@ -261,14 +261,12 @@ class Library:
             raise FileNotFoundError(file)
         page, pages = max(page, 1), max(1, min(pages, 10))
         if path.suffix.lower() == ".pdf":
-            total, selected = arxiv.pdf_pages(path, page, pages)
-        else:
-            body = path.read_text(encoding="utf-8", errors="replace")
-            parts = [body[i : i + 3000] for i in range(0, len(body), 3000)] or [""]
-            total = len(parts)
-            selected = [f"--- part {n} ---\n{parts[n - 1]}" for n in range(page, min(page + pages, total + 1))]
-        unit = "pages" if path.suffix.lower() == ".pdf" else "parts"
-        return truncate(f"{display_path(str(path))} ({total} {unit})\n\n" + "\n\n".join(selected))
+            return arxiv.read_pages(path, display_path(str(path)), page, pages)
+        body = path.read_text(encoding="utf-8", errors="replace")
+        parts = [body[i : i + 3000] for i in range(0, len(body), 3000)] or [""]
+        total = len(parts)
+        selected = [f"--- part {n} ---\n{parts[n - 1]}" for n in range(page, min(page + pages, total + 1))]
+        return truncate(f"{display_path(str(path))} ({total} parts)\n\n" + "\n\n".join(selected))
 
     def embed_missing(self, batch: int = 32) -> int:
         """Embed chunks indexed while the embedding endpoint was unavailable."""

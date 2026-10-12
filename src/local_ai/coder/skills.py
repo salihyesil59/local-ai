@@ -18,14 +18,17 @@ def load_skills(dirs: list[Path] | None = None) -> dict[str, dict]:
     return core.load_skills(dirs or [BUILTIN, st.home() / "skills"])
 
 
-def suggest(skills: dict[str, dict], text: str) -> str:
-    """The skill whose keywords occur most often in the text (the task); new-feature when none does."""
+def match(skills: dict[str, dict], text: str) -> str | None:
+    """The skill whose keywords occur most often in the text (the task); None when no keyword occurs."""
     text = text.lower()
     scores = {name: sum(k in text for k in skill["keywords"]) for name, skill in skills.items() if skill["keywords"]}
     best = max(scores, key=scores.get, default=None)
-    if best and scores[best] > 0:
-        return best
-    return "new-feature" if "new-feature" in skills else next(iter(skills))
+    return best if best and scores[best] > 0 else None
+
+
+def suggest(skills: dict[str, dict], text: str) -> str:
+    """The skill for a task: the one that matches, new-feature when none does."""
+    return match(skills, text) or ("new-feature" if "new-feature" in skills else next(iter(skills)))
 
 
 def skill_list(skills: dict[str, dict]) -> str:

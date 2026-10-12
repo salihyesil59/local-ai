@@ -70,6 +70,7 @@ def test_loop_until_done(project):
     out = run_verify(project)
     assert out.startswith("PASSED (step 2/2") and "All 2 steps are implemented" in out
     assert "REVIEW before you finish" in out and "  1. add(1, 1) == 2" in out
+    assert "does not come from your own code" in out  # every function needs a number of its own
     assert "in review" in st.moim_file().read_text(encoding="utf-8")
     ok, message = check(project)
     assert not ok and "the review is open" in message

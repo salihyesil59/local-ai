@@ -18,9 +18,14 @@ SYSTEM = (
 )
 SKILLS = (
     "\n\nSkills are short procedures for kinds of tasks. Before plan, call load_skill with the name of the one that "
-    "fits and follow it (the first plan is refused until a skill has been read). In the review, load edge-cases.\n{list}"
+    "fits and follow it (the first plan is refused until a skill has been read); when a skill is given with the "
+    "task, follow that one. In the review, load edge-cases.\n{list}"
 )
 
+GIVEN_SKILL = (
+    "\n\nThe skill for this kind of task is {name}. It is given here, you need not load it; follow it from "
+    "the first step on:\n{body}"
+)
 CUT_OFF = (
     "Your last reply was cut off because it was too long (thinking included). Do not think it through again: "
     "decide and act now with a tool call."
@@ -48,9 +53,9 @@ COMPACT_REQUEST = (
 )
 
 
-def first_message(task: str, root: Path, status: str | None) -> str:
+def first_message(task: str, root: Path, status: str | None, skill: dict | None = None) -> str:
     if status is None:
-        return task
+        return task + (GIVEN_SKILL.format(name=skill["name"], body=skill["body"]) if skill else "")
     return f"{task}\n\nA plan from an earlier run exists in {root}; continue it instead of starting over:\n{status}"
 
 

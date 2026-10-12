@@ -3,6 +3,7 @@
 The model only decides what to write next. The program decides when the work is checked and when it is over:
   - a reply that is cut off by max_tokens (a model stuck thinking) gets a nudge to act, not a longer wait;
   - a reply without tool calls while the task is not finished makes the program run verify and show the result;
+  - the skill that fits the task is given with the task: the model does not reliably pick it itself;
   - several edits in a row without verify also make the program run it;
   - the task ends only when the state on disk is finished (verify reported ALL DONE) or a limit is hit;
   - a long conversation is compacted: the plan and the files are on disk, so old messages can go;
@@ -218,9 +219,14 @@ class CoderAgent:
         status = st.render(self.root, state) if state and not st.finished(state) else None
         base_tools = coder_tools(self.root, False)
         extra_names = [name for name in self.tools if name not in base_tools]
+        skills = sk.load_skills()
+        given = sk.match(skills, task) if self.settings.require_skill and status is None else None
+        if given:  # the skill comes with the task, so the first plan needs no gate
+            self.tools.update(coder_tools(self.root, require_skill=False))
+            self.emit("log", text=f"Skill given with the task: {given}")
         messages = [
-            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(sk.load_skills()), extra_names)},
-            {"role": "user", "content": prompts.first_message(task, self.root, status)},
+            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names)},
+            {"role": "user", "content": prompts.first_message(task, self.root, status, skills.get(given))},
         ]
         specs = [t.spec() for t in self.tools.values()]
         edits = nudges = 0

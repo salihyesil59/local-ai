@@ -7,7 +7,8 @@ keywords: paper, makale, algorithm, algoritma, arxiv, pseudo-code, equation, den
 1. Read the paper before you plan. An arXiv link or id: `library__read_arxiv(arxiv_id, page=1, pages=2)`. A PDF file
    on this computer: `library__read_pdf(path, page=1, pages=2)` with its absolute path (a file name alone means a file
    in the project folder: put the project folder in front of it). The first line shows the page count.
-   Always read two pages per call, so that no page is cut.
+   Read two pages per call. A reply holds whole pages only; when it ends with the page to go on with, read on
+   from there before you use what those pages say.
 2. Pages 1-2 give the abstract and the outline. Then find the parts to implement with `query=` ("Algorithm",
    "pseudocode", "procedure", the name of the method) and read those pages and the pages that define their symbols.
    Read the pages with the worked examples, result tables and parameter values too: they become your tests.
@@ -22,6 +23,9 @@ keywords: paper, makale, algorithm, algoritma, arxiv, pseudo-code, equation, den
    its tolerance written in the criterion (for floats use pytest.approx with the precision the paper prints). If the
    paper gives no numbers, use cases you can compute by hand and properties the method must have (a symmetry, a limit,
    a known special case).
+   Every function gets at least one criterion with a number of its own, worked out by hand in the criterion from
+   the paper's formula (for example distance modulus of D_L = 10 pc is 0, of 1 Mpc is 25). A relation between two
+   of your functions, a value at zero or an error case alone is not enough: a wrong constant or unit passes them.
 5. Write each function so that its name and variables follow the paper's notation; put the equation number in a short
    comment. Prefer plain Python or numpy; add a dependency only if the paper requires it. Read a page again when you
    are unsure about a formula: do not write it from memory.
