@@ -103,6 +103,18 @@ open and shows the passage of the tool output the quote was taken from.
 The top bar switches the language of the page (English / Turkish; what the agents write stays in their own
 language) and the theme (system, light, dark).
 
+### Tools: MCP servers
+
+The **Tools** button of the message box chooses the MCP servers a message may use (a switch per server,
+remembered per mode). The **Tools** view lists every server of the mcp.json the UI was started with: whether it
+runs, its tools, the reason when it did not start. There you can switch a server off, restart it, remove it, or
+add one you wrote or downloaded: give a name and the command that starts it (or its URL, for a server reached
+over HTTP), with environment variables if it needs them, or paste the JSON from the server's README
+(`{"mcpServers": {"name": {"command": ..., "args": [...]}}}`). The server starts at once, without a
+restart of the UI, and is written to the mcp.json. A server is a program that runs on your computer with your
+rights: add only what you trust. The notebook server cannot be removed, the research agent needs it; the list
+cannot be changed while a run is under way.
+
 Keyboard: **Ctrl+K** opens the command palette (commands and chats by name), **Ctrl+Enter** sends, **Alt+N**
 starts a new chat, **Ctrl+,** opens the settings, **/** searches the chats, **Esc** closes what is open.
 

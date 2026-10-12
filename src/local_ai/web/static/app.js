@@ -32,6 +32,13 @@ const ICONS = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.8-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.8H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.8-1.2V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.8 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.8h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   dots: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M19 19v2H6"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+  plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   pin: '<path d="M12 17v5M8 3h8l-1 6 3 4H6l3-4z"/>',
   right: '<path d="m9 6 6 6-6 6"/>',
@@ -73,6 +80,8 @@ function switchLanguage() {
   location.reload(); // every text of the page is written again
 }
 
+for (const tab of document.querySelectorAll(".tab[data-icon]")) tab.prepend(icon(tab.dataset.icon));
+$("#cancel").append(icon("stop"));
 $("#theme").addEventListener("click", nextTheme);
 $("#lang").addEventListener("click", switchLanguage);
 $("#lang").textContent = LANG.toUpperCase();
@@ -128,35 +137,121 @@ async function loadStatus() {
   }
 }
 
-// -- MCP servers selection (Goose-style) ------------------------------------------
-function renderMcpSelectors() {
-  const container = $("#mcp-selectors");
-  const section = $("#mcp-section");
-  const servers = (state.status.servers || []).filter((s) => s !== "notebook" && s !== "coder");
-  section.hidden = !servers.length;
-  if (!servers.length) return;
-  let saved = null;
-  try {
-    const raw = recall("mcp_servers_" + state.mode);
-    if (raw) saved = new Set(JSON.parse(raw));
-  } catch {}
+// -- MCP servers for a message: a menu at the message box (the servers this message may use) --------
+// Remembered per mode. The notebook belongs to the research agent and the coder to the coding agent: not offered.
+function offeredServers() {
+  return (state.status.servers || []).filter((s) => s !== "notebook" && s !== "coder");
+}
 
-  container.replaceChildren(...servers.map((s) => {
-    const checked = saved ? saved.has(s) : true;
-    const chip = el("label", { class: "mcp-chip" + (checked ? " active" : ""), title: `${s} ${t("MCP server")}` },
-      el("input", { type: "checkbox", value: s, checked, onchange: (ev) => { chip.classList.toggle("active", ev.target.checked); saveMcpSelection(); } }),
-      el("span", {}, s));
-    return chip;
-  }));
+function chosenServers() {
+  let saved = null;
+  try { saved = JSON.parse(recall("mcp_servers_" + state.mode) || "null"); } catch {}
+  const offered = offeredServers();
+  return Array.isArray(saved) ? offered.filter((s) => saved.includes(s)) : offered; // all, until the user chooses
 }
 
 function getSelectedMcpServers() {
-  return Array.from($("#mcp-selectors").querySelectorAll('input[type="checkbox"]:checked')).map((cb) => cb.value);
+  return chosenServers();
 }
 
-function saveMcpSelection() {
-  remember("mcp_servers_" + state.mode, JSON.stringify(getSelectedMcpServers()));
+function switchRow(label, on, change, detail) {
+  const box = el("input", { type: "checkbox", role: "switch", checked: on, onchange: (ev) => change(ev.target.checked) });
+  return el("label", { class: "switch-row" }, el("span", { class: "switch-text" }, label, detail ? el("small", { class: "muted" }, detail) : null),
+    el("span", { class: "switch" }, box, el("span", { class: "knob" })));
 }
+
+function renderMcpSelectors() {
+  const offered = offeredServers(), chosen = chosenServers();
+  $("#tools-toggle").replaceChildren(icon("plug"), ` ${t("Tools")}`,
+    offered.length ? el("span", { class: "count" }, `${chosen.length}/${offered.length}`) : null);
+  const counts = state.toolCounts || {};
+  $("#tools-menu").replaceChildren(
+    el("div", { class: "menu-head" }, t("Servers this message may use")),
+    ...(offered.length ? offered.map((s) => switchRow(s, chosen.includes(s), (on) => {
+      const next = on ? [...chosenServers(), s] : chosenServers().filter((x) => x !== s);
+      remember("mcp_servers_" + state.mode, JSON.stringify(next));
+      renderMcpSelectors();
+    }, counts[s] != null ? `${counts[s]} ${t("tools")}` : "")) : [el("p", { class: "muted" }, t("No servers are running."))]),
+    el("button", { class: "ghost small", type: "button", onclick: () => { toggleToolsMenu(false); goTo("tools"); } }, t("Manage servers…")));
+}
+
+function toggleToolsMenu(open) {
+  const menu = $("#tools-menu");
+  menu.hidden = open === undefined ? !menu.hidden : !open;
+  $("#tools-toggle").setAttribute("aria-expanded", String(!menu.hidden));
+  if (!menu.hidden) loadToolCounts();
+}
+
+async function loadToolCounts() {
+  const data = await api("/api/mcp").catch(() => null);
+  if (!data) return;
+  state.toolCounts = Object.fromEntries(data.servers.map((s) => [s.name, s.tools.length]));
+  renderMcpSelectors();
+}
+
+$("#tools-toggle").addEventListener("click", () => toggleToolsMenu());
+document.addEventListener("click", (ev) => { if (!ev.target.closest("#tools-menu, #tools-toggle")) toggleToolsMenu(false); });
+
+// -- the Tools view: the MCP servers, with their tools; add, switch off, restart, remove ----------
+async function loadTools() {
+  const data = await api("/api/mcp").catch(() => null);
+  if (!data) { $("#mcp-list").replaceChildren(el("p", { class: "muted" }, t("server not reachable"))); return; }
+  $("#mcp-add").hidden = !data.editable;
+  $("#mcp-config").textContent = data.editable ? `${t("Saved in")} ${data.config}` : t("This UI was started without a server list to change.");
+  const change = async (name, options) => {
+    try {
+      await api(`/api/mcp/${encodeURIComponent(name)}`, options);
+    } catch (e) { fail(e); }
+    await Promise.all([loadTools(), loadStatus()]);
+  };
+  $("#mcp-list").replaceChildren(...(data.servers.length ? data.servers.map((s) => {
+    const state_ = s.disabled ? "off" : s.connected ? "done" : "failed";
+    const label = s.disabled ? t("switched off") : s.connected ? `${s.tools.length} ${t("tools")}` : t("not running");
+    return el("div", { class: "mcp-card" + (s.connected ? "" : " idle") },
+      el("div", { class: "mcp-head" },
+        el("span", { class: `dot ${state_}` }), el("strong", {}, s.name), el("span", { class: "muted" }, label), el("span", { class: "spacer" }),
+        data.editable && !s.required ? el("label", { class: "switch", title: t("On or off") },
+          el("input", { type: "checkbox", role: "switch", checked: !s.disabled, "aria-label": `${s.name}: ${t("On or off")}`,
+            onchange: (ev) => change(s.name, { method: "PATCH", body: JSON.stringify({ disabled: !ev.target.checked }) }) }), el("span", { class: "knob" })) : null,
+        data.editable && !s.disabled ? el("button", { class: "ghost small", type: "button", onclick: () => change(s.name, { method: "PATCH", body: "{}" }) }, t("Restart")) : null,
+        data.editable && !s.required ? el("button", { class: "ghost small danger", type: "button", onclick: async () => {
+          if (await confirmDialog(t('Remove the server "{name}" from the list?', { name: s.name }), t("Remove"))) change(s.name, { method: "DELETE" });
+        } }, t("Remove")) : null),
+      el("code", { class: "mcp-command" }, s.command || s.url, s.env.length ? `   (${s.env.join(", ")})` : ""),
+      s.error ? el("div", { class: "log warning" }, s.error) : null,
+      s.tools.length ? el("details", {}, el("summary", {}, `${t("Tools")} (${s.tools.length})`),
+        el("ul", { class: "tool-list" }, s.tools.map((tool) => el("li", {}, el("code", {}, tool.name), tool.description ? ` — ${tool.description}` : "")))) : null);
+  }) : [el("p", { class: "muted" }, t("No servers yet."))]));
+}
+
+document.querySelectorAll("#mcp-add .mode").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#mcp-add .mode").forEach((x) => x.classList.toggle("active", x === b));
+  $("#mcp-add .add-form").hidden = b.dataset.add !== "form";
+  $("#mcp-add .add-json").hidden = b.dataset.add !== "json";
+}));
+
+$("#mcp-add").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const pasted = !$("#mcp-add .add-json").hidden;
+  const target = $("#mcp-command").value.trim();
+  const env = Object.fromEntries($("#mcp-env").value.split("\n").map((line) => line.trim()).filter((line) => line.includes("="))
+    .map((line) => [line.slice(0, line.indexOf("=")).trim(), line.slice(line.indexOf("=") + 1).trim()]));
+  const body = pasted ? { name: $("#mcp-name").value.trim(), json: $("#mcp-json").value }
+    : { name: $("#mcp-name").value.trim(), env, ...(/^https?:\/\//.test(target) ? { url: target } : { command: target }) };
+  const button = ev.submitter || $("#mcp-add .primary");
+  button.disabled = true;
+  try {
+    const added = await api("/api/mcp", { method: "POST", body: JSON.stringify(body) });
+    if (added.connected) toast(t('"{name}" is running with {n} tools.', { name: added.name, n: added.tools.length }));
+    else toast(t('"{name}" was saved but did not start: {error}', { name: added.name, error: added.error }), "error");
+    for (const id of ["#mcp-name", "#mcp-command", "#mcp-env", "#mcp-json"]) $(id).value = "";
+  } catch (e) {
+    fail(e);
+  } finally {
+    button.disabled = false;
+  }
+  await Promise.all([loadTools(), loadStatus()]);
+});
 
 function fileUrl(path) {
   const ws = state.status.workspace || "";
@@ -181,6 +276,7 @@ document.querySelectorAll(".tab").forEach((tab) =>
     }
     if (v === "memory") { show("memory"); $("#side-list").replaceChildren(); loadMemory(); }
     if (v === "skills") { show("skills"); $("#side-list").replaceChildren(); loadSkills(); }
+    if (v === "tools") { show("tools"); $("#side-list").replaceChildren(); loadTools(); }
   })
 );
 
@@ -435,7 +531,11 @@ function updateComposer() {
   info.hidden = !run;
   if (run) info.textContent = code ? `${t("Code")} · ${run.project}` : t("Research · follow-up in this chat");
   const steer = state.running && code && !!run; // a code run takes a message while it works
-  $("#run").textContent = steer ? t("Steer") : run ? t("Send") : code ? t("Code") : t("Research");
+  const action = steer ? t("Steer") : run ? t("Send") : code ? t("Code") : t("Research");
+  $("#run").replaceChildren(icon("up"));
+  $("#run").title = `${action} (Ctrl+Enter)`;
+  $("#run").setAttribute("aria-label", action);
+  $("#chat-title").textContent = run ? chatTitle(run) : "";
   $("#run").disabled = state.running && !steer;
   $("#cancel").hidden = !state.running;
   if (!state.running) $("#compact").hidden = true; // shown by the first "turn" event, which only code runs send
@@ -1311,6 +1411,7 @@ function commands() {
     { label: t("Go to Projects"), action: () => goTo("projects") },
     { label: t("Go to Memory"), action: () => goTo("memory") },
     { label: t("Go to Skills"), action: () => goTo("skills") },
+    { label: t("Go to Tools (MCP servers)"), action: () => goTo("tools") },
     ...state.runList.map((r) => ({ label: chatTitle(r), hint: `${t(r.mode === "code" ? "code" : "research")} · ${t(r.status)}`, action: () => attach(r.id) })),
   ].filter(Boolean);
 }

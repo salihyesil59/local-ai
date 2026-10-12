@@ -14,6 +14,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
       <span>Local AI</span>
     </div>
+    <div id="chat-title" class="chat-title"></div>
     <button id="palette" class="ghost small" type="button" title="Commands and chats">Commands <kbd>Ctrl K</kbd></button>
     <button id="lang" class="ghost small" type="button"></button>
     <button id="theme" class="ghost small" type="button"></button>
@@ -24,10 +25,11 @@
     <div id="resizer" class="resizer" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <nav class="sidebar" aria-label="Sections">
       <div class="tabs" role="tablist">
-        <button class="tab active" data-view="new" role="tab">Chats</button>
-        <button class="tab" data-view="projects" role="tab">Projects</button>
-        <button class="tab" data-view="memory" role="tab">Memory</button>
-        <button class="tab" data-view="skills" role="tab">Skills</button>
+        <button class="tab active" data-view="new" data-icon="chat" role="tab">Chats</button>
+        <button class="tab" data-view="projects" data-icon="book" role="tab">Projects</button>
+        <button class="tab" data-view="memory" data-icon="layers" role="tab">Memory</button>
+        <button class="tab" data-view="skills" data-icon="star" role="tab">Skills</button>
+        <button class="tab" data-view="tools" data-icon="plug" role="tab">Tools</button>
       </div>
       <div id="side-list" class="side-list"></div>
     </nav>
@@ -37,13 +39,7 @@
         <div class="chat-main">
           <div id="timeline" class="timeline"></div>
           <form id="ask" class="ask">
-            <div class="ask-row new-only">
-              <div class="modes" role="tablist" aria-label="Mode">
-                <button type="button" class="mode active" data-mode="research" role="tab">Research</button>
-                <button type="button" class="mode" data-mode="code" role="tab">Code</button>
-              </div>
-              <div id="target" class="target muted" hidden></div>
-            </div>
+            <div id="target" class="target muted new-only" hidden></div>
             <div id="chat-info" class="chat-info muted" hidden></div>
             <div id="settings" class="settings" hidden>
               <label>Model
@@ -64,33 +60,35 @@
               <label class="research-only" title="Tool-calling steps per sub-question">Max steps
                 <input id="set-max_steps" type="number" min="1" max="100" placeholder="12">
               </label>
+              <label class="research-only">Parallel
+                <select id="parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+              </label>
+              <label class="research-only new-only">Project name
+                <input id="project" placeholder="Project name (optional)">
+              </label>
               <button id="set-reset" class="ghost small" type="button">Defaults</button>
               <span class="muted note">Empty = default. Saved with this chat.</span>
             </div>
-            <textarea id="question" rows="2" placeholder="Ask a research question — any language." required></textarea>
-            <div class="ask-row code-only new-only" hidden>
+            <div id="tools-menu" class="tools-menu" hidden></div>
+            <div class="ask-row code-only new-only folder-row" hidden>
               <input id="folder" placeholder="Project folder, absolute path (e.g. C:\Users\you\Github\test\app)">
               <button id="browse" class="ghost" type="button">Browse…</button>
             </div>
-            <div class="ask-row">
-              <span class="ask-row research-only">
-                <input id="project" class="new-only" placeholder="Project name (optional)">
-                <label class="opt">Parallel
-                  <select id="parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
-                </label>
-                <label class="opt" title="Skip review, gap check and learning"><input type="checkbox" id="fast"> <span>Fast</span></label>
-                <label class="opt" title="Quick answer: one tool loop, no plan or report"><input type="checkbox" id="quick"> <span>Quick</span></label>
-              </span>
-              <span id="mcp-section" class="mcp-row" hidden>
-                <span class="mcp-label muted">MCP</span>
-                <span id="mcp-selectors" class="mcp-chips"></span>
-              </span>
+            <textarea id="question" rows="1" placeholder="Ask a research question — any language." required></textarea>
+            <div class="ask-bar">
+              <button id="tools-toggle" class="pill" type="button" title="The MCP servers this message may use" aria-expanded="false"></button>
+              <div class="modes new-only" role="tablist" aria-label="Mode">
+                <button type="button" class="mode active" data-mode="research" role="tab">Research</button>
+                <button type="button" class="mode" data-mode="code" role="tab">Code</button>
+              </div>
+              <label class="opt research-only" title="Skip review, gap check and learning"><input type="checkbox" id="fast"> <span>Fast</span></label>
+              <label class="opt research-only" title="Quick answer: one tool loop, no plan or report"><input type="checkbox" id="quick"> <span>Quick</span></label>
               <span class="spacer"></span>
               <span id="meter" class="meter" hidden></span>
-              <button id="compact" class="ghost" type="button" title="Shorten the conversation before the next reply: the model writes notes, the plan stays" hidden>Compact</button>
-              <button id="settings-toggle" class="ghost" type="button" title="Model and settings of this chat" aria-expanded="false"></button>
-              <button id="cancel" class="ghost" type="button" hidden>Cancel</button>
-              <button id="run" class="primary" type="submit">Research</button>
+              <button id="compact" class="pill" type="button" title="Shorten the conversation before the next reply: the model writes notes, the plan stays" hidden>Compact</button>
+              <button id="settings-toggle" class="pill" type="button" title="Model and settings of this chat" aria-expanded="false"></button>
+              <button id="cancel" class="round stop" type="button" title="Cancel" hidden></button>
+              <button id="run" class="round send" type="submit"></button>
             </div>
           </form>
         </div>
@@ -108,6 +106,39 @@
       <section id="view-skills" class="view page" hidden>
         <div id="skills-list" class="cards"></div>
         <p class="muted">Add your own skills as Markdown files in <code>&lt;workspace&gt;/skills/</code>.</p>
+      </section>
+      <section id="view-tools" class="view page" hidden>
+        <h2>Tools</h2>
+        <p class="muted">MCP servers give the agents their tools. Add one you wrote or downloaded; it starts at once and is saved in the server list.</p>
+        <div id="mcp-list" class="mcp-list"></div>
+        <form id="mcp-add" class="mcp-add">
+          <h3>Add a server</h3>
+          <div class="modes" role="tablist" aria-label="How to add">
+            <button type="button" class="mode active" data-add="form" role="tab">Command or URL</button>
+            <button type="button" class="mode" data-add="json" role="tab">Paste JSON</button>
+          </div>
+          <div class="add-form">
+            <label>Name
+              <input id="mcp-name" placeholder="filesystem" autocomplete="off">
+            </label>
+            <label>Command or URL
+              <input id="mcp-command" placeholder="uvx some-mcp-server --option   /   https://host/mcp" autocomplete="off">
+            </label>
+            <label>Environment (optional, one KEY=value per line)
+              <textarea id="mcp-env" rows="2" placeholder="API_KEY=..." autocomplete="off"></textarea>
+            </label>
+          </div>
+          <div class="add-json" hidden>
+            <label>The JSON from the server's README
+              <textarea id="mcp-json" rows="7" placeholder='{"mcpServers": {"name": {"command": "npx", "args": ["-y", "package"]}}}'></textarea>
+            </label>
+          </div>
+          <div class="row">
+            <button class="primary" type="submit">Add and start</button>
+            <span class="muted note">A server is a program that runs on this computer with your rights: add only what you trust.</span>
+          </div>
+        </form>
+        <p id="mcp-config" class="muted note"></p>
       </section>
     </main>
   </div>
