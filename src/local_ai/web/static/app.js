@@ -540,9 +540,11 @@ function updateComposer() {
   $("#cancel").hidden = !state.running;
   if (!state.running) $("#compact").hidden = true; // shown by the first "turn" event, which only code runs send
   const q = $("#question");
-  q.required = !code || steer; // code mode may continue an existing plan without a new task
+  const resume = !!run && !code && !state.running && run.resumable; // a stopped research can go on
+  q.required = (!code && !resume) || steer; // code mode may continue an existing plan without a new task
   q.placeholder = steer ? t("Tell the agent what to change. It reads the message before its next reply.") : run
-    ? (code ? t("Next instruction for this project. Leave empty to continue the plan.") : t("Ask a follow-up question."))
+    ? (code ? t("Next instruction for this project. Leave empty to continue the plan.")
+      : resume ? t("Ask something with what was found so far, or leave empty to go on with the research.") : t("Ask a follow-up question."))
     : (code ? t("What to build, change or fix. Leave empty to continue the plan in the folder.") : t("Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”"));
 }
 
@@ -571,7 +573,8 @@ $("#ask").addEventListener("submit", async (ev) => {
   const question = $("#question").value.trim();
   const code = state.mode === "code";
   const steer = state.running && code && state.currentRun;
-  if ((!question && (!code || steer)) || (state.running && !steer)) return;
+  const resume = !code && state.currentRun && state.runs[state.currentRun]?.resumable;
+  if ((!question && ((!code && !resume) || steer)) || (state.running && !steer)) return;
   if (steer) { // the live stream shows the message when the server has taken it
     try {
       await api(`/api/runs/${state.currentRun}/messages`, { method: "POST", body: JSON.stringify({ question }) });
@@ -621,8 +624,8 @@ $("#question").addEventListener("input", resizeQuestion);
 $("#question").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) $("#ask").requestSubmit(); });
 
 // -- settings of a chat: model, temperature and limits; empty fields use the server's defaults ----
-const SETTINGS = ["model", "temperature", "max_tokens", "max_turns", "context_chars", "max_steps"];
-const CODE_SETTINGS = ["max_turns", "context_chars"], RESEARCH_SETTINGS = ["max_steps"];
+const SETTINGS = ["model", "temperature", "max_tokens", "max_turns", "context_chars", "max_thinking_chars", "max_steps"];
+const CODE_SETTINGS = ["max_turns", "context_chars", "max_thinking_chars"], RESEARCH_SETTINGS = ["max_steps"];
 
 function getSettings() {
   const code = state.mode === "code";
@@ -738,7 +741,7 @@ function attach(runId) {
     const stick = atBottom();
     renderEvent(event, ctx);
     if (stick) scrollDown();
-    if (event.kind === "end") { source.close(); setRunning(false); renderRunsSidebar(); }
+    if (event.kind === "end") { source.close(); renderRunsSidebar().then(() => setRunning(false)); }
   };
   source.onerror = () => { source.close(); setRunning(false); };
 }

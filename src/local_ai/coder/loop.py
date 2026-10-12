@@ -1,7 +1,11 @@
 """The coding loop, run by this program.
 
 The model only decides what to write next. The program decides when the work is checked and when it is over:
-  - a reply that is cut off by max_tokens (a model stuck thinking) gets a nudge to act, not a longer wait;
+  - a reply that is cut off by max_tokens (a model stuck thinking) gets a nudge to act, not a longer wait, with
+    the end of its thinking so that it goes on from there;
+  - a look-up repeated with the same arguments while no file has changed is not answered a second time;
+  - the conversation stays with the agent: the next message, also after the user stopped a reply, goes on
+    with everything that was said and done (only a compaction shortens it);
   - a reply without tool calls while the task is not finished makes the program run verify and show the result;
   - the skill that fits the task is given with the task: the model does not reliably pick it itself;
   - in a large project the map of the project and the way to work in it come with the task as well;
@@ -15,6 +19,7 @@ The model only decides what to write next. The program decides when the work is 
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +41,8 @@ Emit = Callable[..., None]
 # output is kept whole, the middle of a page or of a map must not be cut out.
 READ_TOOLS = ("read_arxiv", "read_pdf", "read_library")
 MAP_TOOLS = ("repo_map", "outline", "search")  # the coder's own
+# Calls that only look: the same one again, with no edit in between, tells the model nothing new.
+LOOKUPS = ("read_file", "list_files", *MAP_TOOLS)
 TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
 
 
@@ -84,8 +91,12 @@ class CoderAgent:
         if extra_tools:
             self.tools.update(extra_tools)
         self.compact_requested = False
+        self.messages: list[dict] = []  # the conversation; it goes on with the next run
+        self.interrupted = False  # the last run did not return: the user stopped it
         self.earlier_plan = False  # the plan on disk was finished before this run: it is not this task's
         self.steering: list[str] = []  # messages of the user that the model has not seen yet
+        self.looked: dict[tuple[str, str], int] = {}  # look-up -> the number of edits when it was made
+        self.edits_made = 0
 
     # -- helpers ---------------------------------------------------------------
 
@@ -100,6 +111,12 @@ class CoderAgent:
         if problem:
             self.emit("tool_result", id=call["id"], name=name, output=problem, error=True)
             return problem
+        if name in LOOKUPS:
+            key = (name, json.dumps(args, sort_keys=True))
+            if self.looked.get(key) == self.edits_made:  # the model goes round in a circle: say so
+                self.emit("tool_result", id=call["id"], name=name, output=prompts.REPEATED, error=False)
+                return prompts.REPEATED
+            self.looked[key] = self.edits_made
         try:
             if asyncio.iscoroutinefunction(tool.fn):
                 output = await tool.fn(**args)
@@ -110,6 +127,8 @@ class CoderAgent:
         except Exception as e:
             output = f"Error: {e}"
         self.emit("tool_result", id=call["id"], name=name, output=output, error=output.startswith("Error"))
+        if name in EDIT_TOOLS and not output.startswith("Error"):
+            self.edits_made += 1  # what was looked up before may read differently now
         if name == "plan" and output.startswith("Plan saved"):
             self.earlier_plan = False  # this task has its own plan now
         self.emit_state()
@@ -188,6 +207,7 @@ class CoderAgent:
     async def compact(self, messages: list[dict], manual: bool = False) -> list[dict]:
         """Replace the middle of the conversation by the plan, the file list and the model's notes; the plan and
         the files are on disk."""
+        self.looked.clear()  # the results of earlier look-ups leave the conversation
         start = max(2, len(messages) - self.settings.keep_messages)
         while start > 2 and messages[start]["role"] == "tool":  # keep a tool result with its assistant call
             start -= 1
@@ -221,35 +241,46 @@ class CoderAgent:
 
     # -- the loop --------------------------------------------------------------
 
+    @staticmethod
+    def repair(messages: list[dict]) -> None:
+        """After a stop in the middle of tool calls: give every call a result, as the chat format requires."""
+        i = 0
+        while i < len(messages):
+            calls = messages[i].get("tool_calls") or []
+            i += 1
+            if not calls:
+                continue
+            answered = set()
+            while i < len(messages) and messages[i]["role"] == "tool":
+                answered.add(messages[i]["tool_call_id"])
+                i += 1
+            for call in calls:
+                if call["id"] not in answered:
+                    messages.insert(i, {"role": "tool", "tool_call_id": call["id"], "content": prompts.STOPPED_CALL})
+                    i += 1
+
     async def run(self, task: str) -> Outcome:
+        """Work on a task until it is done or a limit is hit. A later call goes on with the same conversation."""
+        stopped, self.interrupted = self.interrupted, True
+        outcome = await self.work(task, stopped)
+        self.interrupted = False  # not reached when the run is cancelled
+        return outcome
+
+    async def work(self, task: str, stopped: bool) -> Outcome:
         state = st.load(self.root)
         status = st.render(self.root, state) if state and not st.finished(state) else None
         # A finished plan is the earlier task's: this task is done only after a plan of its own.
         self.earlier_plan = state is not None and st.finished(state)
         if self.earlier_plan:  # put it aside: verify and status must not answer for the old task
             st.archive(self.root)
-        base_tools = coder_tools(self.root, False)
-        extra_names = [name for name in self.tools if name not in base_tools]
-        skills = sk.load_skills()
-        given = sk.match(skills, task) if self.settings.require_skill and status is None else None
-        if given:  # the skill comes with the task, so the first plan needs no gate
-            self.tools.update(coder_tools(self.root, require_skill=False))
-            self.emit("log", text=f"Skill given with the task: {given}")
-        overview = ""
-        project_map = await asyncio.to_thread(nav.task_map, self.root, task)
-        if project_map:  # a large project: the model must look places up, it cannot read everything
-            how = skills.get("existing-code", {}).get("body", "")
-            overview = prompts.LARGE_PROJECT.format(skill=how, map=project_map)
-            self.emit("log", text="Large project: its map is given with the task")
-        messages = [
-            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names)},
-            {
-                "role": "user",
-                "content": prompts.first_message(
-                    task, self.root, status, skills.get(given), self.earlier_plan, overview
-                ),
-            },
-        ]
+        if self.messages:
+            self.repair(self.messages)
+            self.tools.update(coder_tools(self.root, require_skill=False))  # it has planned in this chat before
+            text = prompts.next_message(task, self.root, status, self.earlier_plan, stopped)
+            self.messages.append({"role": "user", "content": text})
+        else:
+            self.messages = await self.opening(task, status)
+        messages = self.messages
         specs = [t.spec() for t in self.tools.values()]
         edits = nudges = 0
         wrap_up = False
@@ -257,7 +288,7 @@ class CoderAgent:
         for turn in range(1, self.settings.max_turns + 1):
             if self.compact_requested or size(messages) > self.settings.context_chars:
                 manual, self.compact_requested = self.compact_requested, False
-                messages = await self.compact(messages, manual)
+                messages = self.messages = await self.compact(messages, manual)
             while self.steering and not wrap_up:  # in the wrap-up the model has no tools to act on it
                 messages.append({"role": "user", "content": prompts.STEER.format(message=self.steering.pop(0))})
                 nudges = 0
@@ -273,6 +304,7 @@ class CoderAgent:
                 text = strip_tool_calls(text)
 
             if wrap_up:
+                messages.append({"role": "assistant", "content": text})  # the conversation may go on after it
                 return Outcome(True, "ALL DONE", text)
 
             if reply.finish_reason == "length":
@@ -281,7 +313,10 @@ class CoderAgent:
                 nudges += 1
                 if nudges > self.settings.max_nudges:
                     return Outcome(False, "the model keeps running out of tokens without acting")
-                messages.append({"role": "user", "content": prompts.CUT_OFF_CALL if calls else prompts.CUT_OFF})
+                nudge = prompts.CUT_OFF_CALL if calls else prompts.CUT_OFF
+                if not calls and reply.reasoning_tail.strip():  # what it had worked out is not lost
+                    nudge += prompts.THOUGHT_SO_FAR.format(tail=reply.reasoning_tail.strip())
+                messages.append({"role": "user", "content": nudge})
                 continue
 
             if calls:
@@ -329,3 +364,28 @@ class CoderAgent:
                     wrap_up = True
 
         return Outcome(False, f"turn limit ({self.settings.max_turns}) reached")
+
+    async def opening(self, task: str, status: str | None) -> list[dict]:
+        """The first two messages of a conversation: the instructions, and the task with what comes with it."""
+        base_tools = coder_tools(self.root, False)
+        extra_names = [name for name in self.tools if name not in base_tools]
+        skills = sk.load_skills()
+        given = sk.match(skills, task) if self.settings.require_skill and status is None else None
+        if given:  # the skill comes with the task, so the first plan needs no gate
+            self.tools.update(coder_tools(self.root, require_skill=False))
+            self.emit("log", text=f"Skill given with the task: {given}")
+        overview = ""
+        project_map = await asyncio.to_thread(nav.task_map, self.root, task)
+        if project_map:  # a large project: the model must look places up, it cannot read everything
+            how = skills.get("existing-code", {}).get("body", "")
+            overview = prompts.LARGE_PROJECT.format(skill=how, map=project_map)
+            self.emit("log", text="Large project: its map is given with the task")
+        return [
+            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names)},
+            {
+                "role": "user",
+                "content": prompts.first_message(
+                    task, self.root, status, skills.get(given), self.earlier_plan, overview
+                ),
+            },
+        ]

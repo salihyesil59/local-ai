@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 DEFAULT_BASE_URL = "http://localhost:1234/v1"
 STREAM_FLUSH = 0.15  # seconds between "token" events while streaming
+THINKING_TAIL = 1500  # characters of the thinking kept with a reply
 
 
 @dataclass
@@ -17,6 +18,7 @@ class Reply:
     tool_calls: list[dict] = field(default_factory=list)
     finish_reason: str = ""  # "length" when max_tokens cut the reply off
     reasoning_chars: int = 0
+    reasoning_tail: str = ""  # the end of the thinking, for a reply that was cut off before it acted
     completion_tokens: int | None = None
     prompt_tokens: int | None = None
     seconds: float = 0.0
@@ -66,6 +68,7 @@ async def read_stream(
     gets "thinking" and "text" pieces as they arrive. A reply that only thinks is stopped after max_thinking_chars."""
     reply = Reply()
     content: list[str] = []
+    thinking: list[str] = []
     calls: dict[int, dict] = {}
     async for chunk in stream:
         if getattr(chunk, "usage", None):
@@ -78,6 +81,7 @@ async def read_stream(
         reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
         if reasoning:
             reply.reasoning_chars += len(reasoning)
+            thinking.append(reasoning)
             if on_delta:
                 on_delta("thinking", reasoning)
             if max_thinking_chars and reply.reasoning_chars > max_thinking_chars and not content and not calls:
@@ -97,6 +101,7 @@ async def read_stream(
             reply.finish_reason = choice.finish_reason
     await close(stream)
     reply.content = "".join(content)
+    reply.reasoning_tail = "".join(thinking)[-THINKING_TAIL:]
     reply.tool_calls = [{**c, "id": c["id"] or f"call_{i}"} for i, c in sorted(calls.items())]
     return reply
 

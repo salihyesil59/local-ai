@@ -26,6 +26,7 @@ LIMITS = {
     "max_tokens": (int, 256, 65536),  # per model reply, thinking included
     "max_turns": (int, 1, 500),  # code: model replies in one run
     "context_chars": (int, 20_000, 2_000_000),  # code: the conversation is compacted above this
+    "max_thinking_chars": (int, 1_000, 200_000),  # code: a reply that only thinks is stopped after this
     "max_steps": (int, 1, 100),  # research: tool-calling steps per sub-question
 }
 
@@ -46,6 +47,10 @@ def clean_settings(raw) -> dict:
     return settings
 EARLIER_CHARS = 3000  # of the last answer shown to the agent with a follow-up message
 FOLLOW_UP = "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThe answer was:\n{answer}"
+STOPPED_RUN = (
+    "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThat run was stopped before it had an "
+    "answer. What it had found until then:\n{found}"
+)
 
 
 @dataclass
@@ -79,9 +84,40 @@ class Run:
         """The newest message of the user in this chat."""
         return next((e["text"] for e in reversed(self.events) if e["kind"] == "user"), self.question)
 
+    def last_message(self) -> list[dict]:
+        """The events since the newest message of the user."""
+        start = next((i for i in reversed(range(len(self.events))) if self.events[i]["kind"] == "user"), -1)
+        return self.events[start + 1 :]
+
+    def found_so_far(self) -> str:
+        """What a run without an answer had gathered: the findings of its sub-questions, else what its tools
+        returned. "" when the last message has its answer, or nothing was found."""
+        events = self.last_message()
+        if any(e["kind"] in ("answer", "report") for e in events):
+            return ""
+        findings = [f"## {e.get('question', '')}\n{e['text']}" for e in events if e["kind"] == "findings"]
+        if findings:
+            return "\n\n".join(findings)
+        outputs = [e["output"] for e in events if e["kind"] == "tool_result" and not e.get("error")]
+        return "\n\n-----\n\n".join(trim(o, 1200) for o in outputs)
+
+    def resumable(self) -> str | None:
+        """The research project of the last message when its run stopped before the report: it can go on."""
+        if self.mode == "code" or self.status in ACTIVE:
+            return None
+        events = self.last_message()
+        if any(e["kind"] in ("answer", "report") for e in events):
+            return None
+        return next((e["name"] for e in reversed(events) if e["kind"] == "project"), None)
+
     def follow_up(self, message: str) -> str:
         """A follow-up message as the task for an agent, which starts without the conversation: the earlier
-        question and its answer are added."""
+        question comes with its answer, or, when that run was stopped, with what it had found until then."""
+        found = self.found_so_far()
+        if found:
+            return STOPPED_RUN.format(
+                message=message, question=trim(self.last_question(), 600), found=trim(found, EARLIER_CHARS)
+            )
         answer = next((e["text"] for e in reversed(self.events) if e["kind"] in ("answer", "report")), "")
         if not answer:
             return message
@@ -99,15 +135,18 @@ class Run:
             "title": self.title,
             "folder": self.folder,
             "pinned": self.pinned,
+            "resumable": bool(self.loaded and self.resumable()),
             "settings": self.settings,
             "created": self.created,
         }
 
 
 async def run_code(
-    run: Run, task: str, options: dict, settings: AgentSettings, client, bridge: MCPBridge | None
+    run: Run, task: str, options: dict, settings: AgentSettings, client, bridge: MCPBridge | None, store=None
 ) -> None:
-    """Code mode: the coding agent edits a project folder and runs its tests until they pass."""
+    """Code mode: the coding agent edits a project folder and runs its tests until they pass. The agent of a
+    chat is kept: a later message, also after a stop, goes on with its whole conversation (kept in the store,
+    so also after a restart of the UI)."""
     root = Path(str(options.get("folder", ""))).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     if not task or task.startswith("(continue"):
@@ -126,13 +165,27 @@ async def run_code(
     llm = LLM(
         client, settings.model, max_tokens=settings.max_tokens, temperature=settings.temperature, top_p=settings.top_p
     )
+    if "max_thinking_chars" in run.settings:
+        llm.max_thinking_chars = run.settings["max_thinking_chars"]
     limits = Settings(**{k: run.settings[k] for k in ("max_turns", "context_chars") if k in run.settings})
     agent = CoderAgent(
         llm, root, limits, emit=lambda kind, **data: run.push({"kind": kind, **data}), extra_tools=extra_tools
     )
+    earlier = run.agent if isinstance(run.agent, CoderAgent) and run.agent.root == root else None
+    if earlier:  # the same chat: its conversation goes on, with this message's model, limits and tools
+        agent.messages, agent.interrupted = earlier.messages, earlier.interrupted
+    elif store:
+        saved = store.load_messages(run.id)
+        agent.messages, agent.interrupted = saved.get("messages", []), bool(saved.get("interrupted"))
+    if not agent.messages:  # nothing to go on with: the earlier answer of the chat comes with the message
+        task = options.get("with_earlier_answer") or task
     run.agent = agent
     coder_state.moim_file().write_text(coder_state.IDLE, encoding="utf-8")
-    outcome = await agent.run(task)
+    try:
+        outcome = await agent.run(task)
+    finally:  # also when the user stops the run: the conversation so far is what the next message goes on with
+        if store:
+            store.save_messages(run.id, {"messages": agent.messages, "interrupted": agent.interrupted})
     if agent.steering:
         text = "Your last message arrived after the agent's final step and was not read. Send it again."
         run.push({"kind": "log", "level": "warning", "text": text})

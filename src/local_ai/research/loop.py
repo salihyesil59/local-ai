@@ -506,6 +506,7 @@ class ResearchAgent:
             await self.bridge.call(reset, {})
         if not resume:
             await self._save_state(project, question, language, subs)
+        self.emit("project", name=project)  # from here on the run can be resumed: its plan is saved
 
         await self.research(project, question, subs)
         if self.settings.gap_check and not any(s.question.startswith("[gap] ") for s in subs):

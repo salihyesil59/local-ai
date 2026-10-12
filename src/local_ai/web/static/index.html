@@ -57,6 +57,9 @@
               <label class="code-only" title="The conversation is compacted above this many characters (about 3 per token). Keep it below the context length set in LM Studio.">Context limit (characters)
                 <input id="set-context_chars" type="number" min="20000" max="2000000" step="10000" placeholder="300000">
               </label>
+              <label class="code-only" title="A reply that only thinks is stopped after this many characters and told to act. Raise it for hard problems; the token limit of a reply still applies.">Thinking limit (characters)
+                <input id="set-max_thinking_chars" type="number" min="1000" max="200000" step="1000" placeholder="8000">
+              </label>
               <label class="research-only" title="Tool-calling steps per sub-question">Max steps
                 <input id="set-max_steps" type="number" min="1" max="100" placeholder="12">
               </label>
@@ -87,7 +90,7 @@
               <span id="meter" class="meter" hidden></span>
               <button id="compact" class="pill" type="button" title="Shorten the conversation before the next reply: the model writes notes, the plan stays" hidden>Compact</button>
               <button id="settings-toggle" class="pill" type="button" title="Model and settings of this chat" aria-expanded="false"></button>
-              <button id="cancel" class="round stop" type="button" title="Cancel" hidden></button>
+              <button id="cancel" class="round stop" type="button" title="Stop" hidden></button>
               <button id="run" class="round send" type="submit"></button>
             </div>
           </form>

@@ -36,6 +36,13 @@ CUT_OFF = (
     "again: act now with a tool call. To find a bug, call verify and read what fails, or read the code again; "
     "then change one thing and call verify."
 )
+THOUGHT_SO_FAR = (
+    "\nThis is where your thinking stood when it was cut off; go on from it, do not start again:\n{tail}"
+)
+REPEATED = (
+    "You have made this call before with the same arguments, and no file has changed since: the result is in "
+    "the conversation above. Do not look again; act on what you know: call plan, edit a file or call verify."
+)
 CUT_OFF_CALL = (
     "Your last reply was cut off in the middle of a tool call, so it was not run. Do not think it through again. "
     "Write less in one call: split a large file into several smaller files or write it in parts with edit_file, "
@@ -85,6 +92,24 @@ def first_message(
         f"{task}{overview}\n\nA plan from an earlier run exists in {root}; continue it instead of starting over:\n"
         f"{status}"
     )
+
+
+STOPPED_BY_USER = (
+    "(The user stopped your previous reply before it was finished. What you had done until then is above; the "
+    "files on disk are as you left them.)\n\n"
+)
+STOPPED_CALL = "Stopped by the user before this call had finished; it may or may not have taken effect."
+UNFINISHED_PLAN = (
+    "\n\nThe plan is not finished. Go on with it, or call plan again if this message changes the task:\n{status}"
+)
+
+
+def next_message(task: str, root: Path, status: str | None, earlier_plan: bool, stopped: bool) -> str:
+    """A later message of the same conversation: the model still has everything that was said and done."""
+    text = (STOPPED_BY_USER if stopped else "") + task
+    if status is not None:
+        return text + UNFINISHED_PLAN.format(status=status)
+    return text + (EARLIER_PLAN.format(root=root) if earlier_plan else "")
 
 
 def system_prompt(root: Path, skills: str = "", extra_tools: list[str] | None = None) -> str:

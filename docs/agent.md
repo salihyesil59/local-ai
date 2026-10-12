@@ -91,7 +91,8 @@ PDF). The sidebar lists:
 
 Model output is shown as it is written: Markdown, coloured code and LaTeX formulas (`$..$`, `$$..$$`, `\(..\)`,
 `\[..\]`). The **⚙** button of the message box opens the settings of the chat: the model (from those LM Studio
-has), temperature, max tokens, max turns and the context limit (code) or max steps (research). Empty fields use the defaults; the
+has), temperature, max tokens, max turns, the context limit and the thinking limit (code) or max steps
+(research). Empty fields use the defaults; the
 settings are saved with the chat and remembered for the next new one. During a code run the box also shows the
 turn, the speed in tokens per second and how full the context is; at 100% it is compacted, and **Compact** does it
 earlier. The context limit is 300 000 characters (about 90k tokens), which needs a context length of 131072 in
@@ -159,7 +160,12 @@ makes it the target of the next chat (shown above the prompt box), **⋯** renam
 A chat keeps its history: the box at the bottom sends a follow-up message in the open chat, and the agent runs
 again with the earlier question and its answer. In a code chat the follow-up works on the same project folder (an
 empty message continues the plan); a research follow-up gets a project of its own, so the first report stays.
-**+ New chat** starts a fresh one. The search field filters the chats by title and question, **Pin to the
+A code chat keeps its whole conversation with the model (also over a restart of the UI): the next message goes
+on from everything that was read, said and done. **Stop** only ends the reply that is being written; nothing is
+forgotten, and your next message continues from there. The conversation gets shorter only by a compaction,
+your own (**Compact**) or the automatic one at the context limit. A research run that is stopped keeps what it
+found as well: its plan and findings are saved in the project. An empty message goes on with that research where
+it stopped; a question is answered with the findings gathered until then. **+ New chat** starts a fresh one. The search field filters the chats by title and question, **Pin to the
 top** in the menu of a chat keeps it above the others, and a chat can be dragged onto a folder (or onto the
 *Chats* head to take it out). Names are edited in place: Enter saves, Esc cancels.
 

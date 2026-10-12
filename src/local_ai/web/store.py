@@ -3,6 +3,7 @@
 <workspace>/ui/index.json     {"folders": [{"id", "name"}], "runs": {id: {question, project, mode, status, title,
                               folder, created}}}
 <workspace>/ui/runs/<id>.jsonl  the events of a run, one JSON object per line (live token output is not kept)
+<workspace>/ui/runs/<id>.chat.json  the conversation of a code chat with the model, to go on with it later
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ class Store:
         self.runs.pop(run_id, None)
         self.save()
         (self.dir / "runs" / f"{run_id}.jsonl").unlink(missing_ok=True)
+        (self.dir / "runs" / f"{run_id}.chat.json").unlink(missing_ok=True)
 
     # -- folders -----------------------------------------------------------------
 
@@ -101,6 +103,22 @@ class Store:
             except json.JSONDecodeError:  # a line cut off by a crash
                 continue
         return events
+
+    # -- conversations -----------------------------------------------------------
+
+    def save_messages(self, run_id: str, conversation: dict) -> None:
+        path = self.dir / "runs" / f"{run_id}.chat.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(conversation, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def load_messages(self, run_id: str) -> dict:
+        path = self.dir / "runs" / f"{run_id}.chat.json"
+        try:
+            return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        except json.JSONDecodeError:  # cut off by a crash: the chat starts a new conversation
+            return {}
 
     def clear(self) -> None:
         """For tests and resets: forget everything."""

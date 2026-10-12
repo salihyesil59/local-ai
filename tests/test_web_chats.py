@@ -165,6 +165,7 @@ def test_a_chat_keeps_its_settings(tmp_path):
         "max_turns": 40,  # max_tokens is out of range, x is unknown
     }
     assert clean_settings(None) == {}
+    assert clean_settings({"max_thinking_chars": "20000", "context_chars": 5}) == {"max_thinking_chars": 20000}
 
     more = FOLLOW_UP
     with make_client([*FINISHING, *more]) as client:
@@ -179,4 +180,26 @@ def test_a_chat_keeps_its_settings(tmp_path):
 
     with make_client() as client:  # after a restart
         assert client.get("/api/runs").json()[0]["settings"] == {"max_turns": 12}
+
+
+def test_a_code_chat_keeps_its_conversation_with_the_model(tmp_path):
+    """A follow-up goes on with everything that was said, also after the UI was restarted."""
+    with make_client([*FINISHING, *FOLLOW_UP]) as client:
+        run_id = start_code_run(client, tmp_path)
+        store = client.app.state.store
+        first = store.load_messages(run_id)
+        assert first["interrupted"] is False and first["messages"][1]["content"].startswith("Add things")
+        assert first["messages"][-1] == {"role": "assistant", "content": "Hazır."}
+
+    with make_client(FOLLOW_UP) as client:  # a new server process: the conversation comes from the store
+        client.post(f"/api/runs/{run_id}/messages", json={"question": "Check it again"})
+        assert read_events(client, run_id)[-1] == {"kind": "end", "status": "done"}
+        messages = client.app.state.store.load_messages(run_id)["messages"]
+        tasks = [m["content"] for m in messages if m["role"] == "user" and not m["content"].startswith(("Verification", "REVIEW"))]
+        assert tasks[0].startswith("Add things") and tasks[-1].startswith("Check it again")
+        assert "Earlier in this chat" not in tasks[-1]  # the conversation itself is there, no retelling needed
+        assert len(messages) > len(first["messages"]) + 4
+
+        assert client.delete(f"/api/runs/{run_id}").json() == {"ok": True}
+        assert client.app.state.store.load_messages(run_id) == {}
 

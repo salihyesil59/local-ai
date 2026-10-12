@@ -233,7 +233,6 @@ def create_app(
         """Run one message of a chat: the first one, or a follow-up (project is the research project)."""
         async with state["lock"]:
             run.status = "running"
-            run.agent = None  # the agent of an earlier message is gone
             store.update_run(run.id, status="running")
             run.push({"kind": "status", "status": "running"})
             try:
@@ -249,7 +248,7 @@ def create_app(
                 if options.get("servers") is not None:
                     run_settings.servers = list(options["servers"])
                 if options.get("mode") == "code":
-                    await run_code(run, question, options, run_settings, state["client"], state["bridge"])
+                    await run_code(run, question, options, run_settings, state["client"], state["bridge"], store)
                 else:
                     await run_research(
                         run,
@@ -457,20 +456,26 @@ def create_app(
                 run.push({"kind": "steer", "text": message})
                 return JSONResponse(run.summary(), status_code=202)
             return JSONResponse({"error": "wait until the run has ended, or cancel it"}, status_code=409)
+        load_events(run)
+        project = ""
         if run.mode != "code":
-            if not message:
-                return JSONResponse({"error": "question is required"}, status_code=400)
             if state["bridge"] is None:
                 return JSONResponse({"error": state["error"] or "MCP servers not ready"}, status_code=503)
-        load_events(run)
-        options = {**body, "mode": run.mode, "folder": run.project, "resume": False}
+            if not message:  # go on with the research that was stopped, from its saved plan and findings
+                project = run.resumable()
+                if not project:
+                    return JSONResponse({"error": "question is required"}, status_code=400)
+        options = {**body, "mode": run.mode, "folder": run.project, "resume": bool(project)}
         task = run.follow_up(message) if message else ""  # an empty message continues the plan of a code chat
+        if run.mode == "code":  # the agent still has the conversation: the message alone is enough
+            options["with_earlier_answer"], task = task, message
         if "settings" in body:
             run.settings = clean_settings(body["settings"])
         run.status = "queued"
         store.update_run(run.id, status="queued", settings=run.settings)
-        run.push({"kind": "user", "text": message or "(continue the plan)"})
-        run.task = asyncio.create_task(execute(run, options, task))  # a research follow-up gets its own project
+        run.push({"kind": "user", "text": message or ("(continue the research)" if project else "(continue the plan)")})
+        # a research follow-up with a question gets a project of its own; without one the stopped project goes on
+        run.task = asyncio.create_task(execute(run, options, task, project))
         return JSONResponse(run.summary(), status_code=202)
 
     async def run_events(request: Request) -> Response:

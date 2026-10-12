@@ -187,3 +187,48 @@ def test_mcp_servers_are_listed_added_disabled_and_removed(mcp_config):
         assert client.get("/api/mcp").json()["editable"] is False  # started without a file to change
         assert client.post("/api/mcp", json={"name": "x", "command": "y"}).status_code == 400
 
+
+def test_a_stopped_research_keeps_what_it_found(mcp_config):
+    from local_ai.web.runs import Run
+
+    # what a later question is given: the findings of the stopped run, or what its tools returned
+    run = Run(id="r", question="What is c?", project="", status="cancelled")
+    run.events = [
+        {"kind": "project", "name": "what-is-c"},
+        {"kind": "tool_result", "name": "library__search_library", "output": "c = 299792458 m/s", "error": False},
+        {"kind": "findings", "index": 1, "question": "What is c?", "text": "- c = 299792458 m/s [1]"},
+        {"kind": "end", "status": "cancelled"},
+    ]
+    task = run.follow_up("And in km/s?")
+    assert task.startswith("And in km/s?") and "stopped before it had an answer" in task
+    assert "## What is c?\n- c = 299792458 m/s [1]" in task and run.resumable() == "what-is-c"
+    assert run.summary()["resumable"] is True
+    run.events = run.events[1:2]  # stopped before any finding: the tool output is what there is
+    assert "c = 299792458 m/s" in run.follow_up("And?") and run.resumable() is None
+    run.events += [{"kind": "answer", "text": "c is 299792458 m/s"}]
+    assert "The answer was:\nc is 299792458 m/s" in run.follow_up("And?") and run.found_so_far() == ""
+
+    # an empty message goes on with the stopped project: its saved plan and findings, then the report
+    replies = script()
+    replies["write"] *= 2
+    replies["learn"] *= 2
+    servers = load_mcp_config(mcp_config)
+    app = create_app(servers, AgentSettings(model="test", critic=False, gap_check=False), client=StreamingClient(replies))
+    with TestClient(app) as client:
+        started = client.post("/api/runs", json={"question": "What is the speed of light?", "project": "light"}).json()
+        events = read_events(client, started["id"])
+        assert {"kind": "project", "name": "light"}.items() <= next(e for e in events if e["kind"] == "project").items()
+        assert client.post(f"/api/runs/{started['id']}/messages", json={"question": ""}).status_code == 400  # it has its report
+
+        stopped = app.state.runs[started["id"]]  # as if the user had stopped it before the report
+        stopped.events = [e for e in stopped.events if e["kind"] not in ("report", "end", "notebook")]
+        stopped.status = "cancelled"
+        assert client.get("/api/runs").json()[0]["resumable"] is True
+        assert client.post(f"/api/runs/{started['id']}/messages", json={"question": ""}).status_code == 202
+        resumed = read_events(client, started["id"])
+        kinds = [e["kind"] for e in resumed]
+        assert kinds[-1] == "end" and resumed[-1]["status"] == "done"
+        assert {"kind": "user", "text": "(continue the research)"}.items() <= resumed[kinds.index("user")].items()
+        after = kinds[kinds.index("user") :]
+        assert "report" in after and "subquestion" not in after  # the findings were there: only the report was written
+

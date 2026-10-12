@@ -127,7 +127,7 @@ async def test_cut_off_reply_gets_a_nudge_not_a_wait(project):
     outcome = await agent.run("task")
     assert not outcome.finished and "stopped before" in outcome.reason
     sent = client.requests[1]["messages"]
-    assert sent[-1] == {"role": "user", "content": prompts.CUT_OFF}
+    assert sent[-1]["role"] == "user" and sent[-1]["content"].startswith(prompts.CUT_OFF)
 
 
 @pytest.mark.anyio
@@ -568,4 +568,84 @@ def test_tool_calls_written_as_function_markup_are_parsed():
     assert found["function"]["name"] == "edit_file"
     assert json.loads(found["function"]["arguments"]) == {"path": "cosmo.py", "old": "a\nb", "steps": ["x", "y"], "start": 3}
     assert strip_tool_calls(content) == "I will look."
+
+
+@pytest.mark.anyio
+async def test_a_cut_off_reply_gets_the_end_of_its_thinking_back(project):
+    thought = "The bug must be in the loop. " * 40 + "So the fix is in tree_cse."
+    agent, client, _ = make_agent(
+        project, [say(finish="length", thinking=thought), say(calls=[plan_call()]), say("stop")], max_nudges=1
+    )
+    await agent.run("task")
+    nudge = client.requests[1]["messages"][-1]["content"]
+    assert nudge.startswith(prompts.CUT_OFF) and "go on from it, do not start again" in nudge
+    assert nudge.endswith("So the fix is in tree_cse.") and len(nudge) < len(prompts.CUT_OFF) + 1700
+
+
+@pytest.mark.anyio
+async def test_the_same_look_up_twice_is_not_answered_again(project):
+    (project / "a.py").write_text("x = 1\n", encoding="utf-8")
+    read = call("read_file", path="a.py")
+    agent, client, events = make_agent(
+        project,
+        [
+            say(calls=[read]),
+            say(calls=[read]),  # nothing has changed: told so
+            say(calls=[plan_call()]),
+            say(calls=[call("edit_file", path="a.py", old="x = 1", new="x = 2")]),
+            say(calls=[read]),  # the file has changed: read again
+            say("stop"),
+        ],
+        max_nudges=0,
+    )
+    await agent.run("task")
+    results = [d["output"] for kind, d in events if kind == "tool_result" and d["name"] == "read_file"]
+    assert results == ["x = 1", prompts.REPEATED, "x = 2"]
+    again, client, events = make_agent(project, [say(calls=[read, call("read_file", path="a.py", start=1, end=1)]), say("stop")])
+    await again.run("task")  # other lines of the same file are another look-up
+    assert prompts.REPEATED not in [d["output"] for kind, d in events if kind == "tool_result"]
+
+
+@pytest.mark.anyio
+async def test_a_stopped_run_goes_on_with_its_conversation(project):
+    """The user stops a reply; the next message finds everything that was said and done."""
+    import asyncio
+
+    class Stopping(FakeClient):
+        async def create(self, **kwargs):
+            if len(self.requests) == 2:  # the third reply never comes: the user presses stop
+                self.requests.append({**kwargs, "messages": list(kwargs["messages"])})
+                raise asyncio.CancelledError
+            return await super().create(**kwargs)
+
+    script = [
+        say(calls=[plan_call()]),
+        say(calls=[call("write_file", path="test_it.py", content=PASSING)]),
+        say("never sent"),
+        say(calls=[call("verify", note="test_add in test_it.py")]),
+        say(calls=[call("verify", note="test_add in test_it.py covers add(1, 1) == 2")]),
+        say("Bitti."),
+    ]
+    client = Stopping(script)
+    agent = CoderAgent(LLM(client, "fake"), project, Settings(require_skill=False))
+    with pytest.raises(asyncio.CancelledError):
+        await agent.run("Add things")
+    assert agent.interrupted and len(agent.messages) == 6  # system, task, plan + result, write + result
+    client.script.pop(0)  # the reply that was cut
+
+    outcome = await agent.run("Go on, and call verify")
+    assert outcome.finished and outcome.summary == "Bitti." and not agent.interrupted
+    resumed = client.requests[3]["messages"]
+    assert resumed[1]["content"] == "Add things" and resumed[5]["content"].startswith("Wrote test_it.py")
+    assert resumed[6]["content"].startswith("(The user stopped your previous reply") and "Go on, and call verify" in resumed[6]["content"]
+    assert "The plan is not finished" in resumed[6]["content"]
+
+    # a stop in the middle of tool calls leaves no call without a result
+    broken = [
+        {"role": "user", "content": "x"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "a"}, {"id": "b"}]},
+        {"role": "tool", "tool_call_id": "a", "content": "done"},
+    ]
+    CoderAgent.repair(broken)
+    assert [m.get("tool_call_id") for m in broken] == [None, None, "a", "b"] and broken[3]["content"] == prompts.STOPPED_CALL
 

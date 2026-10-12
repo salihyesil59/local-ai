@@ -25,7 +25,7 @@ const TR = {
   "Go to Tools (MCP servers)": "Araçlara git (MCP sunucuları)", "Project name": "Proje adı",
   "Theme": "Tema", "auto": "otomatik", "light": "açık", "dark": "koyu", "Language": "Dil",
   // composer
-  "Research": "Araştır", "Code": "Kod", "Send": "Gönder", "Steer": "Yönlendir", "Cancel": "İptal", "Compact": "Sıkıştır",
+  "Research": "Araştır", "Code": "Kod", "Send": "Gönder", "Steer": "Yönlendir", "Stop": "Durdur", "Cancel": "İptal", "Compact": "Sıkıştır",
   "Browse…": "Gözat…", "Waiting for the dialog…": "Pencere bekleniyor…", "Parallel": "Paralel", "Fast": "Hızlı", "Quick": "Kısa yanıt",
   "Skip review, gap check and learning": "İnceleme, eksik kontrolü ve öğrenme atlanır",
   "Quick answer: one tool loop, no plan or report": "Kısa yanıt: tek araç döngüsü, plan ve rapor yok",
@@ -35,6 +35,9 @@ const TR = {
   "Ask a research question — any language.": "Bir araştırma sorusu sor.",
   "Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”": "Bir araştırma sorusu sor. Örn. “Hidrojen atomunun taban durum enerjisini türet.”",
   "Ask a follow-up question.": "Takip sorusu sor.",
+  "Ask something with what was found so far, or leave empty to go on with the research.":
+    "Şimdiye kadar bulunanlarla bir şey sor, ya da araştırmaya devam etmek için boş bırak.",
+  "continue the research": "araştırmaya devam et",
   "What to build, change or fix. Leave empty to continue the plan in the folder.": "Ne yazılsın, değişsin ya da düzeltilsin? Klasördeki plana devam etmek için boş bırak.",
   "Next instruction for this project. Leave empty to continue the plan.": "Bu proje için sıradaki talimat. Plana devam etmek için boş bırak.",
   "Tell the agent what to change. It reads the message before its next reply.": "Ajana neyi değiştireceğini yaz. Mesajı sonraki yanıtından önce okur.",
@@ -52,6 +55,9 @@ const TR = {
   "Tokens per model reply, thinking included": "Model yanıtı başına token, düşünme dahil",
   "Model replies in one run": "Bir çalıştırmadaki model yanıtı sayısı",
   "Context limit (characters)": "Bağlam sınırı (karakter)",
+  "Thinking limit (characters)": "Düşünme sınırı (karakter)",
+  "A reply that only thinks is stopped after this many characters and told to act. Raise it for hard problems; the token limit of a reply still applies.":
+    "Yalnızca düşünen bir yanıt bu kadar karakterden sonra durdurulur ve harekete geçmesi istenir. Zor problemlerde yükselt; yanıtın token sınırı yine geçerlidir.",
   "The conversation is compacted above this many characters (about 3 per token). Keep it below the context length set in LM Studio.":
     "Konuşma bu kadar karakteri aşınca sıkıştırılır (token başına yaklaşık 3 karakter). LM Studio'daki bağlam uzunluğunun altında tut.",
   "Tool-calling steps per sub-question": "Alt soru başına araç çağrısı adımı",
