@@ -86,6 +86,14 @@ def save(root: Path, state: dict) -> None:
     moim_file().write_text(reminder(root, state), encoding="utf-8")
 
 
+def archive(root: Path) -> None:
+    """Put the plan aside (state-<time>.json): the next task in this folder starts without one."""
+    path = root / STATE_DIR / "state.json"
+    if path.is_file():
+        path.replace(path.with_name(f"state-{time.strftime('%Y%m%d-%H%M%S')}.json"))
+        moim_file().write_text(IDLE, encoding="utf-8")
+
+
 def log_event(root: Path, **event) -> None:
     event = {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), **event}
     with (root / STATE_DIR / "log.jsonl").open("a", encoding="utf-8") as f:

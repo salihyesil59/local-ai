@@ -550,7 +550,8 @@ async def test_a_finished_plan_does_not_end_the_next_task(project):
     )
     outcome = await agent.run("Change it")
     assert outcome.finished and outcome.summary == "Simdi bitti."
-    assert "belongs to an earlier task" in client.requests[0]["messages"][1]["content"]
+    assert "An earlier task in" in client.requests[0]["messages"][1]["content"]
+    assert len(list((project / ".local-coder").glob("state-*.json"))) == 1  # the old plan was put aside
     assert "tools" in client.requests[1]  # after read_file the model still has its tools: no early wrap-up
     assert client.requests[2]["messages"][-1]["content"] == prompts.NEEDS_NEW_PLAN
 

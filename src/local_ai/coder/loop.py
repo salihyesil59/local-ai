@@ -226,6 +226,8 @@ class CoderAgent:
         status = st.render(self.root, state) if state and not st.finished(state) else None
         # A finished plan is the earlier task's: this task is done only after a plan of its own.
         self.earlier_plan = state is not None and st.finished(state)
+        if self.earlier_plan:  # put it aside: verify and status must not answer for the old task
+            st.archive(self.root)
         base_tools = coder_tools(self.root, False)
         extra_names = [name for name in self.tools if name not in base_tools]
         skills = sk.load_skills()

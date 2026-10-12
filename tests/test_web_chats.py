@@ -24,6 +24,7 @@ FINISHING = [
 ]
 # A follow-up message is a task of its own: a new plan, then verify until ALL DONE.
 FOLLOW_UP = [
+    ("", [{"name": "load_skill", "arguments": json.dumps({"name": "new-feature"})}]),
     ("", [call("plan", goal="Check", steps=["check add"], criteria=["1 + 1 == 2"], verify_command=PYTEST)]),
     ("", [call("verify", note="test_add in test_add.py covers it")]),
     ("", [call("verify", note="test_add in test_add.py covers 1 + 1 == 2")]),

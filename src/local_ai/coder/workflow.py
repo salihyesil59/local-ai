@@ -87,9 +87,10 @@ def make_plan(root: Path, goal: str, steps: list[str], criteria: list[str], veri
                 "they check: every step is a change to the code and includes its tests. Remove the step or merge "
                 "it into the step that implements what it tests, then call plan again."
             )
-    command = vf.in_project_env(verify_command.strip(), root) or vf.detect_command(root) or ""
-    state = st.new_state(goal.strip(), steps, criteria, command)
-    before = failing_before(root, state)
+    chosen = vf.in_project_env(verify_command.strip(), root)
+    state = st.new_state(goal.strip(), steps, criteria, chosen or vf.detect_command(root) or "")
+    # A command chosen for the task names the tests of the task: none of their failures is somebody else's.
+    before = "" if chosen else failing_before(root, state)
     state["snapshot"] = vf.snapshot(root)  # after the run: tests may write files
     st.save(root, state)
     st.log_event(root, event="plan", goal=state["goal"], steps=len(steps), criteria=len(criteria))
@@ -100,8 +101,9 @@ def make_plan(root: Path, goal: str, steps: list[str], criteria: list[str], veri
 
 
 def failing_before(root: Path, state: dict) -> str:
-    """Run the tests once before the work begins. Tests that fail already, and that the plan does not name, go
-    into state["baseline"]: verify does not count them. Returns what to tell the model about it."""
+    """Run the project's whole test command once before the work begins. Tests that fail already, and that the
+    plan does not name, go into state["baseline"]: verify does not count them, and says so every time.
+    Returns what to tell the model about it."""
     command = state["verify_command"]
     if not command or not vf.has_tests(root):
         return ""
@@ -179,6 +181,11 @@ def run_verify(root: Path, note: str = "", timeout: float = 300, tests: str = ""
                 if note.strip():
                     state["review_note"] = note.strip()
                 message = f"PASSED (review, {took}).\n{ALL_DONE} Give the user a short summary of what changed."
+                if ignored:
+                    message += (
+                        f"\nThese tests still fail, as they did before your changes: {', '.join(ignored[:8])}. "
+                        "You have not fixed them: say so in the summary, do not call that code correct."
+                    )
         elif unchanged and not (note.strip() and vf.note_cites_project(note, root)):
             message = (
                 f"PASSED ({took}), but no file has changed since the plan or the last passing verify, and the note "

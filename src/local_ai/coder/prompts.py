@@ -32,8 +32,9 @@ LARGE_PROJECT = (
     "{skill}\n\n{map}"
 )
 CUT_OFF = (
-    "Your last reply was cut off because it was too long (thinking included). Do not think it through again: "
-    "decide and act now with a tool call."
+    "Your last reply was cut off because it was too long (thinking included). Do not work it out in your head "
+    "again: act now with a tool call. To find a bug, call verify and read what fails, or read the code again; "
+    "then change one thing and call verify."
 )
 CUT_OFF_CALL = (
     "Your last reply was cut off in the middle of a tool call, so it was not run. Do not think it through again. "
@@ -44,13 +45,13 @@ AUTO_VERIFY = "You made {edits} edits without calling verify, so verify was run 
 STOPPED = "You stopped, but the task is not finished. verify was run for you:\n{result}"
 NEEDS_PLAN = "You stopped, but there is no plan yet. Call plan first, then implement the task."
 EARLIER_PLAN = (
-    "\n\nThe plan in {root} is finished: it belongs to an earlier task. This is a new task. Look at the code, "
+    "\n\nAn earlier task in {root} is finished and its plan has been put aside. This is a new task. Look at the code, "
     "then call plan for it (a small change is a plan with one step) and work through it until verify reports "
     "ALL DONE."
 )
 NEEDS_NEW_PLAN = (
-    "The plan in the project folder is finished and belongs to an earlier task; nothing has been done for this "
-    "one yet. Call plan for the user's request now, then implement it."
+    "There is no plan for this task yet (the plan of the earlier task is finished and put aside). Call plan for "
+    "the user's request now, then implement it."
 )
 SUMMARY = "Verification reports ALL DONE. Reply now, without tools, with a short summary in Turkish of what changed."
 STEER = "The user sent this message while you were working. Follow it from now on:\n{message}"

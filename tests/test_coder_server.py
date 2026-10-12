@@ -242,9 +242,15 @@ def write_tests(project, **files):
         (project / f"test_{name}.py").write_text(body, encoding="utf-8")
 
 
-def test_tests_that_failed_before_the_work_are_not_counted(project):
+@pytest.fixture
+def detected(monkeypatch):
+    """The project's own test command, as detect_command would find it (here: this Python)."""
+    monkeypatch.setattr(vf, "detect_command", lambda root: PYTEST)
+
+
+def test_tests_that_failed_before_the_work_are_not_counted(project, detected):
     write_tests(project, old="def test_broken():\n    assert 1 == 2\n\n\ndef test_fine():\n    assert True\n")
-    out = make_plan(project, "Add add()", ["Add add() with its test"], ["add(1, 1) == 2"], PYTEST)
+    out = make_plan(project, "Add add()", ["Add add() with its test"], ["add(1, 1) == 2"])
     assert "1 tests fail already, before your changes: test_old.py::test_broken" in out
     state = st.load(project)
     assert state["baseline"] == ["test_old.py::test_broken"] and " -x" not in state["verify_command"]
@@ -257,15 +263,25 @@ def test_tests_that_failed_before_the_work_are_not_counted(project):
     failed = run_verify(project, note="again")
     assert failed.startswith("FAILED") and "test_add.py::test_add" in failed
     write_tests(project, add=PASSING)
-    assert ALL_DONE in run_verify(project, note="test_add in test_add.py covers add(1, 1) == 2")
+    done = run_verify(project, note="test_add in test_add.py covers add(1, 1) == 2")
+    assert ALL_DONE in done and "still fail, as they did before your changes: test_old.py::test_broken" in done
     assert check(project)[0]  # `local-coder check` agrees
 
 
-def test_a_failing_test_the_plan_names_is_the_task_not_the_past(project):
+def test_a_failing_test_the_plan_names_is_the_task_not_the_past(project, detected):
     write_tests(project, old="def test_broken():\n    assert 1 == 2\n")
-    out = make_plan(project, "Fix test_broken", ["Make test_broken in test_old.py pass"], ["test_broken passes"], PYTEST)
+    out = make_plan(project, "Fix test_broken", ["Make test_broken in test_old.py pass"], ["test_broken passes"])
     assert "fail already" not in out and "baseline" not in st.load(project)
     assert run_verify(project, note="tried").startswith("FAILED")
+
+
+def test_a_command_chosen_for_the_task_sets_no_failing_test_aside(project, detected):
+    """The tests of a chosen command are the task: a program with a short name (lis) was left unfixed."""
+    write_tests(project, lis="def test_lis():\n    assert 1 == 2\n")
+    out = make_plan(project, "Fix the programs", ["Find the bug and fix it"], ["the tests pass"], PYTEST + " test_lis.py")
+    assert "fail already" not in out and "baseline" not in st.load(project)
+    assert run_verify(project, note="nothing to fix").startswith("FAILED")
+    assert vf.test_mentioned("python_testcases/test_lis.py::test_lis[input_data8-3]", "lis.py: fix the bug")
 
 
 def test_verify_can_run_the_tests_of_the_step_only(project):

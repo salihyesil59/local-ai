@@ -135,7 +135,7 @@ def test_mentioned(test_id: str, text: str) -> bool:
     file = test_id.split("::")[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     name = test_id.split("::")[-1].split("[")[0].lower() if "::" in test_id else ""
     subjects = {s.removesuffix(".py").removeprefix("test_").removesuffix("_test") for s in (file, name)}
-    return file in text or bool(name and name in text) or any(len(s) >= 4 and s in text for s in subjects)
+    return file in text or bool(name and name in text) or any(len(s) >= 3 and s in text for s in subjects)
 
 
 def has_tests(root: Path) -> bool:
