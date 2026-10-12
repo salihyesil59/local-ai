@@ -14,6 +14,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import sqlite3
 import sys
 import uuid
@@ -28,7 +29,15 @@ from starlette.staticfiles import StaticFiles
 
 from local_ai.coder import files as coder_files
 from local_ai.core.llm import pick_model
-from local_ai.core.mcp_bridge import MCPBridge, ServerConfig, load_mcp_config
+from local_ai.core.mcp_bridge import (
+    MCPBridge,
+    ServerConfig,
+    load_mcp_config,
+    read_servers,
+    server_config,
+    write_server,
+)
+from local_ai.core.mcp_bridge import config_path as mcp_config_path
 from local_ai.research.config import AgentSettings
 from local_ai.servers.common import slugify, workspace_root
 from local_ai.servers.export import FORMATS, ExportError, export, render_body, render_markdown
@@ -105,7 +114,53 @@ async def pick_folder_dialog(initial: str = "") -> str:
     return str(Path(out.decode().strip())) if out.strip() else ""
 
 
-def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None) -> Starlette:
+SERVER_NAME = re.compile(r"[A-Za-z0-9_-]{1,40}")
+
+
+def parse_mcp_server(body: dict) -> tuple[str, dict]:
+    """A server to add, from the form of the UI: (name, its entry for mcp.json). Either the fields name + command
+    (a command line) or url, with env as {"KEY": "value"}; or json, the snippet an MCP server's README gives:
+    {"mcpServers": {"name": {...}}} or {"name": {...}} or, with the name field, the entry itself."""
+    name = str(body.get("name", "")).strip()
+    pasted = str(body.get("json", "")).strip()
+    if pasted:
+        try:
+            data = json.loads(pasted)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"the JSON cannot be read: {e}") from None
+        if not isinstance(data, dict):
+            raise ValueError("the JSON must be an object")
+        data = data.get("mcpServers", data)
+        if "command" in data or "url" in data:
+            spec = data
+        elif len(data) == 1 and isinstance(next(iter(data.values())), dict):
+            name, spec = next(iter(data.items()))
+        else:
+            raise ValueError("the JSON must describe one server")
+    else:
+        command, url = str(body.get("command", "")).strip(), str(body.get("url", "")).strip()
+        spec = {}
+        if command:
+            parts = [p.strip('"') for p in shlex.split(command, posix=os.name != "nt")]
+            spec = {"command": parts[0], "args": parts[1:]}
+        elif url:
+            spec = {"url": url}
+        env = body.get("env") or {}
+        if isinstance(env, dict) and env:
+            spec["env"] = {str(k): str(v) for k, v in env.items()}
+    if not SERVER_NAME.fullmatch(name):
+        raise ValueError("give the server a name of letters, digits, - or _")
+    if not isinstance(spec, dict) or not (spec.get("command") or spec.get("url")):
+        raise ValueError("give a command to start the server, or its URL")
+    if spec.get("url") and not str(spec["url"]).startswith(("http://", "https://")):
+        raise ValueError("the URL must start with http:// or https://")
+    return name, spec
+
+
+def create_app(
+    servers: list[ServerConfig], settings: AgentSettings, client=None, config_path: Path | None = None
+) -> Starlette:
+    """config_path: the mcp.json the servers came from; with it the UI can add, disable and remove servers."""
     workspace = resolve_workspace(servers)
     os.environ.setdefault("LOCAL_AI_WORKSPACE", str(workspace))
     store = Store(workspace)
@@ -140,7 +195,8 @@ def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None
 
             state["client"] = AsyncOpenAI(base_url=settings.base_url, api_key=settings.api_key)
         try:
-            async with MCPBridge(servers) as bridge:
+            # not strict: a server that does not start is shown with its error, the others run
+            async with MCPBridge(servers, strict=False) as bridge:
                 state["bridge"] = bridge
                 yield
         except Exception as e:  # keep the UI up to show the problem
@@ -242,6 +298,102 @@ def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None
             return JSONResponse({"models": [], "default": settings.model, "error": str(e)[:200]})
         ids = [m.id for m in listed if "embed" not in m.id.lower()]
         return JSONResponse({"models": ids, "default": settings.model})
+
+    # -- MCP servers: what is configured, what runs, adding and removing ----------------------------
+
+    def mcp_entry(name: str, spec: dict | None = None) -> dict:
+        bridge = state["bridge"]
+        running = next((s for s in (bridge.servers if bridge else []) if s.name == name), None)
+        spec = spec if spec is not None else ({"command": running.command, "args": running.args, "url": running.url})
+        connected = bool(bridge and name in bridge.sessions)
+        tools = [t for t in bridge.tools.values() if t.server == name] if bridge else []
+        return {
+            "name": name,
+            "command": " ".join([spec.get("command") or "", *map(str, spec.get("args") or [])]).strip(),
+            "url": spec.get("url") or "",
+            "env": sorted(dict(spec.get("env") or {})),  # the names only: values may be keys or tokens
+            "disabled": bool(spec.get("disabled")),
+            "connected": connected,
+            "error": "" if connected or not bridge else bridge.errors.get(name, ""),
+            "tools": [{"name": t.tool, "description": " ".join(t.description.split())[:200]} for t in tools],
+            "required": name == settings.notebook_server,
+        }
+
+    def mcp_servers() -> list[dict]:
+        configured = read_servers(config_path) if config_path else {}
+        entries = [mcp_entry(name, spec) for name, spec in configured.items()]
+        bridge = state["bridge"]
+        entries += [mcp_entry(s.name) for s in (bridge.servers if bridge else []) if s.name not in configured]
+        return entries
+
+    async def list_mcp(request: Request) -> Response:
+        return JSONResponse(
+            {"config": str(config_path) if config_path else "", "editable": bool(config_path), "servers": mcp_servers()}
+        )
+
+    def mcp_refused(name: str | None = None) -> Response | None:
+        """Why the server list cannot be changed right now, or None."""
+        if not config_path:
+            return JSONResponse({"error": "this UI was started without an mcp.json to change"}, status_code=400)
+        if state["bridge"] is None:
+            return JSONResponse({"error": state["error"] or "MCP servers not ready"}, status_code=503)
+        if state["lock"].locked():
+            return JSONResponse({"error": "wait until the run has ended"}, status_code=409)
+        if name is not None and name not in read_servers(config_path):
+            return JSONResponse({"error": "unknown server"}, status_code=404)
+        return None
+
+    async def mcp_start(name: str, spec: dict) -> None:
+        """Start (or stop, when disabled) a server as its entry in the file says; a failure stays in bridge.errors."""
+        bridge = state["bridge"]
+        if spec.get("disabled"):
+            await bridge.disconnect(name)
+            bridge.errors.pop(name, None)
+            return
+        with contextlib.suppress(Exception):
+            await bridge.connect(server_config(name, spec))
+
+    async def add_mcp(request: Request) -> Response:
+        refused = mcp_refused()
+        if refused:
+            return refused
+        try:
+            name, spec = parse_mcp_server(await request.json())
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        write_server(config_path, name, spec)
+        await mcp_start(name, spec)
+        return JSONResponse(mcp_entry(name, spec), status_code=201)
+
+    async def update_mcp(request: Request) -> Response:
+        name = request.path_params["name"]
+        refused = mcp_refused(name)
+        if refused:
+            return refused
+        body = await request.json()
+        spec = read_servers(config_path)[name]
+        if "disabled" in body:
+            if body["disabled"] and name == settings.notebook_server:
+                return JSONResponse({"error": "the research agent needs this server"}, status_code=400)
+            spec = {**spec, "disabled": bool(body["disabled"])}
+            if not spec["disabled"]:
+                del spec["disabled"]
+            write_server(config_path, name, spec)
+        await mcp_start(name, spec)  # also the way to restart a server
+        return JSONResponse(mcp_entry(name, spec))
+
+    async def delete_mcp(request: Request) -> Response:
+        name = request.path_params["name"]
+        refused = mcp_refused(name)
+        if refused:
+            return refused
+        if name == settings.notebook_server:
+            return JSONResponse({"error": "the research agent needs this server"}, status_code=400)
+        await state["bridge"].disconnect(name)
+        state["bridge"].errors.pop(name, None)
+        state["bridge"].servers = [s for s in state["bridge"].servers if s.name != name]
+        write_server(config_path, name, None)
+        return JSONResponse({"ok": True})
 
     async def create_run(request: Request) -> Response:
         body = await request.json()
@@ -580,6 +732,10 @@ def create_app(servers: list[ServerConfig], settings: AgentSettings, client=None
         Route("/", index),
         Route("/api/status", status),
         Route("/api/models", models),
+        Route("/api/mcp", list_mcp),
+        Route("/api/mcp", add_mcp, methods=["POST"]),
+        Route("/api/mcp/{name}", update_mcp, methods=["PATCH"]),
+        Route("/api/mcp/{name}", delete_mcp, methods=["DELETE"]),
         Route("/api/runs", create_run, methods=["POST"]),
         Route("/api/runs", list_runs),
         Route("/api/runs/{run_id}/events", run_events),
@@ -630,7 +786,7 @@ def main(argv: list[str]) -> int:
     if args.model:
         settings.model = args.model
     only = [s.strip() for s in args.servers.split(",")] if args.servers else None
-    app = create_app(load_mcp_config(args.mcp_config, only), settings)
+    app = create_app(load_mcp_config(args.mcp_config, only), settings, config_path=mcp_config_path(args.mcp_config))
     url = f"http://127.0.0.1:{args.port}"
     print(f"Local AI UI: {url}")
     if not args.no_browser:

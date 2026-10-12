@@ -39,32 +39,64 @@ def load_mcp_config(path: str | os.PathLike | None = None, only: list[str] | Non
 
     {"mcpServers": {"library": {"command": "local-ai-library", "args": [], "env": {}}}}
 
-    Default: LOCAL_AI_MCP_CONFIG, else LM Studio's ~/.lmstudio/mcp.json.
+    Default: LOCAL_AI_MCP_CONFIG, else LM Studio's ~/.lmstudio/mcp.json. Disabled servers are left out.
     """
-    path = path or os.environ.get("LOCAL_AI_MCP_CONFIG")
-    path = Path(path).expanduser() if path else DEFAULT_MCP_CONFIG
+    path = config_path(path)
     if not path.is_file():
         raise FileNotFoundError(
             f"MCP config not found: {path}. Pass --mcp-config or create it from config/lmstudio/mcp.json.example."
         )
-    data = json.loads(path.read_text(encoding="utf-8"))
-    servers = []
-    for name, spec in data.get("mcpServers", {}).items():
-        if only and name not in only:
-            continue
-        if spec.get("disabled"):
-            continue
-        servers.append(
-            ServerConfig(
-                name=name,
-                command=spec.get("command"),
-                args=list(spec.get("args", [])),
-                env=dict(spec.get("env", {})),
-                url=spec.get("url"),
-                headers=dict(spec.get("headers", {})),
-            )
-        )
-    return servers
+    return [
+        server_config(name, spec)
+        for name, spec in read_servers(path).items()
+        if not (only and name not in only) and not spec.get("disabled")
+    ]
+
+
+def config_path(path: str | os.PathLike | None = None) -> Path:
+    """The mcp.json in use: the given one, else LOCAL_AI_MCP_CONFIG, else LM Studio's ~/.lmstudio/mcp.json."""
+    path = path or os.environ.get("LOCAL_AI_MCP_CONFIG")
+    return Path(path).expanduser() if path else DEFAULT_MCP_CONFIG
+
+
+def server_config(name: str, spec: dict) -> ServerConfig:
+    return ServerConfig(
+        name=name,
+        command=spec.get("command"),
+        args=[str(a) for a in spec.get("args", [])],
+        env={str(k): str(v) for k, v in dict(spec.get("env", {})).items()},
+        url=spec.get("url"),
+        headers=dict(spec.get("headers", {})),
+    )
+
+
+def read_servers(path: Path) -> dict[str, dict]:
+    """Every server of an mcp.json as written there (also the disabled ones); {} when the file does not exist."""
+    if not path.is_file():
+        return {}
+    return dict(json.loads(path.read_text(encoding="utf-8")).get("mcpServers", {}))
+
+
+def write_server(path: Path, name: str, spec: dict | None) -> None:
+    """Add or replace one server in an mcp.json (spec None removes it); the rest of the file stays as it is."""
+    data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    servers = data.setdefault("mcpServers", {})
+    if spec is None:
+        servers.pop(name, None)
+    else:
+        servers[name] = spec
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def describe(error: BaseException) -> str:
+    """One line for why a server did not start (errors of a task group come wrapped in a group)."""
+    while getattr(error, "exceptions", None):  # an exception group (Python 3.11+, or the backport)
+        error = error.exceptions[0]
+    text = " ".join(str(error).split())
+    return f"{type(error).__name__}: {text[:300]}" if text else type(error).__name__
 
 
 def _field(obj, camel: str, snake: str, default=None):
@@ -88,11 +120,16 @@ def public_tool_name(server: str, tool: str) -> str:
 
 
 class MCPBridge:
-    def __init__(self, servers: list[ServerConfig]):
-        self.servers = servers
+    """The running MCP servers and their tools. Every server lives in a task of its own, so one can be started or
+    stopped while the others keep running (the web UI adds and removes servers)."""
+
+    def __init__(self, servers: list[ServerConfig], strict: bool = True):
+        self.servers = list(servers)
+        self.strict = strict  # False: a server that does not start is noted in errors and the others run
         self.sessions: dict[str, ClientSession] = {}
         self.tools: dict[str, BridgedTool] = {}
-        self._stack = AsyncExitStack()
+        self.errors: dict[str, str] = {}  # server -> why it is not running
+        self._running: dict[str, tuple[asyncio.Task, asyncio.Event]] = {}
         # Read-only tools whose results may be reused within a run (set by the agent).
         self.cacheable: set[str] = set()
         self._cache: dict[tuple[str, str], asyncio.Future] = {}
@@ -101,46 +138,94 @@ class MCPBridge:
     async def __aenter__(self) -> MCPBridge:
         try:
             for server in self.servers:
-                await self._connect(server)
+                try:
+                    await self.connect(server)
+                except Exception:
+                    if self.strict:
+                        raise
         except BaseException:
-            await self._stack.aclose()
+            await self.close()
             raise
         return self
 
     async def __aexit__(self, *exc) -> None:
-        await self._stack.aclose()
+        await self.close()
 
-    async def _connect(self, server: ServerConfig) -> None:
-        if server.command:
-            params = StdioServerParameters(
-                command=server.command,
-                args=server.args,
-                env={**os.environ, **server.env},
-            )
-            read, write = await self._stack.enter_async_context(stdio_client(params))
-        elif server.url:
-            from mcp.client.streamable_http import streamablehttp_client
+    async def close(self) -> None:
+        for name in reversed(list(self._running)):
+            await self.disconnect(name)
 
-            read, write, _ = await self._stack.enter_async_context(
-                streamablehttp_client(server.url, headers=server.headers or None)
-            )
-        else:
-            raise ValueError(f"MCP server {server.name!r} has neither 'command' nor 'url'.")
+    async def connect(self, server: ServerConfig) -> None:
+        """Start a server and list its tools; a server of the same name is stopped first. On failure the reason is
+        kept in errors and raised."""
+        await self.disconnect(server.name)
+        self.errors.pop(server.name, None)
+        self.servers = [s for s in self.servers if s.name != server.name] + [server]
+        ready: asyncio.Future = asyncio.get_running_loop().create_future()
+        stop = asyncio.Event()
+        task = asyncio.create_task(self._serve(server, ready, stop))
+        self._running[server.name] = (task, stop)
+        try:
+            await ready
+        except BaseException as e:
+            self._running.pop(server.name, None)
+            await asyncio.gather(task, return_exceptions=True)
+            self.errors[server.name] = describe(e)
+            raise
 
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        self.sessions[server.name] = session
+    async def disconnect(self, name: str) -> None:
+        """Stop a server; its tools are gone when this returns."""
+        running = self._running.pop(name, None)
+        if running:
+            task, stop = running
+            stop.set()
+            await asyncio.gather(task, return_exceptions=True)
 
-        result = await session.list_tools()
-        for tool in result.tools:
-            name = public_tool_name(server.name, tool.name)
-            self.tools[name] = BridgedTool(
-                public_name=name,
-                server=server.name,
-                tool=tool.name,
-                description=tool.description or "",
-                input_schema=_field(tool, "inputSchema", "input_schema") or {"type": "object", "properties": {}},
-            )
+    async def _serve(self, server: ServerConfig, ready: asyncio.Future, stop: asyncio.Event) -> None:
+        """The life of one server: connect, list the tools, then wait until it is stopped. The connection is
+        opened and closed in this task, as its context managers require."""
+        try:
+            async with AsyncExitStack() as stack:
+                if server.command:
+                    params = StdioServerParameters(
+                        command=server.command, args=server.args, env={**os.environ, **server.env}
+                    )
+                    read, write = await stack.enter_async_context(stdio_client(params))
+                elif server.url:
+                    from mcp.client.streamable_http import streamablehttp_client
+
+                    read, write, _ = await stack.enter_async_context(
+                        streamablehttp_client(server.url, headers=server.headers or None)
+                    )
+                else:
+                    raise ValueError(f"MCP server {server.name!r} has neither 'command' nor 'url'.")
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                result = await session.list_tools()
+                self.sessions[server.name] = session
+                for tool in result.tools:
+                    name = public_tool_name(server.name, tool.name)
+                    self.tools[name] = BridgedTool(
+                        public_name=name,
+                        server=server.name,
+                        tool=tool.name,
+                        description=tool.description or "",
+                        input_schema=_field(tool, "inputSchema", "input_schema")
+                        or {"type": "object", "properties": {}},
+                    )
+                ready.set_result(None)
+                await stop.wait()
+        except BaseException as e:
+            if not ready.done():
+                ready.set_exception(e)
+            elif isinstance(e, Exception):
+                self.errors[server.name] = f"stopped: {describe(e)}"
+            if not isinstance(e, Exception):
+                raise
+        finally:
+            self.sessions.pop(server.name, None)
+            for name in [n for n, t in self.tools.items() if t.server == server.name]:
+                del self.tools[name]
 
     def has(self, name: str) -> bool:
         return name in self.tools

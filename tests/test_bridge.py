@@ -51,3 +51,27 @@ async def test_bridge_exposes_and_calls_tools(mcp_config):
 
 def test_load_config_filters(mcp_config):
     assert [s.name for s in load_mcp_config(mcp_config, only=["library"])] == ["library"]
+
+
+async def test_servers_can_be_started_and_stopped_while_others_run(mcp_config):
+    from local_ai.core.mcp_bridge import ServerConfig, read_servers, write_server
+
+    servers = load_mcp_config(mcp_config, only=["notebook"])
+    broken = ServerConfig(name="broken", command="this-command-does-not-exist-anywhere")
+    async with MCPBridge([*servers, broken], strict=False) as bridge:  # the broken one does not stop the others
+        assert set(bridge.sessions) == {"notebook"} and "broken" in bridge.errors
+        library = load_mcp_config(mcp_config, only=["library"])[0]
+        await bridge.connect(library)
+        assert bridge.has("library__search_library") and bridge.has("notebook__write_note")
+        await bridge.disconnect("library")
+        assert not bridge.has("library__search_library") and bridge.has("notebook__write_note")
+        text, err = await bridge.call("notebook__list_projects", {})
+        assert not err
+
+    # the file: one server replaced or removed, the rest untouched; a disabled server is not loaded
+    write_server(mcp_config, "extra", {"command": "x", "args": ["-y"], "disabled": True})
+    assert set(read_servers(mcp_config)) == {"library", "notebook", "compute", "extra"}
+    assert "extra" not in {s.name for s in load_mcp_config(mcp_config)}
+    write_server(mcp_config, "extra", None)
+    assert set(read_servers(mcp_config)) == {"library", "notebook", "compute"}
+

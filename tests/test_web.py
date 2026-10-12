@@ -141,3 +141,49 @@ def test_find_passage_ignores_spacing_and_reports_a_missing_quote():
     assert found["match"].startswith("The speed of  light") and found["before"] == "Intro text.\n"
     assert found["after"].startswith(" per second")
     assert find_passage(evidence, "light is made of cheese") is None and find_passage(evidence, "…") is None
+
+
+def test_mcp_servers_are_listed_added_disabled_and_removed(mcp_config):
+    from local_ai.core.mcp_bridge import read_servers
+    from local_ai.web.app import parse_mcp_server
+
+    servers = load_mcp_config(mcp_config, only=["notebook"])
+    app = create_app(servers, AgentSettings(model="test"), client=StreamingClient({}), config_path=mcp_config)
+    library = read_servers(mcp_config)["library"]
+    with TestClient(app) as client:
+        listed = {s["name"]: s for s in client.get("/api/mcp").json()["servers"]}
+        assert listed["notebook"]["connected"] and listed["notebook"]["required"] and listed["notebook"]["tools"]
+        assert not listed["library"]["connected"]  # configured, but this UI started the notebook only
+
+        # add one from the snippet of a README; it starts at once and its tools are there
+        snippet = json.dumps({"mcpServers": {"books": library}})
+        added = client.post("/api/mcp", json={"json": snippet}).json()
+        assert added["name"] == "books" and added["connected"] and added["error"] == ""
+        assert "search_library" in {t["name"] for t in added["tools"]}
+        assert added["env"] == sorted(library["env"])  # the names of the variables, never their values
+        assert "books" in client.get("/api/status").json()["servers"] and "books" in read_servers(mcp_config)
+
+        # a command that does not start is saved and shown with its error
+        bad = client.post("/api/mcp", json={"name": "bad", "command": "no-such-command-anywhere --x"}).json()
+        assert not bad["connected"] and bad["error"] and read_servers(mcp_config)["bad"]["args"] == ["--x"]
+
+        off = client.patch("/api/mcp/books", json={"disabled": True}).json()
+        assert off["disabled"] and not off["connected"] and read_servers(mcp_config)["books"]["disabled"] is True
+        on = client.patch("/api/mcp/books", json={"disabled": False}).json()
+        assert on["connected"] and "disabled" not in read_servers(mcp_config)["books"]
+
+        assert client.delete("/api/mcp/books").json() == {"ok": True}
+        assert "books" not in read_servers(mcp_config) and "books" not in client.get("/api/status").json()["servers"]
+        assert client.delete("/api/mcp/notebook").status_code == 400  # the research agent needs it
+        assert client.patch("/api/mcp/notebook", json={"disabled": True}).status_code == 400
+        assert client.delete("/api/mcp/nope").status_code == 404
+        assert client.post("/api/mcp", json={"name": "bad name!", "command": "x"}).status_code == 400
+        assert client.post("/api/mcp", json={"name": "x"}).status_code == 400
+
+    assert parse_mcp_server({"name": "web", "url": "https://example.org/mcp"}) == ("web", {"url": "https://example.org/mcp"})
+    assert parse_mcp_server({"name": "n", "json": '{"command": "uvx", "args": ["pkg"]}'})[1]["args"] == ["pkg"]
+    assert parse_mcp_server({"name": "e", "command": "srv", "env": {"KEY": 1}})[1]["env"] == {"KEY": "1"}
+    with TestClient(create_app([], AgentSettings(model="test"), client=StreamingClient({}))) as client:
+        assert client.get("/api/mcp").json()["editable"] is False  # started without a file to change
+        assert client.post("/api/mcp", json={"name": "x", "command": "y"}).status_code == 400
+
