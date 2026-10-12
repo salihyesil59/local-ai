@@ -1,3 +1,4 @@
+import os
 import sys
 
 from local_ai.coder import verify as vf
@@ -56,3 +57,33 @@ def test_signature_ignores_numbers_but_not_the_error():
     assert vf.signature(a) == vf.signature(b) != vf.signature(c)
     assert vf.first_error(a) == "test_it.py:12: AssertionError"
     assert vf.first_error("all quiet\nlast line") == "all quiet"
+
+
+def test_a_command_of_the_model_runs_in_the_projects_environment(tmp_path):
+    assert vf.in_project_env("pytest tests -q", tmp_path) == "pytest tests -q"  # no environment of its own
+    scripts = tmp_path / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+    scripts.mkdir(parents=True)
+    exe = scripts / ("python.exe" if os.name == "nt" else "python")
+    exe.write_text("")
+    assert vf.in_project_env("pytest tests -q", tmp_path) == f'"{exe}" -m pytest tests -q'
+    assert vf.in_project_env("python -m pytest -x", tmp_path) == f'"{exe}" -m pytest -x'
+    assert vf.in_project_env("npm test", tmp_path) == "npm test" and vf.in_project_env("", tmp_path) == ""
+
+
+def test_chosen_tests_replace_the_paths_of_the_command(tmp_path):
+    (tmp_path / "tests").mkdir()
+    for name in ("test_a.py", "test_b.py"):
+        (tmp_path / "tests" / name).write_text("def test_x():\n    pass\n")
+    python = f'"{tmp_path / "python.exe"}"'  # a path with quotes, as detect_command writes it
+    command = f"{python} -m pytest tests tests/test_a.py -q -p no:cacheprovider"
+    assert vf.focused(command, "tests/test_b.py::test_x", tmp_path) == (
+        f"{python} -m pytest -q -p no:cacheprovider tests/test_b.py::test_x"
+    )
+    assert vf.focused("pytest -x", "tests/test_a.py, tests/test_b.py", tmp_path) == "pytest -x tests/test_a.py tests/test_b.py"
+    for bad in ("tests/nope.py", "tests/test_a.py; echo x"):
+        try:
+            vf.focused("pytest", bad, tmp_path)
+        except ValueError:
+            continue
+        raise AssertionError(bad)
+

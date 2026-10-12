@@ -87,7 +87,8 @@ def make_plan(root: Path, goal: str, steps: list[str], criteria: list[str], veri
                 "they check: every step is a change to the code and includes its tests. Remove the step or merge "
                 "it into the step that implements what it tests, then call plan again."
             )
-    state = st.new_state(goal.strip(), steps, criteria, verify_command.strip() or (vf.detect_command(root) or ""))
+    command = vf.in_project_env(verify_command.strip(), root) or vf.detect_command(root) or ""
+    state = st.new_state(goal.strip(), steps, criteria, command)
     before = failing_before(root, state)
     state["snapshot"] = vf.snapshot(root)  # after the run: tests may write files
     st.save(root, state)

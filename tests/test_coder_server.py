@@ -288,4 +288,8 @@ def test_tests_that_cannot_be_chosen_run_everything(project):
     assert out.startswith("PASSED") and "all tests because" in out
     assert vf.failed_tests("FAILED a.py::t1 - x\nERROR b.py - y\nFAILED a.py::t1 - again") == ["a.py::t1", "b.py"]
     assert vf.every_failure("python -m pytest -x -q --maxfail=2 tests") == "python -m pytest -q tests"
+    # a plan about bitcount is about tests/test_bitcount.py, even when it names neither the file nor the test
+    assert vf.test_mentioned("tests/test_bitcount.py::test_bitcount[n0]", "fix the loop in bitcount")
+    assert vf.test_mentioned("tests/test_x.py::test1", "make test_x.py pass")
+    assert not vf.test_mentioned("tests/test_bitcount.py::test1", "fix gcd for negative numbers")
 

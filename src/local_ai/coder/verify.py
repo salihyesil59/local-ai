@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import time
@@ -69,6 +70,18 @@ def project_python(root: Path) -> str:
     return "python"
 
 
+def in_project_env(command: str, root: Path) -> str:
+    """A verify command that starts with `python` or `pytest`, run with the project's own environment when it
+    has one: the model writes "pytest tests/test_x.py", the packages are in the project's .venv."""
+    python = project_python(root)
+    if python == "python":
+        return command
+    for start, replacement in (("python -m ", f"{python} -m "), ("python3 -m ", f"{python} -m "), ("pytest", f"{python} -m pytest")):
+        if command.startswith(start):
+            return replacement + command[len(start) :]
+    return command
+
+
 def run(command: str, root: Path, timeout: float = 300) -> Result:
     """Run `command` in a shell in `root`. Passed means exit code 0. On a timeout the whole process tree is killed."""
     start = time.monotonic()
@@ -117,10 +130,12 @@ def every_failure(command: str) -> str:
 
 
 def test_mentioned(test_id: str, text: str) -> bool:
-    """Whether a text (lower case) names the test or its file."""
+    """Whether a text (lower case) names the test, its file, or what they test: test_bitcount.py and
+    test_bitcount are both about "bitcount". A plan to fix bitcount must not have its failing tests set aside."""
     file = test_id.split("::")[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     name = test_id.split("::")[-1].split("[")[0].lower() if "::" in test_id else ""
-    return file in text or bool(name and name in text)
+    subjects = {s.removesuffix(".py").removeprefix("test_").removesuffix("_test") for s in (file, name)}
+    return file in text or bool(name and name in text) or any(len(s) >= 4 and s in text for s in subjects)
 
 
 def has_tests(root: Path) -> bool:
@@ -135,14 +150,22 @@ def has_tests(root: Path) -> bool:
 
 
 def focused(command: str, tests: str, root: Path) -> str:
-    """The command for some tests only (pytest: files or file::test). ValueError when that cannot be done."""
+    """The command for some tests only (pytest: files or file::test); they replace the test paths the command
+    names itself. ValueError when that cannot be done."""
     if "pytest" not in command:
         raise ValueError("the verify command is not pytest")
     chosen = tests.replace(",", " ").split()
     for item in chosen:
         if not TEST_ID.fullmatch(item) or not (root / item.split("::")[0]).exists():
             raise ValueError(f"{item} is not a test file of the project")
-    return f"{command} {' '.join(chosen)}"
+    kept, after_pytest = [], False
+    for token in shlex.split(command, posix=False):  # quotes stay where they are
+        path = token.strip('"').split("::")[0]
+        if after_pytest and not token.startswith("-") and (root / path).exists():
+            continue  # a test path of the command: the chosen tests stand in for it
+        kept.append(token)
+        after_pytest = after_pytest or token.strip('"').lower().removesuffix(".exe").endswith("pytest")
+    return " ".join([*kept, *chosen])
 
 
 def snapshot(root: Path) -> str:
