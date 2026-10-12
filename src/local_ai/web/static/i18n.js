@@ -7,6 +7,7 @@ const TR = {
   "Chats": "Sohbetler", "Projects": "Projeler", "Memory": "Bellek", "Skills": "Beceriler", "Commands": "Komutlar",
   "Commands and chats": "Komutlar ve sohbetler", "connecting…": "bağlanıyor…", "server not reachable": "sunucuya ulaşılamıyor",
   "model: auto": "model: otomatik", "no servers": "sunucu yok", "tools": "araç", "MCP server": "MCP sunucusu",
+  "Drag to resize; double-click to reset": "Genişliği değiştirmek için sürükle; sıfırlamak için çift tıkla",
   "Theme": "Tema", "auto": "otomatik", "light": "açık", "dark": "koyu", "Language": "Dil",
   // composer
   "Research": "Araştır", "Code": "Kod", "Send": "Gönder", "Steer": "Yönlendir", "Cancel": "İptal", "Compact": "Sıkıştır",

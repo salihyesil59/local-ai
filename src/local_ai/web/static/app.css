@@ -35,12 +35,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .status { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
 .status.err { color: var(--err); }
 
-.layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); flex: 1; min-height: 0; }
+.layout { display: grid; grid-template-columns: var(--sidebar, 280px) minmax(0, 1fr); flex: 1; min-height: 0; position: relative; }
 .sidebar { border-right: 1px solid var(--border); background: var(--surface); padding: 12px; overflow: hidden auto; }
 .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 8px; }
 .tab { border: 0; background: transparent; padding: 6px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--muted); }
 .tab.active { background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
-.side-list { margin-top: 12px; display: grid; gap: 4px; }
+.side-list { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .side-item { text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .side-item { min-width: 0; width: 100%; }
 .side-item .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -213,6 +213,7 @@ details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
 }
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .resizer { display: none; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--border); max-height: 30vh; }
   .view.page { padding: 16px; }
   .report { padding: 14px 16px; }
@@ -317,3 +318,10 @@ kbd { font: 11px var(--mono); border: 1px solid var(--border); border-radius: 4p
 .file-head { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 13px; }
 .file-head strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .file-view pre { margin: 0; border-radius: 0; max-height: 72vh; overflow: auto; white-space: pre; word-break: normal; }
+
+/* -- the edge of the sidebar: drag it to change the width ---------------------------------------------- */
+.resizer { position: absolute; top: 0; bottom: 0; left: calc(var(--sidebar, 280px) - 4px); width: 8px; cursor: col-resize; z-index: 3; touch-action: none; }
+.resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s ease; }
+.resizer:hover::after, .resizer:focus-visible::after, .resizer.dragging::after { background: var(--accent); }
+.resizer:focus-visible { outline: none; }
+body.resizing { cursor: col-resize; user-select: none; }

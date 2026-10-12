@@ -78,6 +78,40 @@ $("#lang").addEventListener("click", switchLanguage);
 $("#lang").textContent = LANG.toUpperCase();
 $("#lang").title = t("Language");
 
+// -- the width of the sidebar: dragged at its edge, remembered in this browser -------------------
+const SIDEBAR = { min: 200, max: 640, initial: 280 };
+
+function setSidebar(width, save = true) {
+  width = Math.round(Math.max(SIDEBAR.min, Math.min(width, SIDEBAR.max, window.innerWidth - 360)));
+  $(".layout").style.setProperty("--sidebar", `${width}px`);
+  $("#resizer").setAttribute("aria-valuenow", width);
+  if (save) remember("sidebar", String(width));
+}
+
+$("#resizer").addEventListener("pointerdown", (ev) => {
+  const handle = ev.currentTarget, left = $(".layout").getBoundingClientRect().left;
+  handle.setPointerCapture(ev.pointerId);
+  handle.classList.add("dragging");
+  document.body.classList.add("resizing");
+  const move = (e) => setSidebar(e.clientX - left, false);
+  const stop = () => {
+    handle.removeEventListener("pointermove", move);
+    handle.classList.remove("dragging");
+    document.body.classList.remove("resizing");
+    remember("sidebar", String(parseInt($(".layout").style.getPropertyValue("--sidebar"), 10) || SIDEBAR.initial));
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", stop, { once: true });
+  handle.addEventListener("pointercancel", stop, { once: true });
+});
+$("#resizer").addEventListener("dblclick", () => setSidebar(SIDEBAR.initial));
+$("#resizer").addEventListener("keydown", (ev) => {
+  if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+  ev.preventDefault();
+  setSidebar((parseInt($(".layout").style.getPropertyValue("--sidebar"), 10) || SIDEBAR.initial) + (ev.key === "ArrowRight" ? 16 : -16));
+});
+if (+recall("sidebar")) setSidebar(+recall("sidebar"), false);
+
 // -- status -----------------------------------------------------------------------
 async function loadStatus() {
   try {
