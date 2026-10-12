@@ -5,30 +5,29 @@ The model only decides what to write next. The program decides when the work is 
   - a reply without tool calls while the task is not finished makes the program run verify and show the result;
   - several edits in a row without verify also make the program run it;
   - the task ends only when the state on disk is finished (verify reported ALL DONE) or a limit is hit;
-  - a long conversation is compacted: the plan and the files are on disk, so old messages can go.
+  - a long conversation is compacted: the plan and the files are on disk, so old messages can go;
+  - a message the user sends while the agent works (steer) is shown to the model before its next reply.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import re
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from local_ai.coder import files as fl
-from local_ai.coder import server as sv
+from local_ai.coder import prompts
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
-from local_ai.coder.agent import prompts
-from local_ai.coder.agent.context import parse_inline_tool_calls, size, strip_think, trim
-from local_ai.coder.agent.llm import LLM, Reply
-from local_ai.coder.agent.tools import EDIT_TOOLS, Tool, coder_tools
+from local_ai.coder import workflow as wf
+from local_ai.coder.tools import EDIT_TOOLS, coder_tools
+from local_ai.core.llm import LLM, Reply, TokenBatcher
+from local_ai.core.text import parse_inline_tool_calls, size, strip_think, trim
+from local_ai.core.tools import Tool, parse_arguments
 
 Emit = Callable[..., None]
-STREAM_FLUSH = 0.15  # seconds between "token" events
 TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
 
 
@@ -74,6 +73,7 @@ class CoderAgent:
         if extra_tools:
             self.tools.update(extra_tools)
         self.compact_requested = False
+        self.steering: list[str] = []  # messages of the user that the model has not seen yet
 
     # -- helpers ---------------------------------------------------------------
 
@@ -83,13 +83,11 @@ class CoderAgent:
         tool = self.tools.get(name)
         if tool is None:
             return f"Error: unknown tool {name!r}. Available tools: {', '.join(self.tools)}"
-        problem = self.bad_arguments(call)
+        args, problem = parse_arguments(raw)
+        self.emit("tool_call", id=call["id"], name=name, arguments=raw)
         if problem:
-            self.emit("tool_call", id=call["id"], name=name, arguments=raw)
             self.emit("tool_result", id=call["id"], name=name, output=problem, error=True)
             return problem
-        args = json.loads(raw) if raw.strip() else {}
-        self.emit("tool_call", id=call["id"], name=name, arguments=raw)
         try:
             if asyncio.iscoroutinefunction(tool.fn):
                 output = await tool.fn(**args)
@@ -106,41 +104,21 @@ class CoderAgent:
     @staticmethod
     def bad_arguments(call: dict) -> str | None:
         """Why the tool call's arguments cannot be used, or None."""
-        raw = call["function"].get("arguments") or "{}"
-        try:
-            args = json.loads(raw) if raw.strip() else {}
-        except json.JSONDecodeError as e:
-            return f"Error: tool arguments are not valid JSON ({e}). Send a JSON object."
-        return None if isinstance(args, dict) else "Error: tool arguments must be a JSON object."
+        return parse_arguments(call["function"].get("arguments") or "{}")[1]
 
     async def verify(self) -> str:
-        result = await asyncio.to_thread(sv.run_verify, self.root)
+        result = await asyncio.to_thread(wf.run_verify, self.root)
         self.emit("auto_verify", output=result)
         self.emit_state()
         return result
 
     async def complete(self, messages: list[dict], tools: list[dict] | None) -> Reply:
         """One model reply; its text and thinking go out as batched "token" events (the format of local-ai's UI)."""
-        pending = {"text": "", "thinking": ""}
-        last = time.monotonic()
-
-        def flush() -> None:
-            for kind, text in pending.items():
-                if text:
-                    self.emit("token", text=text, thinking=kind == "thinking")
-                    pending[kind] = ""
-
-        def on_delta(kind: str, text: str) -> None:
-            nonlocal last
-            pending[kind] += text
-            if time.monotonic() - last > STREAM_FLUSH:
-                flush()
-                last = time.monotonic()
-
+        batch = TokenBatcher(lambda text, thinking: self.emit("token", text=text, thinking=thinking))
         try:
-            return await self.llm.complete(messages, tools, on_delta)
+            return await self.llm.complete(messages, tools, batch.add)
         finally:
-            flush()
+            batch.flush()
             self.emit("stream_end")
 
     def emit_state(self) -> None:
@@ -162,6 +140,10 @@ class CoderAgent:
     def request_compact(self) -> None:
         """Compact before the next model reply (the UI's Compact button)."""
         self.compact_requested = True
+
+    def steer(self, message: str) -> None:
+        """A message of the user for the running task; the model reads it before its next reply."""
+        self.steering.append(message)
 
     @staticmethod
     def transcript(messages: list[dict]) -> str:
@@ -207,10 +189,15 @@ class CoderAgent:
         self.emit("compact", dropped=start - 2, noted=bool(note), manual=manual)
         return [*messages[:2], {"role": "user", "content": summary}, *messages[start:]]
 
-    def emit_turn(self, turn: int, reply: Reply) -> None:
+    def emit_turn(self, turn: int, reply: Reply, context: int) -> None:
+        """What a reply cost; context is the size of the conversation it was given, in characters."""
         self.emit(
             "turn",
             turn=turn,
+            max_turns=self.settings.max_turns,
+            context=context,
+            context_limit=self.settings.context_chars,
+            prompt_tokens=reply.prompt_tokens,
             seconds=reply.seconds,
             tokens=reply.completion_tokens,
             thinking_chars=reply.reasoning_chars,
@@ -237,11 +224,15 @@ class CoderAgent:
             if self.compact_requested or size(messages) > self.settings.context_chars:
                 manual, self.compact_requested = self.compact_requested, False
                 messages = await self.compact(messages, manual)
+            while self.steering and not wrap_up:  # in the wrap-up the model has no tools to act on it
+                messages.append({"role": "user", "content": prompts.STEER.format(message=self.steering.pop(0))})
+                nudges = 0
+            context = size(messages)
             try:
                 reply = await self.complete(messages, None if wrap_up else specs)
             except Exception as e:  # the server (LM Studio) failed; the plan and the files stay on disk
                 return Outcome(False, f"the model server failed: {describe_error(e)}")
-            self.emit_turn(turn, reply)
+            self.emit_turn(turn, reply, context)
             calls = reply.tool_calls or parse_inline_tool_calls(reply.content)
             text = strip_think(reply.content)
 
@@ -292,7 +283,7 @@ class CoderAgent:
 
             state = st.load(self.root)
             if state is not None:
-                if state["repeats"] >= sv.REPEAT_STOP:
+                if state["repeats"] >= wf.REPEAT_STOP:
                     return Outcome(False, f"the same failure happened {state['repeats']} times in a row")
                 if st.finished(state):
                     messages.append({"role": "user", "content": prompts.SUMMARY})

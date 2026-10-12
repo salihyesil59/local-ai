@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 from rich.console import Console
 
-from local_ai.agent.config import AgentSettings, load_mcp_config
-from local_ai.agent.loop import ResearchAgent
-from local_ai.agent.mcp_bridge import MCPBridge
+from local_ai.core.mcp_bridge import MCPBridge, load_mcp_config
+from local_ai.research.config import AgentSettings
+from local_ai.research.loop import ResearchAgent
 
 pytestmark = pytest.mark.anyio
 

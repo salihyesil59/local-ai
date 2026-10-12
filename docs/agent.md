@@ -89,26 +89,37 @@ PDF). The sidebar lists:
 - long-term memory, with search and forget;
 - skills.
 
-It works offline, with no CDN or external assets.
+Model output is shown as it is written: Markdown, coloured code and LaTeX formulas (`$..$`, `$$..$$`, `\(..\)`,
+`\[..\]`). The **⚙** button of the message box opens the settings of the chat: the model (from those LM Studio
+has), temperature, max tokens and max turns (code) or max steps (research). Empty fields use the defaults; the
+settings are saved with the chat and remembered for the next new one. During a code run the box also shows the
+turn, the speed in tokens per second and how full the context is; at 100% it is compacted, and **Compact** does it
+earlier.
+
+In a report, pointing at a citation `[n]` shows its source with the registered quote; a click keeps the card
+open and shows the passage of the tool output the quote was taken from.
+
+The top bar switches the language of the page (English / Turkish; what the agents write stays in their own
+language) and the theme (system, light, dark).
+
+Keyboard: **Ctrl+K** opens the command palette (commands and chats by name), **Ctrl+Enter** sends, **Alt+N**
+starts a new chat, **Ctrl+,** opens the settings, **/** searches the chats, **Esc** closes what is open.
+
+It works offline, with no CDN: the page's only third-party code is [KaTeX](https://katex.org) (MIT), bundled in
+`web/static/vendor/katex`.
 
 ## Code mode
 
 The same page also writes code: switch **Research** to **Code**, give the absolute path of a project folder and the
-task. The agent of [local-coder](https://github.com/salihyesil59/local-coder) plans, writes files and runs the tests
+task. The coding agent (`local_ai.coder`, also `local-coder run`) plans, writes files and runs the tests
 until they pass, and the page shows the plan with its steps, every turn (time, tokens, tool calls) and the model's
 thinking live. Leave the task empty to continue the plan in the folder. Cancel stops it; Compact shortens the
 conversation before the next reply (the model writes notes, the plan stays; it also happens by itself when the
 context gets long). The agent loads built-in coding skills (bug fix, new feature, refactor, from a paper, edge
 cases, CLI) and your own from `~/.local-coder/skills`.
 
-```powershell
-pip install -e ..\local-coder        # once; the Code switch needs it, the status bar says "code mode off" without it
-local-ai ui
-```
-
-Code mode uses the model, `temperature`, `top_p` and `--max-tokens` of the UI; it needs none of the MCP servers.
-One run at a time, research or code, because one model is loaded. Details of the loop:
-[local-coder docs/agent.md](https://github.com/salihyesil59/local-coder/blob/main/docs/agent.md).
+Code mode uses the model, `temperature` and `top_p` of the UI; it needs none of the MCP servers, and can use
+the ones selected with the MCP chips. One run at a time, research or code, because one model is loaded.
 
 ## Chats and folders
 
@@ -117,8 +128,21 @@ chats are still there after a restart. A chat that was running when the server s
 *interrupted*. Titles default to the start of the prompt; the **⋯** of a chat renames it, moves it to a folder or
 deletes it (not while it runs). **+ Folder** creates folders for your programs or topics; the **+** of a folder
 makes it the target of the next chat (shown above the prompt box), **⋯** renames or deletes it (its chats stay).
-A chat is one task with its history; to continue a code task, start a new chat with the same project folder and an
-empty task, which continues the plan in the folder.
+A chat keeps its history: the box at the bottom sends a follow-up message in the open chat, and the agent runs
+again with the earlier question and its answer. In a code chat the follow-up works on the same project folder (an
+empty message continues the plan); a research follow-up gets a project of its own, so the first report stays.
+**+ New chat** starts a fresh one. The search field filters the chats by title and question, **Pin to the
+top** in the menu of a chat keeps it above the others, and a chat can be dragged onto a folder (or onto the
+*Chats* head to take it out). Names are edited in place: Enter saves, Esc cancels.
+
+The panel on the right follows the run: in a code chat the plan with its steps, the last verify and the files
+changed; in a research chat the sub-questions and the registered sources. File edits are shown as a diff and
+verify as a test result (PASSED / FAILED). **Project files** in the panel of a code chat lists the files of the
+project folder; a click shows a file.
+
+While a code run works, the message box sends a message to the running agent (**Steer**): the model reads it
+before its next reply, so the reply it is writing and its tool calls still finish first. A research run takes no
+messages until it has ended.
 
 ## Export
 

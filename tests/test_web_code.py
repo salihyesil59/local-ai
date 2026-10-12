@@ -7,11 +7,10 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("httpx")
-pytest.importorskip("local_coder")
 from starlette.testclient import TestClient  # noqa: E402
 
-from local_ai.agent.config import AgentSettings  # noqa: E402
-from local_ai.agent.web.app import create_app  # noqa: E402
+from local_ai.research.config import AgentSettings  # noqa: E402
+from local_ai.web.app import create_app  # noqa: E402
 from test_web import read_events  # noqa: E402
 
 
@@ -76,7 +75,6 @@ def test_code_mode_runs_the_agent_and_streams_its_events(tmp_path, monkeypatch):
         ("Hazır.", []),
     ]
     with make_client(replies) as client:
-        assert client.get("/api/status").json()["code"] is True
         run = client.post("/api/runs", json={"mode": "code", "question": "Add things", "folder": str(folder)}).json()
         assert run["project"] == str(folder)
         events = read_events(client, run["id"])
@@ -110,7 +108,7 @@ def test_code_mode_needs_an_absolute_folder(tmp_path):
 
 
 def test_pick_folder_returns_the_dialog_choice(monkeypatch, tmp_path):
-    from local_ai.agent.web import app as web
+    from local_ai.web import app as web
 
     seen = []
 
@@ -125,7 +123,7 @@ def test_pick_folder_returns_the_dialog_choice(monkeypatch, tmp_path):
 
 
 def test_pick_folder_reports_a_dialog_that_cannot_open(monkeypatch):
-    from local_ai.agent.web import app as web
+    from local_ai.web import app as web
 
     async def dialog(initial=""):
         raise RuntimeError("No module named 'tkinter'")
@@ -140,14 +138,14 @@ def test_dialog_script_starts_with_tkinter():
     """The dialog itself needs a person; check that its script compiles and tkinter is importable."""
     import importlib.util
 
-    from local_ai.agent.web.app import PICK_FOLDER
+    from local_ai.web.app import PICK_FOLDER
 
     compile(PICK_FOLDER, "pick_folder", "exec")
     assert importlib.util.find_spec("tkinter") is not None
 
 
 def test_compact_button_endpoint(tmp_path):
-    from local_ai.agent.web.app import Run
+    from local_ai.web.runs import Run
 
     class Agent:
         asked = 0
@@ -170,13 +168,14 @@ def test_compact_button_endpoint(tmp_path):
 
 def test_code_mode_integrates_mcp_bridge_tools(tmp_path, monkeypatch):
     from unittest.mock import patch
-    from local_ai.agent.mcp_bridge import BridgedTool
+
+    from local_ai.core.mcp_bridge import BridgedTool, MCPBridge
 
     monkeypatch.setenv("LOCAL_CODER_HOME", str(tmp_path / "home"))
     folder = tmp_path / "app"
     folder.mkdir()
 
-    class FakeBridge:
+    class FakeBridge(MCPBridge):
         def __init__(self):
             self.tools = {
                 "web__search": BridgedTool("web__search", "web", "search", "Search web", {"type": "object"}),
@@ -199,7 +198,7 @@ def test_code_mode_integrates_mcp_bridge_tools(tmp_path, monkeypatch):
         ("", [call("verify", note="covers it")]),
         ("Done.", []),
     ]
-    with patch("local_ai.agent.web.app.MCPBridge") as MockBridgeClass:
+    with patch("local_ai.web.app.MCPBridge") as MockBridgeClass:
         MockBridgeClass.return_value.__aenter__.return_value = mock_inst
         app = create_app([], AgentSettings(model="test"), client=ScriptedClient(replies))
         with TestClient(app) as c:

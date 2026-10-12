@@ -19,25 +19,18 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
+from local_ai.core.llm import TokenBatcher, read_stream
+from local_ai.core.mcp_bridge import MCPBridge
+from local_ai.core.text import extract_json, parse_inline_tool_calls, strip_think, trim
 from local_ai.servers.common import write_notebook
 
 from . import prompts
+from .checks import unknown_citations, unverified_numbers, unverified_quotes
 from .config import AgentSettings
-from .context import (
-    extract_json,
-    parse_inline_tool_calls,
-    strip_think,
-    trim,
-    unknown_citations,
-    unverified_numbers,
-    unverified_quotes,
-)
-from .mcp_bridge import MCPBridge
 from .render import ConsoleRenderer
 from .tools import ToolRoles
 
 EventHandler = Callable[[dict], None]
-STREAM_FLUSH = 0.15  # seconds between "token" events while streaming
 SKILL_LIMITS = re.compile(r"<!-- limits: ((?:max_(?:steps|tool_chars|tokens)=\d+ ?)+)-->\n")
 CACHEABLE_ROLES = (
     "search",
@@ -120,42 +113,11 @@ class ResearchAgent:
         """Stream a completion: text and reasoning go out as batched "token" events while the message (content and
         tool calls) is rebuilt from the deltas."""
         stream = await self.client.chat.completions.create(**kwargs, stream=True)
-        content: list[str] = []
-        calls: dict[int, dict] = {}
-        pending = {"text": "", "thinking": ""}
-        last = time.monotonic()
-
-        def flush() -> None:
-            for kind, text in pending.items():
-                if text:
-                    self.emit("token", index=index, text=text, thinking=kind == "thinking")
-                    pending[kind] = ""
-
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-            if reasoning:
-                pending["thinking"] += reasoning
-            if delta.content:
-                content.append(delta.content)
-                pending["text"] += delta.content
-            for tc in delta.tool_calls or []:
-                call = calls.setdefault(
-                    tc.index, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
-                )
-                call["id"] = tc.id or call["id"]
-                if tc.function is not None:
-                    call["function"]["name"] += tc.function.name or ""
-                    call["function"]["arguments"] += tc.function.arguments or ""
-            if time.monotonic() - last > STREAM_FLUSH:
-                flush()
-                last = time.monotonic()
-        flush()
+        batch = TokenBatcher(lambda text, thinking: self.emit("token", index=index, text=text, thinking=thinking))
+        reply = await read_stream(stream, batch.add)
+        batch.flush()
         self.emit("stream_end", index=index)
-        tool_calls = [{**c, "id": c["id"] or f"call_{i}"} for i, c in sorted(calls.items())]
-        return SimpleNamespace(content="".join(content) or None, tool_calls=tool_calls or None)
+        return SimpleNamespace(content=reply.content or None, tool_calls=reply.tool_calls or None)
 
     async def _ask_json(self, system: str, user: str):
         """One tool-free completion parsed as JSON; None if the reply is unusable."""

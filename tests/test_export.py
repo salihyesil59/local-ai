@@ -85,3 +85,16 @@ def test_pdf_without_latex_explains(project, monkeypatch):
 def test_unknown_format_and_missing_report(tmp_path):
     with pytest.raises(ExportError):
         export(tmp_path, "html")
+
+
+def test_latex_is_kept_away_from_markdown():
+    from local_ai.servers.export import render_markdown
+
+    html = render_markdown(
+        r"Energy $E_n = -\frac{13.6}{n^2}$ eV, \(a_b + c_d\) and `$x$` cost $5 and $10." "\n\n" r"$$\int_0^1 x_i\, dx$$"
+    )
+    assert r'<span class="math">$E_n = -\frac{13.6}{n^2}$</span>' in html  # backslashes and underscores survive
+    assert r'<span class="math">\(a_b + c_d\)</span>' in html and r'<span class="math">$$\int_0^1 x_i\, dx$$</span>' in html
+    assert "<code>$x$</code>" in html and "cost $5 and $10." in html  # code and prices are not formulas
+    assert html.count("math") == 3
+

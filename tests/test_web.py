@@ -7,8 +7,9 @@ import pytest
 pytest.importorskip("httpx")
 from starlette.testclient import TestClient  # noqa: E402
 
-from local_ai.agent.config import AgentSettings, load_mcp_config  # noqa: E402
-from local_ai.agent.web.app import create_app, parse_memory_lines  # noqa: E402
+from local_ai.core.mcp_bridge import load_mcp_config  # noqa: E402
+from local_ai.research.config import AgentSettings  # noqa: E402
+from local_ai.web.app import create_app, parse_memory_lines  # noqa: E402
 from test_loop import StreamingClient, reply  # noqa: E402
 
 
@@ -87,6 +88,15 @@ def test_run_project_export_memory(client):
     detail = client.get("/api/projects/light").json()
     assert detail["sources"][0]["title"] == "Speed of light" and detail["notebook"] and detail["findings"]
 
+    # the card of a citation: the quote of source 1 with the tool output around it
+    cited = client.get("/api/projects/light/sources/1/passages").json()
+    assert cited["source"]["title"] == "Speed of light"
+    (passage,) = cited["passages"]
+    assert passage["quote"] == "c = 299792458 m/s" and passage["match"] == "c = 299792458 m/s"
+    assert "Speed of light" in passage["before"] and "universal physical constant" in passage["after"]
+    assert client.get("/api/projects/light/sources/99/passages").status_code == 404
+    assert client.get("/api/projects/nope/sources/1/passages").status_code == 404
+
     exported = client.post("/api/projects/light/export?format=html").json()
     page = client.get(exported["url"])
     assert page.status_code == 200 and "299792458" in page.text
@@ -121,3 +131,13 @@ def test_parse_memory_lines():
         {"id": 3, "kind": "fact", "text": "c is fast", "sources": "Wikipedia"},
         {"id": 4, "kind": "preference", "text": "Turkish", "sources": ""},
     ]
+
+
+def test_find_passage_ignores_spacing_and_reports_a_missing_quote():
+    from local_ai.web.app import find_passage
+
+    evidence = "Intro text.\nThe speed of  light in vacuum,\nc, is exactly 299792458 metres per second. More."
+    found = find_passage(evidence, "the speed of light in vacuum, c, is exactly 299792458 metres")
+    assert found["match"].startswith("The speed of  light") and found["before"] == "Intro text.\n"
+    assert found["after"].startswith(" per second")
+    assert find_passage(evidence, "light is made of cheese") is None and find_passage(evidence, "…") is None

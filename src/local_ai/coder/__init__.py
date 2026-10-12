@@ -1,3 +1,1 @@
-"""Plan, code, test and fix loop for local models in Goose."""
-
-__version__ = "0.1.0"
+"""The coding agent: a plan, code, test and fix loop for local models (also an MCP server for Goose)."""

@@ -1,4 +1,4 @@
-"""Helpers that keep the context small (same as local-ai's agent/context.py)."""
+"""Text helpers for model replies and tool output: they keep the context small."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def trim(text: str, max_chars: int) -> str:
     head = max_chars * 2 // 3
     tail = max_chars - head
     dropped = len(text) - head - tail
-    return f"{text[:head]}\n\n[... {dropped} characters omitted ...]\n\n{text[-tail:]}"
+    return f"{text[:head]}\n\n[... {dropped} characters omitted; request a narrower section if needed ...]\n\n{text[-tail:]}"
 
 
 def parse_inline_tool_calls(content: str) -> list[dict]:
@@ -52,6 +52,22 @@ def parse_inline_tool_calls(content: str) -> list[dict]:
             }
         )
     return calls
+
+
+def extract_json(text: str):
+    """Parse the first JSON object/array in a model reply (tolerates code fences and prose)."""
+    text = strip_think(text)
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start, end = text.find(opener), text.rfind(closer)
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("No JSON found in model reply.")
 
 
 def size(messages: list[dict]) -> int:

@@ -22,7 +22,7 @@ and self-verifies — all sharing the same MCP tool servers.
 | `local-ai-compute` | `compute` | `python` (persistent kernel), `check_units`, `solve`, `reset`, `export_notebook` | Calculations you can verify |
 | `local-ai-notebook` | `notebook` | notes, sources, reports, exports, memory, skills | Research agent internals |
 | `local-ai-docs` | `docs` | `docs` | Coding agents (Goose, LM Studio) |
-| `local-coder` | `coder` | `run`, `list_files`, `read_file`, `write_file`, `verify` | Coding agent (also as MCP server for Goose / LM Studio) |
+| `local-coder` | `coder` | `plan`, `verify`, `status`; with `--files` also `read_file`, `write_file`, `edit_file`, `list_files` | Coding in Goose / LM Studio (`local-coder run` is the coding agent itself) |
 
 Details: [docs/servers.md](docs/servers.md).
 
@@ -124,14 +124,15 @@ the plan and all written files.
 ### CLI
 
 ```powershell
-local-coder "implement the Adam optimiser from scratch and add unit tests"
-local-coder --workspace C:\my-project "fix the failing tests in src/solver.py"
+local-coder run "implement the Adam optimiser from scratch and add unit tests"   # in the current folder
+local-coder run --project C:\my-project "fix the failing tests in src/solver.py"
+local-coder check C:\my-project    # exit code 0 only when the plan is finished and the tests pass
 ```
 
 ### As an MCP server (Goose / LM Studio)
 
-`local-coder` also exposes itself as an MCP stdio server — add it to LM Studio or Goose exactly like the
-other servers. See [config/lmstudio/mcp.json.example](config/lmstudio/mcp.json.example) and
+Without a subcommand `local-coder` is an MCP stdio server (`--files` adds file tools for clients that have
+none) — add it to LM Studio or Goose exactly like the other servers. See [config/lmstudio/mcp.json.example](config/lmstudio/mcp.json.example) and
 [docs/goose.md](docs/goose.md).
 
 ### Code skills
@@ -214,7 +215,7 @@ Recommended extension setup for coding:
 
 ## Security
 
-`compute`'s `python` and `coder`'s `run` / `verify` execute model-written code on your machine; there is no
+`compute`'s `python` and `coder`'s `verify` execute model-written code on your machine; there is no
 sandbox. LM Studio asks before every tool call: always-allow the read-only tools (`search_*`, `read_*`,
 `wikipedia`, `docs`), but keep confirmations for code execution and file writes.
 
@@ -232,12 +233,13 @@ On Linux use `.venv/bin/` instead of `.venv\Scripts\`.
 
 ```
 src/local_ai/
-  agent/            research agent: CLI, loop, prompts, MCP bridge, web UI, data downloads
-  servers/          MCP servers: library (+ zim, arxiv, importers), compute, notebook (+ memory, skills), docs;
-                    common.py (settings, embeddings), bibtex.py, export.py
-  coder/            coding agent: CLI, loop, prompts, file I/O, verify, MCP server, skills
+  core/             shared by both agents: model connection (llm), MCP bridge, tools, skills, text helpers
+  research/         research agent: CLI, loop, prompts, checks, data downloads
+  coder/            coding agent: CLI, loop, prompts, plan/verify workflow, file I/O, skills
+  servers/          MCP servers: library (+ zim, arxiv, importers), compute, notebook (+ memory, skills), docs,
+                    coder; common.py (settings, embeddings), bibtex.py, export.py
+  web/              web UI for both agents: app (endpoints), runs, store, static files
   skills/           built-in research skills
-local_coder/        compatibility shim → local_ai.coder (for legacy imports)
 config/
   lmstudio/         mcp.json templates (Windows, Linux), system prompt, model settings
   agent/            mcp.json templates for the research agent

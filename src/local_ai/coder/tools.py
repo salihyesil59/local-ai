@@ -2,30 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 from local_ai.coder import files as fl
-from local_ai.coder import server as sv
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
+from local_ai.coder import workflow as wf
+from local_ai.core.tools import Tool
 
 NO_PLAN_YET = "Error: there is no plan yet. Call plan first; then edit files."
-
-
-@dataclass
-class Tool:
-    name: str
-    description: str
-    parameters: dict
-    fn: Callable[..., str]
-
-    def spec(self) -> dict:
-        return {
-            "type": "function",
-            "function": {"name": self.name, "description": self.description, "parameters": self.parameters},
-        }
 
 
 def _schema(properties: dict, required: list[str]) -> dict:
@@ -54,13 +39,13 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
                 f"Error: the plan was not saved. Before planning, read the skill for this kind of task ({name}) "
                 f"and plan according to it, then call plan again:\n\n{skills[name]['body']}"
             )
-        return sv.make_plan(root, goal, steps, criteria, verify_command)
+        return wf.make_plan(root, goal, steps, criteria, verify_command)
 
     def verify(note: str = "") -> str:
-        return sv.run_verify(root, note)
+        return wf.run_verify(root, note)
 
     def status() -> str:
-        return sv.show_status(root)
+        return wf.show_status(root)
 
     def write_file(path: str, content: str) -> str:
         if st.load(root) is None:

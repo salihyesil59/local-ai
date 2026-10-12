@@ -1,6 +1,6 @@
-from local_coder import skills as sk
-from local_coder.agent import prompts
-from local_coder.agent.tools import coder_tools
+from local_ai.coder import prompts
+from local_ai.coder import skills as sk
+from local_ai.coder.tools import coder_tools
 
 BUILTIN = {"bug-fix", "new-feature", "refactor", "from-paper", "edge-cases", "cli-tool", "scientific-code"}
 

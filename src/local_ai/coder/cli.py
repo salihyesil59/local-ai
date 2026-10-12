@@ -10,10 +10,8 @@ import sys
 from pathlib import Path
 
 from local_ai.coder import state as st
-from local_ai.coder.agent.llm import LLM
-from local_ai.coder.agent.loop import CoderAgent, Settings
-
-DEFAULT_BASE_URL = "http://localhost:1234/v1"
+from local_ai.coder.loop import CoderAgent, Settings
+from local_ai.core.llm import DEFAULT_BASE_URL, LLM, pick_model
 
 
 def add_arguments(p: argparse.ArgumentParser) -> None:
@@ -64,13 +62,6 @@ class Printer:
         print(text.encode(sys.stdout.encoding or "utf-8", "replace").decode(sys.stdout.encoding or "utf-8"), flush=True)
 
 
-async def pick_model(client) -> str:
-    ids = [m.id for m in (await client.models.list()).data if "embed" not in m.id.lower()]
-    if not ids:
-        raise SystemExit("No model loaded in LM Studio. Load one or pass --model.")
-    return ids[0]
-
-
 async def run(args: argparse.Namespace) -> int:
     from openai import AsyncOpenAI
 
@@ -83,6 +74,8 @@ async def run(args: argparse.Namespace) -> int:
 
     client = AsyncOpenAI(base_url=args.base_url, api_key=os.environ.get("LOCAL_CODER_API_KEY", "lm-studio"))
     model = args.model or await pick_model(client)
+    if not model:
+        raise SystemExit("No model loaded in LM Studio. Load one or pass --model.")
     print(f"Model: {model} @ {args.base_url}\nProject: {root}", flush=True)
     st.moim_file().write_text(st.IDLE, encoding="utf-8")
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from local_ai.coder.server import INSTRUCTIONS
+from local_ai.coder.workflow import INSTRUCTIONS
 
 SYSTEM = (
     "You are a coding agent. Your project folder is {root}. Reply to the user in Turkish; keep code, identifiers "
@@ -34,6 +34,7 @@ AUTO_VERIFY = "You made {edits} edits without calling verify, so verify was run 
 STOPPED = "You stopped, but the task is not finished. verify was run for you:\n{result}"
 NEEDS_PLAN = "You stopped, but there is no plan yet. Call plan first, then implement the task."
 SUMMARY = "Verification reports ALL DONE. Reply now, without tools, with a short summary in Turkish of what changed."
+STEER = "The user sent this message while you were working. Follow it from now on:\n{message}"
 COMPACTED = (
     "Earlier messages were dropped to keep the context short. The work is on disk. Current plan:\n{status}\n\n"
     "Files:\n{files}\n{notes}\nContinue with the current step; read a file again if you need its content."

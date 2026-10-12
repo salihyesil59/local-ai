@@ -1,11 +1,5 @@
-from local_ai.agent.context import (
-    extract_json,
-    parse_inline_tool_calls,
-    strip_think,
-    trim,
-    unknown_citations,
-    unverified_numbers,
-)
+from local_ai.core.text import extract_json, parse_inline_tool_calls, strip_think, trim
+from local_ai.research.checks import unknown_citations, unverified_numbers
 
 
 def test_strip_think():

@@ -1,6 +1,6 @@
 import sys
 
-from local_coder import verify as vf
+from local_ai.coder import verify as vf
 
 
 def test_detect_command(tmp_path):

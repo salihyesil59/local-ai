@@ -18,9 +18,11 @@ from openai import AsyncOpenAI
 from rich.console import Console
 from rich.markdown import Markdown
 
-from .config import AgentSettings, load_mcp_config
+from local_ai.core.llm import pick_model
+from local_ai.core.mcp_bridge import MCPBridge, load_mcp_config
+
+from .config import AgentSettings
 from .loop import ResearchAgent
-from .mcp_bridge import MCPBridge
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -60,14 +62,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-async def pick_model(client: AsyncOpenAI) -> str:
-    models = await client.models.list()
-    ids = [m.id for m in models.data if "embed" not in m.id.lower()]
-    if not ids:
-        raise SystemExit("No model loaded in LM Studio. Load one or pass --model.")
-    return ids[0]
-
-
 async def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     console = Console()
@@ -93,6 +87,8 @@ async def main(argv: list[str] | None = None) -> int:
     client = AsyncOpenAI(base_url=settings.base_url, api_key=settings.api_key)
     if not settings.model:
         settings.model = await pick_model(client)
+        if not settings.model:
+            raise SystemExit("No model loaded in LM Studio. Load one or pass --model.")
     console.print(f"Model: {settings.model} @ {settings.base_url}", style="dim")
 
     only = [s.strip() for s in args.servers.split(",")] if args.servers else None
@@ -138,7 +134,7 @@ def cli() -> None:
     argv = sys.argv[1:]
     try:
         if argv and argv[0] == "ui":
-            from .web.app import main as ui_main
+            from local_ai.web.app import main as ui_main
 
             sys.exit(ui_main(argv[1:]))
         if argv and argv[0] == "export":

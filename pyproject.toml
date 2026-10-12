@@ -1,7 +1,7 @@
 [project]
 name = "local-ai"
 dynamic = ["version"]
-description = "Local research assistant for LM Studio: MCP tool servers (library, compute, notebook, docs) and a research agent."
+description = "Local research and coding assistant for LM Studio: MCP tool servers (library, compute, notebook, docs, coder), a research agent and a coding agent."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -21,7 +21,7 @@ all = ["local-ai[library,compute,ui]"]
 dev = ["local-ai[all]", "pytest>=8", "anyio>=4", "httpx>=0.24", "ruff>=0.6"]
 
 [project.scripts]
-local-ai = "local_ai.agent.__main__:cli"
+local-ai = "local_ai.research.__main__:cli"
 local-ai-index = "local_ai.servers.library.server:index_main"
 local-ai-docs = "local_ai.servers.docs.server:main"
 local-ai-library = "local_ai.servers.library.server:main"
@@ -40,7 +40,7 @@ version = { attr = "local_ai.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-local_ai = ["skills/*.md", "coder/skills/*.md", "agent/web/static/*"]
+local_ai = ["skills/*.md", "coder/skills/*.md", "web/static/*", "web/static/vendor/katex/*", "web/static/vendor/katex/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -8,9 +8,9 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from conftest import PYTEST, write_test
-from local_coder import state as st
-from local_coder import verify as vf
-from local_coder.server import ALL_DONE, REPEAT_HINT, REPEAT_STOP, check, make_plan, run_verify, show_status
+from local_ai.coder import state as st
+from local_ai.coder import verify as vf
+from local_ai.coder.workflow import ALL_DONE, REPEAT_HINT, REPEAT_STOP, check, make_plan, run_verify, show_status
 
 FAILING = "def test_add():\n    assert 1 + 1 == 3\n"
 PASSING = "def test_add():\n    assert 1 + 1 == 2\n"
@@ -150,7 +150,7 @@ def test_repeated_failure_changes_the_advice(project):
 
 def test_check_command_line(project):
     env = {**os.environ, "LOCAL_CODER_HOME": os.environ["LOCAL_CODER_HOME"]}
-    cmd = [sys.executable, "-m", "local_coder", "check"]
+    cmd = [sys.executable, "-m", "local_ai.coder", "check"]
     make_plan(project, "g", ["only"], CRITERIA, PYTEST)
     write_test(project, PASSING)
     # run from another folder: the project is found through the active pointer
@@ -166,7 +166,7 @@ def test_check_command_line(project):
 @pytest.mark.anyio
 async def test_stdio_server(project):
     env = {**os.environ, "LOCAL_CODER_HOME": os.environ["LOCAL_CODER_HOME"]}
-    params = StdioServerParameters(command=sys.executable, args=["-m", "local_coder"], env=env, cwd=project.parent)
+    params = StdioServerParameters(command=sys.executable, args=["-m", "local_ai.coder"], env=env, cwd=project.parent)
 
     async def call(session, name, **arguments):
         result = await session.call_tool(name, arguments)

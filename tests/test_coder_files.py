@@ -6,8 +6,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from conftest import PYTEST
-from local_coder import files as fl
-from local_coder.server import ALL_DONE
+from local_ai.coder import files as fl
+from local_ai.coder.workflow import ALL_DONE
 
 
 def test_write_read_and_list(project):
@@ -53,7 +53,7 @@ def test_long_file_is_cut(project):
 @pytest.mark.anyio
 async def test_stdio_server_with_files(project):
     env = {**os.environ, "LOCAL_CODER_HOME": os.environ["LOCAL_CODER_HOME"]}
-    params = StdioServerParameters(command=sys.executable, args=["-m", "local_coder", "--files"], env=env)
+    params = StdioServerParameters(command=sys.executable, args=["-m", "local_ai.coder", "--files"], env=env)
 
     async def call(session, name, **arguments):
         result = await session.call_tool(name, arguments)

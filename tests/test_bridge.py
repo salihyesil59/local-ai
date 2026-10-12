@@ -1,7 +1,6 @@
 import pytest
 
-from local_ai.agent.config import load_mcp_config
-from local_ai.agent.mcp_bridge import MCPBridge, public_tool_name
+from local_ai.core.mcp_bridge import MCPBridge, load_mcp_config, public_tool_name
 
 pytestmark = pytest.mark.anyio
 

@@ -4,11 +4,11 @@ from types import SimpleNamespace
 import pytest
 
 from conftest import PYTEST
-from local_coder import state as st
-from local_coder.agent import prompts
-from local_coder.agent.context import parse_inline_tool_calls, size
-from local_coder.agent.llm import LLM
-from local_coder.agent.loop import CoderAgent, Settings
+from local_ai.coder import prompts
+from local_ai.coder import state as st
+from local_ai.coder.loop import CoderAgent, Settings
+from local_ai.core.llm import LLM
+from local_ai.core.text import parse_inline_tool_calls, size
 
 CRITERIA = ["add(1, 1) == 2"]
 PASSING = "def test_add():\n    assert 1 + 1 == 2\n"
@@ -89,6 +89,9 @@ async def test_task_ends_only_when_verify_says_all_done(project):
     assert {t["function"]["name"] for t in first["tools"]} >= {"plan", "verify", "write_file"}
     assert "tools" not in client.requests[-1]  # the summary turn has no tools
     assert [e["tokens"] for k, e in events if k == "turn"][0] == 42
+    turns = [e for k, e in events if k == "turn"]
+    assert turns[0]["max_turns"] == 80 and turns[0]["context_limit"] == 150_000  # for the UI's meter
+    assert 0 < turns[0]["context"] < turns[-1]["context"]
 
 
 @pytest.mark.anyio
@@ -464,3 +467,24 @@ async def test_a_running_plan_is_not_gated(project):
     again, client, _ = make_agent(project, [say(calls=[plan_call()]), say("stop")], require_skill=True, max_nudges=0)
     await again.run("task")
     assert "the plan was not saved" not in json.dumps(client.requests[1]["messages"])
+
+
+@pytest.mark.anyio
+async def test_a_message_sent_while_it_works_reaches_the_model_before_its_next_reply(project):
+    agent, client, _ = make_agent(
+        project,
+        [
+            say(calls=[plan_call()]),
+            say(calls=[call("write_file", path="test_it.py", content=PASSING)]),
+            say(calls=[call("verify", note="done")]),
+            say(calls=[call("verify", note="test_add covers it")]),
+            say("Bitti."),
+        ],
+    )
+    agent.steer("Name the test file test_it.py")
+    outcome = await agent.run("Add things")
+    assert outcome.finished and not agent.steering
+    first = client.requests[0]["messages"]
+    assert first[-1]["role"] == "user" and "Name the test file test_it.py" in first[-1]["content"]
+    assert "while you were working" in first[-1]["content"]
+

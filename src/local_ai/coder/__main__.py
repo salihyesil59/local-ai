@@ -7,8 +7,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from local_ai.coder import server, state
-from local_ai.coder.agent.cli import add_arguments
+from local_ai.coder import state, workflow
+from local_ai.coder.cli import add_arguments
+from local_ai.servers.coder import server
 
 
 def main() -> None:
@@ -25,12 +26,12 @@ def main() -> None:
 
     if args.command == "check":
         root = Path(args.project).expanduser().resolve() if args.project else state.active_root()
-        ok, message = server.check(root)
+        ok, message = workflow.check(root)
         sys.stdout.reconfigure(errors="replace")  # test output may not fit the console's code page
         print(message)
         sys.exit(0 if ok else 1)
     if args.command == "run":
-        from local_ai.coder.agent import cli
+        from local_ai.coder import cli
 
         cli.main(args)
     server.main(args.files)

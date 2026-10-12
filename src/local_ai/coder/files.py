@@ -72,6 +72,18 @@ def edit_file(root: Path, path: str, old: str, new: str) -> str:
     return f"Edited {path}."
 
 
+def walk(root: Path, base: Path | None = None) -> list[str]:
+    """Files and folders (with a trailing /) under base, relative to root; caches and virtual environments
+    are skipped."""
+    names = []
+    for item in sorted((base or root).rglob("*")):
+        rel = item.relative_to(root)
+        if any(part in SKIP_DIRS or part.endswith(".egg-info") for part in rel.parts):
+            continue
+        names.append(f"{rel.as_posix()}/" if item.is_dir() else rel.as_posix())
+    return names
+
+
 def list_files(root: Path, path: str = ".") -> str:
     try:
         base = resolve(root, path)
@@ -79,12 +91,7 @@ def list_files(root: Path, path: str = ".") -> str:
         return f"Error: {e}"
     if not base.is_dir():
         return f"Error: {path} is not a folder."
-    names = []
-    for item in sorted(base.rglob("*")):
-        rel = item.relative_to(root)
-        if any(part in SKIP_DIRS or part.endswith(".egg-info") for part in rel.parts):
-            continue
-        names.append(f"{rel.as_posix()}/" if item.is_dir() else rel.as_posix())
+    names = walk(root, base)
     shown = names[:MAX_LIST]
     more = f"\n[{len(names) - MAX_LIST} more entries not shown; list a subfolder]" if len(names) > MAX_LIST else ""
     return "\n".join(shown) + more if shown else f"(no files in {path})"

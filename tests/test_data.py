@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from local_ai.agent import data
+from local_ai.research import data
 
 ZIM_V1 = b"old zim content"
 ZIM_V2 = b"new zim content, longer than the old one" * 1000

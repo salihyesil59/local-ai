@@ -5,11 +5,10 @@ import json
 import pytest
 
 pytest.importorskip("httpx")
-pytest.importorskip("local_coder")
 from starlette.testclient import TestClient  # noqa: E402
 
-from local_ai.agent.config import AgentSettings  # noqa: E402
-from local_ai.agent.web.app import create_app  # noqa: E402
+from local_ai.research.config import AgentSettings  # noqa: E402
+from local_ai.web.app import create_app  # noqa: E402
 from test_web import read_events  # noqa: E402
 from test_web_code import PYTEST, ScriptedClient, call, own_workspace  # noqa: E402,F401
 
@@ -64,6 +63,8 @@ def test_a_run_is_created_in_a_folder_and_can_be_titled_and_moved(tmp_path):
         assert client.patch(f"/api/runs/{run_id}", json={"folder": b}).json()["folder"] == b
         assert client.patch(f"/api/runs/{run_id}", json={"folder": None}).json()["folder"] is None
         assert client.patch(f"/api/runs/{run_id}", json={"folder": "nope"}).status_code == 400
+        assert client.patch(f"/api/runs/{run_id}", json={"pinned": True}).json()["pinned"] is True
+        assert client.get("/api/runs").json()[0]["pinned"] is True
         assert client.patch("/api/runs/none", json={"title": "x"}).status_code == 404
 
         client.patch(f"/api/runs/{run_id}", json={"folder": a})
@@ -111,3 +112,62 @@ def test_runs_can_be_deleted_but_not_while_running(tmp_path):
         assert client.delete(f"/api/runs/{run_id}").json() == {"ok": True}
         assert client.get("/api/runs").json() == [] and not log.exists()
         assert client.delete(f"/api/runs/{run_id}").status_code == 404
+
+
+def test_a_follow_up_message_continues_the_same_chat(tmp_path):
+    more = [("", [call("verify", note="test_add still covers it")]), ("Yine hazır.", [])]
+    with make_client([*FINISHING, *more]) as client:
+        run_id = start_code_run(client, tmp_path)
+        assert client.post("/api/runs/nope/messages", json={"question": "x"}).status_code == 404
+        assert client.post(f"/api/runs/{run_id}/messages", json={"question": "Check it again"}).status_code == 202
+        events = read_events(client, run_id)  # the whole chat: the first message, then the follow-up
+        kinds = [e["kind"] for e in events]
+        assert kinds.count("segment_end") == 1 and kinds[-1] == "end" and events[-1]["status"] == "done"
+        assert [e["text"] for e in events if e["kind"] == "user"] == ["Check it again"]
+        assert [e["text"] for e in events if e["kind"] == "answer"] == ["Hazır.", "Yine hazır."]
+        assert kinds.index("user") > kinds.index("segment_end")
+        assert len(client.get("/api/runs").json()) == 1  # no new chat
+
+        run = client.app.state.runs[run_id]
+        assert "Check it again" in run.follow_up("And now?") and "Yine hazır." in run.follow_up("And now?")
+        # while a code run works, a message steers its agent; without an agent the chat is busy
+        run.status = "running"
+        assert client.post(f"/api/runs/{run_id}/messages", json={"question": "Use tabs"}).status_code == 202
+        assert run.agent.steering == ["Use tabs"] and run.events[-1] == {"kind": "steer", "text": "Use tabs"}
+        run.agent = None
+        assert client.post(f"/api/runs/{run_id}/messages", json={"question": "x"}).status_code == 409
+        run.status = "done"
+
+        # the file tree of the project and the preview of a file
+        listed = client.get(f"/api/runs/{run_id}/files").json()
+        assert listed["files"] == ["test_add.py"] and listed["more"] == 0  # .local-coder is not listed
+        shown = client.get(f"/api/runs/{run_id}/file", params={"path": "test_add.py"}).json()
+        assert shown["content"].startswith("def test_add")
+        assert client.get(f"/api/runs/{run_id}/file", params={"path": "../../etc/passwd"}).status_code == 404
+        assert client.get(f"/api/runs/{run_id}/file", params={"path": "nope.py"}).status_code == 404
+        assert client.get("/api/runs/nope/files").status_code == 404
+
+
+def test_a_chat_keeps_its_settings(tmp_path):
+    from local_ai.web.runs import clean_settings
+
+    assert clean_settings({"model": " m ", "temperature": "0.3", "max_tokens": 10, "max_turns": 40, "x": 1}) == {
+        "model": "m",
+        "temperature": 0.3,
+        "max_turns": 40,  # max_tokens is out of range, x is unknown
+    }
+    assert clean_settings(None) == {}
+
+    more = [("", [call("verify", note="test_add still covers it")]), ("Yine hazır.", [])]
+    with make_client([*FINISHING, *more]) as client:
+        run_id = start_code_run(client, tmp_path, settings={"temperature": 0.2, "max_turns": 30})
+        assert client.get("/api/runs").json()[0]["settings"] == {"temperature": 0.2, "max_turns": 30}
+        turn = next(e for e in read_events(client, run_id) if e["kind"] == "turn")
+        assert turn["max_turns"] == 30
+        client.post(f"/api/runs/{run_id}/messages", json={"question": "Again", "settings": {"max_turns": 12}})
+        assert [e["max_turns"] for e in read_events(client, run_id) if e["kind"] == "turn"][-1] == 12
+        assert client.get("/api/models").json()["models"] == []  # the scripted client lists none; the page still works
+
+    with make_client() as client:  # after a restart
+        assert client.get("/api/runs").json()[0]["settings"] == {"max_turns": 12}
+

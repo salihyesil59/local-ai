@@ -107,11 +107,32 @@ def _embed_images(markdown: str, base: Path) -> str:
     return IMAGE_RE.sub(repl, markdown)
 
 
+# Code (kept as it is) or LaTeX: $$..$$, \[..\], \(..\), $..$ (not prices like "$5 and $10").
+MATH_RE = re.compile(
+    r"(```.*?```|`[^`\n]+`)|\$\$.+?\$\$|\\\[.+?\\\]|\\\(.+?\\\)|(?<![\\$\w])\$(?!\s)[^$\n`]+?(?<![\s\\])\$(?!\d)",
+    re.DOTALL,
+)
+
+
 def render_markdown(markdown: str) -> str:
-    """Markdown -> HTML fragment (raw HTML in the input is escaped)."""
+    """Markdown -> HTML fragment (raw HTML in the input is escaped). LaTeX is not parsed as Markdown, which
+    would eat its backslashes and underscores: it comes out as <span class="math">, for the page to draw."""
     from markdown_it import MarkdownIt
 
-    return MarkdownIt("commonmark", {"html": False}).enable("table").render(markdown)
+    formulas: list[str] = []
+
+    def keep(m: re.Match) -> str:
+        if m.group(1):
+            return m.group(0)
+        formulas.append(m.group(0))
+        return f"MATHFORMULA{len(formulas) - 1}X"
+
+    rendered = MarkdownIt("commonmark", {"html": False}).enable("table").render(MATH_RE.sub(keep, markdown))
+    return re.sub(
+        r"MATHFORMULA(\d+)X",
+        lambda m: f'<span class="math">{html.escape(formulas[int(m.group(1))])}</span>',
+        rendered,
+    )
 
 
 def render_body(markdown: str, sources: list[dict], base: Path | None = None) -> tuple[str, str]:

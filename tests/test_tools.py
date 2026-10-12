@@ -1,4 +1,4 @@
-from local_ai.agent.tools import ToolRoles
+from local_ai.research.tools import ToolRoles
 
 LIBRARY = [
     "library__search_library",
