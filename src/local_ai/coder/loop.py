@@ -28,6 +28,9 @@ from local_ai.core.text import parse_inline_tool_calls, size, strip_think, trim
 from local_ai.core.tools import Tool, parse_arguments
 
 Emit = Callable[..., None]
+# Tools that read a paper or a book (the last part of an MCP tool name): their pages are kept whole, the
+# formulas in the middle of a page must not be cut out.
+READ_TOOLS = ("read_arxiv", "read_pdf", "read_library")
 TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
 
 
@@ -35,9 +38,12 @@ TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that wri
 class Settings:
     max_turns: int = 80  # model replies in one run
     max_tool_chars: int = 6000  # tool output kept in context (head + tail)
+    max_read_chars: int = 12_000  # ... of a tool that reads a paper (two pages)
     edits_before_verify: int = 4  # edits in a row before the program runs verify itself
     max_nudges: int = 6  # cut-off or early-stop replies in a row before giving up
-    context_chars: int = 150_000  # compact above this (about 45k tokens of code)
+    # Compact above this: about 90k tokens, so a whole paper stays in the conversation. The context length of
+    # the model in LM Studio must be larger (131072 fits); lower this for a smaller one.
+    context_chars: int = 300_000
     keep_messages: int = 8  # newest messages kept by a compaction
     require_skill: bool = True  # the first plan is refused once, with the fitting skill attached
     notes_tokens: int = 4096  # the model writes notes on the dropped part (thinking included); 0 = no notes
@@ -260,7 +266,9 @@ class CoderAgent:
                     output = await self.call_tool(call)
                     name = call["function"]["name"]
                     edits = edits + 1 if name in EDIT_TOOLS else (0 if name == "verify" else edits)
-                    content = trim(output, self.settings.max_tool_chars)
+                    reading = name.rsplit("__", 1)[-1] in READ_TOOLS
+                    limit = self.settings.max_read_chars if reading else self.settings.max_tool_chars
+                    content = trim(output, limit)
                     messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
                 if edits >= self.settings.edits_before_verify and st.load(self.root):
                     result = await self.verify()

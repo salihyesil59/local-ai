@@ -57,6 +57,9 @@
               <label class="code-only" title="Model replies in one run">Max turns
                 <input id="set-max_turns" type="number" min="1" max="500" placeholder="80">
               </label>
+              <label class="code-only" title="The conversation is compacted above this many characters (about 3 per token). Keep it below the context length set in LM Studio.">Context limit (characters)
+                <input id="set-context_chars" type="number" min="20000" max="2000000" step="10000" placeholder="300000">
+              </label>
               <label class="research-only" title="Tool-calling steps per sub-question">Max steps
                 <input id="set-max_steps" type="number" min="1" max="100" placeholder="12">
               </label>

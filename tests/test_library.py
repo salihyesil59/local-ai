@@ -176,3 +176,20 @@ def test_read_arxiv_extracts_id_and_searches_query(tmp_path, monkeypatch):
     assert "found 'estimation' on pages [2]" in res_query
     assert "Quantum phase estimation" in res_query
 
+
+def test_read_pdf_reads_a_file_by_its_path(tmp_path, monkeypatch):
+    from local_ai.servers.library import arxiv
+
+    paper = tmp_path / "somewhere" / "paper.pdf"
+    paper.parent.mkdir()
+    make_pdf(paper, ["Title and abstract", "Algorithm 1: Quantum phase estimation steps...", "Discussion."])
+    first = arxiv.read_pdf(str(paper), page=1, pages=1)
+    assert first.startswith("paper.pdf (3 pages)") and "Title and abstract" in first and "Algorithm 1" not in first
+    assert "found 'algorithm' on pages [2]" in arxiv.read_pdf(f'"{paper}"', query="algorithm")  # a quoted path
+
+    monkeypatch.setattr(arxiv, "library_dir", lambda: paper.parent)  # a relative path is a library file
+    assert "Discussion." in arxiv.read_pdf("paper.pdf", page=3)
+    assert arxiv.read_pdf(str(tmp_path / "nope.pdf")).startswith("Error: no PDF file")
+    (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
+    assert arxiv.read_pdf(str(tmp_path / "notes.txt")).startswith("Error: no PDF file")
+

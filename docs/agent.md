@@ -91,10 +91,11 @@ PDF). The sidebar lists:
 
 Model output is shown as it is written: Markdown, coloured code and LaTeX formulas (`$..$`, `$$..$$`, `\(..\)`,
 `\[..\]`). The **⚙** button of the message box opens the settings of the chat: the model (from those LM Studio
-has), temperature, max tokens and max turns (code) or max steps (research). Empty fields use the defaults; the
+has), temperature, max tokens, max turns and the context limit (code) or max steps (research). Empty fields use the defaults; the
 settings are saved with the chat and remembered for the next new one. During a code run the box also shows the
 turn, the speed in tokens per second and how full the context is; at 100% it is compacted, and **Compact** does it
-earlier.
+earlier. The context limit is 300 000 characters (about 90k tokens), which needs a context length of 131072 in
+LM Studio; with a smaller context length set a smaller limit, about 2 characters per token of it.
 
 In a report, pointing at a citation `[n]` shows its source with the registered quote; a click keeps the card
 open and shows the passage of the tool output the quote was taken from.

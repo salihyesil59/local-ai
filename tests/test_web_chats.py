@@ -160,10 +160,11 @@ def test_a_chat_keeps_its_settings(tmp_path):
 
     more = [("", [call("verify", note="test_add still covers it")]), ("Yine hazır.", [])]
     with make_client([*FINISHING, *more]) as client:
-        run_id = start_code_run(client, tmp_path, settings={"temperature": 0.2, "max_turns": 30})
-        assert client.get("/api/runs").json()[0]["settings"] == {"temperature": 0.2, "max_turns": 30}
+        chosen = {"temperature": 0.2, "max_turns": 30, "context_chars": 80_000}
+        run_id = start_code_run(client, tmp_path, settings=chosen)
+        assert client.get("/api/runs").json()[0]["settings"] == chosen
         turn = next(e for e in read_events(client, run_id) if e["kind"] == "turn")
-        assert turn["max_turns"] == 30
+        assert turn["max_turns"] == 30 and turn["context_limit"] == 80_000
         client.post(f"/api/runs/{run_id}/messages", json={"question": "Again", "settings": {"max_turns": 12}})
         assert [e["max_turns"] for e in read_events(client, run_id) if e["kind"] == "turn"][-1] == 12
         assert client.get("/api/models").json()["models"] == []  # the scripted client lists none; the page still works

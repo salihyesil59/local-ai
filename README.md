@@ -18,7 +18,7 @@ and self-verifies — all sharing the same MCP tool servers.
 
 | Command | Server | Tools | For |
 |---|---|---|---|
-| `local-ai-library` | `library` | `search_library`, `read_library`, `wikipedia`, `docs`, `search_arxiv`, `read_arxiv` | Your PDFs, offline Wikipedia & docs, arXiv |
+| `local-ai-library` | `library` | `search_library`, `read_library`, `wikipedia`, `docs`, `search_arxiv`, `read_arxiv`, `read_pdf` | Your PDFs, offline Wikipedia & docs, arXiv |
 | `local-ai-compute` | `compute` | `python` (persistent kernel), `check_units`, `solve`, `reset`, `export_notebook` | Calculations you can verify |
 | `local-ai-notebook` | `notebook` | notes, sources, reports, exports, memory, skills | Research agent internals |
 | `local-ai-docs` | `docs` | `docs` | Coding agents (Goose, LM Studio) |

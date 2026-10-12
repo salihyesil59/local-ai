@@ -25,6 +25,7 @@ LIMITS = {
     "temperature": (float, 0.0, 2.0),
     "max_tokens": (int, 256, 65536),  # per model reply, thinking included
     "max_turns": (int, 1, 500),  # code: model replies in one run
+    "context_chars": (int, 20_000, 2_000_000),  # code: the conversation is compacted above this
     "max_steps": (int, 1, 100),  # research: tool-calling steps per sub-question
 }
 
@@ -125,7 +126,7 @@ async def run_code(
     llm = LLM(
         client, settings.model, max_tokens=settings.max_tokens, temperature=settings.temperature, top_p=settings.top_p
     )
-    limits = Settings(max_turns=run.settings["max_turns"]) if "max_turns" in run.settings else None
+    limits = Settings(**{k: run.settings[k] for k in ("max_turns", "context_chars") if k in run.settings})
     agent = CoderAgent(
         llm, root, limits, emit=lambda kind, **data: run.push({"kind": kind, **data}), extra_tools=extra_tools
     )

@@ -487,13 +487,14 @@ $("#question").addEventListener("input", resizeQuestion);
 $("#question").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) $("#ask").requestSubmit(); });
 
 // -- settings of a chat: model, temperature and limits; empty fields use the server's defaults ----
-const SETTINGS = ["model", "temperature", "max_tokens", "max_turns", "max_steps"];
+const SETTINGS = ["model", "temperature", "max_tokens", "max_turns", "context_chars", "max_steps"];
+const CODE_SETTINGS = ["max_turns", "context_chars"], RESEARCH_SETTINGS = ["max_steps"];
 
 function getSettings() {
   const code = state.mode === "code";
   const settings = {};
   for (const key of SETTINGS) {
-    if (key === (code ? "max_steps" : "max_turns")) continue; // the other agent's limit
+    if ((code ? RESEARCH_SETTINGS : CODE_SETTINGS).includes(key)) continue; // the other agent's limits
     const value = $(`#set-${key}`).value.trim();
     if (value) settings[key] = key === "model" ? value : +value;
   }

@@ -90,7 +90,7 @@ async def test_task_ends_only_when_verify_says_all_done(project):
     assert "tools" not in client.requests[-1]  # the summary turn has no tools
     assert [e["tokens"] for k, e in events if k == "turn"][0] == 42
     turns = [e for k, e in events if k == "turn"]
-    assert turns[0]["max_turns"] == 80 and turns[0]["context_limit"] == 150_000  # for the UI's meter
+    assert turns[0]["max_turns"] == 80 and turns[0]["context_limit"] == 300_000  # for the UI's meter
     assert 0 < turns[0]["context"] < turns[-1]["context"]
 
 
@@ -487,4 +487,21 @@ async def test_a_message_sent_while_it_works_reaches_the_model_before_its_next_r
     first = client.requests[0]["messages"]
     assert first[-1]["role"] == "user" and "Name the test file test_it.py" in first[-1]["content"]
     assert "while you were working" in first[-1]["content"]
+
+
+@pytest.mark.anyio
+async def test_pages_of_a_paper_are_kept_longer_than_other_tool_output(project):
+    from local_ai.core.tools import Tool
+
+    page = "equation " * 1000  # 9000 characters
+    tools = {
+        name: Tool(name, "", {"type": "object", "properties": {}}, lambda: page)
+        for name in ("library__read_pdf", "web__search")
+    }
+    script = [say(calls=[call("library__read_pdf"), call("web__search")]), say("stop"), say("stop")]
+    client = FakeClient(script)
+    agent = CoderAgent(LLM(client, "fake"), project, Settings(require_skill=False, max_nudges=1), extra_tools=tools)
+    await agent.run("Implement the paper")
+    read, searched = (m["content"] for m in client.requests[1]["messages"] if m["role"] == "tool")
+    assert read == page and "characters omitted" in searched and len(searched) < 6500
 

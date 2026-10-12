@@ -61,6 +61,7 @@ def system_prompt(root: Path, skills: str = "", extra_tools: list[str] | None = 
             f"\n\nAdditional tools available: {', '.join(sorted(extra_tools))}. "
             "Use them when helpful:\n"
             "- library__read_arxiv: read arXiv papers by URL or ID (supports page ranges, or query='algorithm' to find sections)\n"
+            "- library__read_pdf: read a PDF file on this computer by its absolute path (same page and query arguments)\n"
             "- library__search_arxiv: search arXiv for papers\n"
             "- compute__python: run Python code to verify numerical results or formulas\n"
             "- web__search: look up documentation, APIs or error messages\n"

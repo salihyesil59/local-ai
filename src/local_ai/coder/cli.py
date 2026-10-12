@@ -28,6 +28,12 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         help="stop a reply that only thinks after this many characters",
     )
     p.add_argument("--max-turns", type=int, default=80, help="model replies in one run")
+    p.add_argument(
+        "--context-chars",
+        type=int,
+        default=Settings.context_chars,
+        help="compact the conversation above this many characters (about 3 per token)",
+    )
     p.add_argument("--temperature", type=float, default=0.6)
     p.add_argument("--presence-penalty", type=float, help="off by default; 0.5 can reduce repetition")
     p.add_argument("-v", "--verbose", action="store_true", help="show tool results")
@@ -87,7 +93,7 @@ async def run(args: argparse.Namespace) -> int:
         presence_penalty=args.presence_penalty,
         max_thinking_chars=args.max_thinking_chars,
     )
-    agent = CoderAgent(llm, root, Settings(max_turns=args.max_turns), emit=Printer(args.verbose))
+    agent = CoderAgent(llm, root, Settings(max_turns=args.max_turns, context_chars=args.context_chars), emit=Printer(args.verbose))
     outcome = await agent.run(task)
     print(f"\n{'FINISHED' if outcome.finished else 'NOT FINISHED'}: {outcome.reason}")
     if outcome.summary:

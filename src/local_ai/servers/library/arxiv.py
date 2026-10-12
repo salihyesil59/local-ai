@@ -1,12 +1,13 @@
-"""arXiv online: search the API and read paper PDFs (cached in <workspace>/cache/arxiv)."""
+"""Papers: search the arXiv API, read arXiv PDFs (cached in <workspace>/cache/arxiv) and local PDF files."""
 
 from __future__ import annotations
 
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
-from local_ai.servers.common import cache_dir, http_get, truncate
+from local_ai.servers.common import cache_dir, http_get, library_dir, truncate
 
 
 def pdf_pages(path, page: int, pages: int) -> tuple[int, list[str]]:
@@ -70,6 +71,11 @@ def read_arxiv(arxiv_id: str, page: int = 1, pages: int = 4, query: str = "") ->
     if not path.exists():
         path.write_bytes(http_get(f"https://arxiv.org/pdf/{aid}", timeout=60))
 
+    return read_pages(path, f"arXiv:{aid}", page, pages, query)
+
+
+def read_pages(path, label: str, page: int, pages: int, query: str = "") -> str:
+    """Pages page .. page + pages - 1 of a PDF as text, or with a query the first pages that contain it."""
     if query.strip():
         q = query.strip().lower()
         import pymupdf
@@ -80,10 +86,26 @@ def read_arxiv(arxiv_id: str, page: int = 1, pages: int = 4, query: str = "") ->
                 selected_pages = matching[:pages]
                 pages_text = [f"--- page {n} ---\n{doc[n - 1].get_text()}" for n in selected_pages]
                 return truncate(
-                    f"arXiv:{aid} ({doc.page_count} pages, found '{query}' on pages {matching}):\n\n"
+                    f"{label} ({doc.page_count} pages, found '{query}' on pages {matching}):\n\n"
                     + "\n\n".join(pages_text)
                 )
-            return f"arXiv:{aid} ({doc.page_count} pages): No pages found containing '{query}'."
+            return f"{label} ({doc.page_count} pages): No pages found containing '{query}'."
 
     total, selected = pdf_pages(path, page, pages)
-    return truncate(f"arXiv:{aid} ({total} pages)\n\n" + "\n\n".join(selected))
+    return truncate(f"{label} ({total} pages)\n\n" + "\n\n".join(selected))
+
+
+def read_pdf(path: str, page: int = 1, pages: int = 2, query: str = "") -> str:
+    """Read pages of a PDF file on this computer as text: a paper the user points to that is not in the library.
+    path: absolute path of the .pdf file (a relative path is looked up in the library folder).
+    page/pages: 1-based page range to read. The first line shows the page count.
+    query: optional search term inside the file (e.g. 'algorithm', 'pseudocode'); returns the pages containing it."""
+    file = Path(path.strip().strip('"')).expanduser()
+    if not file.is_absolute():
+        file = library_dir() / file
+    if file.suffix.lower() != ".pdf" or not file.is_file():
+        return f"Error: no PDF file at {file}. Pass the absolute path of a .pdf file."
+    try:
+        return read_pages(file, file.name, page, max(1, min(pages, 6)), query)
+    except Exception as e:  # damaged or password-protected file
+        return f"Error: cannot read {file.name}: {e}"

@@ -25,6 +25,7 @@ All servers are stdio MCP servers installed as commands: `.venv\Scripts\local-ai
 | `wikipedia` | English / Turkish Wikipedia article from the `wikipedia_*` ZIM archives (TeX formulas kept); online as fallback, `online=True` skips the archive for very recent topics |
 | `docs` | offline programming documentation from the `devdocs_*` ZIM archives (Python, numpy, pandas, matplotlib, ...); code blocks keep their indentation |
 | `search_arxiv` / `read_arxiv` | arXiv API search (`newest_first` for recent work) and PDF page reading; needs internet, PDFs are cached in `<workspace>\cache\arxiv` |
+| `read_pdf` | pages of any PDF file on this computer by its absolute path (a paper that is not in the library); `query` finds the pages that contain a term |
 
 **Indexing.** `LOCAL_AI_LIBRARY` is indexed automatically: a search first picks up new and changed files
 (checked at most every 30 seconds; a large first index is spread over several searches, up to ~20 s each).

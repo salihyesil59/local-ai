@@ -582,6 +582,7 @@ def build_server(library: Library | None = None) -> FastMCP:
     mcp.tool()(zim.docs)
     mcp.tool()(arxiv.search_arxiv)
     mcp.tool()(arxiv.read_arxiv)
+    mcp.tool()(arxiv.read_pdf)
     return mcp
 
 

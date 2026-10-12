@@ -35,6 +35,9 @@ const TR = {
   "Higher is more varied, lower more exact": "Yüksek değer daha çeşitli, düşük değer daha kesin yanıt verir",
   "Tokens per model reply, thinking included": "Model yanıtı başına token, düşünme dahil",
   "Model replies in one run": "Bir çalıştırmadaki model yanıtı sayısı",
+  "Context limit (characters)": "Bağlam sınırı (karakter)",
+  "The conversation is compacted above this many characters (about 3 per token). Keep it below the context length set in LM Studio.":
+    "Konuşma bu kadar karakteri aşınca sıkıştırılır (token başına yaklaşık 3 karakter). LM Studio'daki bağlam uzunluğunun altında tut.",
   "Tool-calling steps per sub-question": "Alt soru başına araç çağrısı adımı",
   "Model and settings of this chat": "Bu sohbetin modeli ve ayarları", "set": "ayar",
   "Turn": "Tur", "context": "bağlam", "tokens": "token", "chars": "karakter",

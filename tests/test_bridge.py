@@ -4,7 +4,7 @@ from local_ai.core.mcp_bridge import MCPBridge, load_mcp_config, public_tool_nam
 
 pytestmark = pytest.mark.anyio
 
-LIBRARY_TOOLS = {"search_library", "read_library", "wikipedia", "docs", "search_arxiv", "read_arxiv"}
+LIBRARY_TOOLS = {"search_library", "read_library", "wikipedia", "docs", "search_arxiv", "read_arxiv", "read_pdf"}
 
 
 def test_public_tool_name():
