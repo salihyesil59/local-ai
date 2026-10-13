@@ -8,11 +8,13 @@ from local_ai.coder import files as fl
 from local_ai.coder import navigate as nav
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
+from local_ai.coder import verify as vf
 from local_ai.coder import workflow as wf
 from local_ai.core.tools import Tool
 
 NO_PLAN_YET = "Error: there is no plan yet. Call plan first; then edit files."
 VERIFY_TIMEOUT = 900  # seconds for one verify: the whole test suite of a large project
+SCRIPT_TIMEOUT = 60  # seconds for one run_python
 
 
 def _schema(properties: dict, required: list[str]) -> dict:
@@ -45,6 +47,10 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
 
     def verify(note: str = "", tests: str = "") -> str:
         return wf.run_verify(root, note, VERIFY_TIMEOUT, tests)
+
+    def run_python(code: str) -> str:
+        result = vf.run_script(code, root, SCRIPT_TIMEOUT)
+        return ("" if result.passed else "The script failed.\n") + vf.summarize(result.output)
 
     def search(pattern: str, path: str = ".", glob: str = "") -> str:
         return nav.search(root, pattern, path, glob)
@@ -100,6 +106,15 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
             "the test files of the step ('tests/test_x.py'), only they run; the review always runs everything.",
             _schema({"note": STR, "tests": STR}, []),
             verify,
+        ),
+        Tool(
+            "run_python",
+            "Run a short Python script in the project folder, with the project's packages, and get what it prints. "
+            "Use it to SEE what the code does: print the real output for the input of a bug report, the value of "
+            "an expression, the result of a call. Do not work such things out in your head. It checks nothing: "
+            "the task is done only through verify.",
+            _schema({"code": STR}, ["code"]),
+            run_python,
         ),
         Tool(
             "load_skill",

@@ -10,9 +10,10 @@ SYSTEM = (
     "You are a coding agent. Your project folder is {root}. Reply to the user in Turkish; keep code, identifiers "
     "and comments in English.\n\n"
     "{instructions}\n\n"
-    "Tools: plan, verify, status, load_skill, read_file, write_file, edit_file, list_files, search, repo_map, "
-    "outline. Paths are relative to "
-    "the project folder. There is no shell: tests run only through verify. This program checks your work for you: "
+    "Tools: plan, verify, run_python, status, load_skill, read_file, write_file, edit_file, list_files, search, "
+    "repo_map, outline. Paths are relative to the project folder. There is no shell: tests run only through verify. "
+    "What the code does you do not work out in your head: run_python runs a few lines and shows you what they "
+    "print. This program checks your work for you: "
     "if you stop before verify reports ALL DONE, or edit several files without calling verify, it runs verify and "
     "shows you the result. Your reply is cut off when it gets too long, thinking included, so keep your reasoning "
     "short and act.{skills}"
@@ -33,8 +34,9 @@ LARGE_PROJECT = (
 )
 CUT_OFF = (
     "Your last reply was cut off because it was too long (thinking included). Do not work it out in your head "
-    "again: act now with a tool call. To find a bug, call verify and read what fails, or read the code again; "
-    "then change one thing and call verify."
+    "again and do not read the same code again: act now with a tool call. To see what the code does, call "
+    "run_python with a few lines that print it; to find a bug, call verify and read what fails. Then change one "
+    "thing and call verify."
 )
 THOUGHT_SO_FAR = (
     "\nThis is where your thinking stood when it was cut off; go on from it, do not start again:\n{tail}"
@@ -44,8 +46,11 @@ LOOPING = (
     "will not settle it. Do not weigh it up again: choose the reading that fits the task and the code you have "
     "read, and act now with one tool call: {action}"
 )
-LOOPING_NO_PLAN = "call plan."
-LOOPING_PLAN = "edit a file for the current step, or call verify and read what fails."
+LOOPING_NO_PLAN = "call plan, or run_python to see what the code really gives."
+LOOPING_PLAN = (
+    "edit a file for the current step, call run_python to see what the code really gives, or call verify and "
+    "read what fails."
+)
 REPEATED = (
     "You have made this call before with the same arguments, and no file has changed since: the result is in "
     "the conversation above. Do not look again; act on what you know: call plan, edit a file or call verify."

@@ -7,6 +7,7 @@ from mcp.client.stdio import stdio_client
 
 from conftest import PYTEST
 from local_ai.coder import files as fl
+from local_ai.coder.tools import coder_tools
 from local_ai.coder.workflow import ALL_DONE
 
 
@@ -75,3 +76,11 @@ async def test_stdio_server_with_files(project):
         assert "REVIEW before you finish" in await call(session, "verify", note="fixed")
         assert ALL_DONE in await call(session, "verify", note="test_add covers it")
         assert await call(session, "list_files") == "test_add.py"
+
+
+def test_run_python_shows_what_the_code_does(project):
+    (project / "shapes.py").write_text("def area(r):\n    return 3 * r * r\n", encoding="utf-8")
+    run = coder_tools(project)["run_python"].fn
+    assert run("import shapes\nprint(shapes.area(2), '⎠')").strip() == "12 ⎠"  # the project is importable
+    failed = run("import shapes\nshapes.area()")
+    assert failed.startswith("The script failed.") and "TypeError" in failed and "line 2" in failed

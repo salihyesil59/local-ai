@@ -146,6 +146,10 @@ task's words point to first and in detail) and the `existing-code` skill. The ag
 - `outline(path)`: what a file defines, with line numbers, to read only that part with `read_file`;
 - `repo_map(path)`: a folder in more detail.
 
+`run_python(code)` runs a short script in the project folder with the project's environment (60 s at most) and
+returns what it prints, so the agent sees what the code does and need not work it out in its thinking. It decides
+nothing: a task is done only through `verify`.
+
 `verify(tests="tests/test_x.py")` runs only the tests of the step (pytest); the review at the end runs the
 whole suite. When the plan is saved the tests run once: those that fail already, and that the plan does not
 name, are listed and not counted against the agent. Work on a branch: the agent edits the files in place and

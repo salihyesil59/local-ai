@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from local_ai.coder.state import STATE_DIR
+
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 ERROR_RE = re.compile(r"FAILED|FAIL\b|ERROR|Error|error\b|Exception|panicked|assert")
 MAX_OUTPUT = 6000  # characters of test output returned to the model
@@ -80,6 +82,16 @@ def in_project_env(command: str, root: Path) -> str:
         if command.startswith(start):
             return replacement + command[len(start) :]
     return command
+
+
+def run_script(code: str, root: Path, timeout: float = 60) -> Result:
+    """Run a Python script with the project's environment, in the project folder and with the project on the
+    import path. Its output is UTF-8 whatever the console is."""
+    script = root / STATE_DIR / "run.py"
+    script.parent.mkdir(exist_ok=True)
+    script.write_text(code, encoding="utf-8")
+    start = "import runpy,sys;sys.path.insert(0,'.');runpy.run_path(sys.argv[1],run_name='__main__')"
+    return run(f'{project_python(root)} -X utf8 -c "{start}" "{script}"', root, timeout)
 
 
 def run(command: str, root: Path, timeout: float = 300) -> Result:
