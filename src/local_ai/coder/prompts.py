@@ -39,6 +39,13 @@ CUT_OFF = (
 THOUGHT_SO_FAR = (
     "\nThis is where your thinking stood when it was cut off; go on from it, do not start again:\n{tail}"
 )
+LOOPING = (
+    "Your last reply was stopped: its thinking went in circles, the same sentences again and again. More thinking "
+    "will not settle it. Do not weigh it up again: choose the reading that fits the task and the code you have "
+    "read, and act now with one tool call: {action}"
+)
+LOOPING_NO_PLAN = "call plan."
+LOOPING_PLAN = "edit a file for the current step, or call verify and read what fails."
 REPEATED = (
     "You have made this call before with the same arguments, and no file has changed since: the result is in "
     "the conversation above. Do not look again; act on what you know: call plan, edit a file or call verify."

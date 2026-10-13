@@ -10,6 +10,11 @@ from dataclasses import dataclass, field
 DEFAULT_BASE_URL = "http://localhost:1234/v1"
 STREAM_FLUSH = 0.15  # seconds between "token" events while streaming
 THINKING_TAIL = 1500  # characters of the thinking kept with a reply
+LOOP_SPAN = 300  # thinking goes in circles when its last LOOP_SPAN characters have come LOOP_TIMES times
+LOOP_TIMES = 3
+LOOP_CHECK = 400  # characters of new thinking between two checks
+UNSTICK_TEMPERATURE = 0.9  # for the reply after one that went in circles
+UNSTICK_REPEAT_PENALTY = 1.1
 
 
 @dataclass
@@ -19,6 +24,7 @@ class Reply:
     finish_reason: str = ""  # "length" when max_tokens cut the reply off
     reasoning_chars: int = 0
     reasoning_tail: str = ""  # the end of the thinking, for a reply that was cut off before it acted
+    looping: bool = False  # cut off because the thinking repeated itself
     completion_tokens: int | None = None
     prompt_tokens: int | None = None
     seconds: float = 0.0
@@ -52,6 +58,12 @@ class TokenBatcher:
         self.last = time.monotonic()
 
 
+def goes_in_circles(thinking: str) -> bool:
+    """True when the end of the thinking has been written several times already: the model is stuck in a loop."""
+    tail = thinking[-LOOP_SPAN:]
+    return len(thinking) >= LOOP_SPAN * LOOP_TIMES and thinking.count(tail) >= LOOP_TIMES
+
+
 async def close(stream) -> None:
     """Close the stream so the server stops generating (one that ended normally is closed already)."""
     closer = getattr(stream, "close", None) or getattr(stream, "aclose", None)
@@ -65,8 +77,10 @@ async def read_stream(
     stream, on_delta: Callable[[str, str], None] | None = None, max_thinking_chars: int | None = None
 ) -> Reply:
     """Rebuild the reply (content and tool calls) from the chunks of a streamed completion; on_delta(kind, text)
-    gets "thinking" and "text" pieces as they arrive. A reply that only thinks is stopped after max_thinking_chars."""
+    gets "thinking" and "text" pieces as they arrive. A reply that only thinks is stopped after max_thinking_chars,
+    and at once when the thinking goes in circles."""
     reply = Reply()
+    checked = 0
     content: list[str] = []
     thinking: list[str] = []
     calls: dict[int, dict] = {}
@@ -87,6 +101,11 @@ async def read_stream(
             if max_thinking_chars and reply.reasoning_chars > max_thinking_chars and not content and not calls:
                 reply.finish_reason = "length"  # thinking for too long: stop generating now, do not wait
                 break
+            if max_thinking_chars and reply.reasoning_chars - checked >= LOOP_CHECK and not content and not calls:
+                checked = reply.reasoning_chars
+                if goes_in_circles("".join(thinking)):
+                    reply.finish_reason, reply.looping = "length", True
+                    break
         if delta.content:
             content.append(delta.content)
             if on_delta:
@@ -133,16 +152,21 @@ class LLM:
         tools: list[dict] | None = None,
         on_delta: Callable[[str, str], None] | None = None,
         max_tokens: int | None = None,
+        unstick: bool = False,
     ) -> Reply:
         """Stream one completion; on_delta(kind, text) gets "thinking" and "text" pieces as they arrive.
-        max_tokens covers thinking too, so a model stuck in a loop is cut off."""
+        max_tokens covers thinking too, so a model stuck in a loop is cut off. unstick: the reply before went in
+        circles, so this one is sampled more freely and repeating is made costly."""
+        extra = {"top_k": self.top_k}
+        if unstick:
+            extra["repeat_penalty"] = UNSTICK_REPEAT_PENALTY
         kwargs = dict(
             model=self.model,
             messages=messages,
-            temperature=self.temperature,
+            temperature=max(self.temperature, UNSTICK_TEMPERATURE) if unstick else self.temperature,
             top_p=self.top_p,
             max_tokens=max_tokens or self.max_tokens,
-            extra_body={"top_k": self.top_k},
+            extra_body=extra,
             stream=True,
             stream_options={"include_usage": True},
         )

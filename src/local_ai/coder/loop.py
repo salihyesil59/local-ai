@@ -145,11 +145,11 @@ class CoderAgent:
         self.emit_state()
         return result
 
-    async def complete(self, messages: list[dict], tools: list[dict] | None) -> Reply:
+    async def complete(self, messages: list[dict], tools: list[dict] | None, unstick: bool = False) -> Reply:
         """One model reply; its text and thinking go out as batched "token" events (the format of local-ai's UI)."""
         batch = TokenBatcher(lambda text, thinking: self.emit("token", text=text, thinking=thinking))
         try:
-            return await self.llm.complete(messages, tools, batch.add)
+            return await self.llm.complete(messages, tools, batch.add, unstick=unstick)
         finally:
             batch.flush()
             self.emit("stream_end")
@@ -283,7 +283,8 @@ class CoderAgent:
         messages = self.messages
         specs = [t.spec() for t in self.tools.values()]
         edits = nudges = 0
-        wrap_up = False
+        wrap_up = unstick = False
+        cut_off = None  # the nudge after the last cut-off reply
 
         for turn in range(1, self.settings.max_turns + 1):
             if self.compact_requested or size(messages) > self.settings.context_chars:
@@ -294,7 +295,7 @@ class CoderAgent:
                 nudges = 0
             context = size(messages)
             try:
-                reply = await self.complete(messages, None if wrap_up else specs)
+                reply = await self.complete(messages, None if wrap_up else specs, unstick)
             except Exception as e:  # the server (LM Studio) failed; the plan and the files stay on disk
                 return Outcome(False, f"the model server failed: {describe_error(e)}")
             self.emit_turn(turn, reply, context)
@@ -313,11 +314,20 @@ class CoderAgent:
                 nudges += 1
                 if nudges > self.settings.max_nudges:
                     return Outcome(False, "the model keeps running out of tokens without acting")
-                nudge = prompts.CUT_OFF_CALL if calls else prompts.CUT_OFF
-                if not calls and reply.reasoning_tail.strip():  # what it had worked out is not lost
-                    nudge += prompts.THOUGHT_SO_FAR.format(tail=reply.reasoning_tail.strip())
-                messages.append({"role": "user", "content": nudge})
+                unstick = reply.looping
+                if reply.looping:  # its thinking is not given back: reading it again keeps the loop going
+                    action = prompts.LOOPING_PLAN if st.load(self.root) else prompts.LOOPING_NO_PLAN
+                    nudge = prompts.LOOPING.format(action=action)
+                else:
+                    nudge = prompts.CUT_OFF_CALL if calls else prompts.CUT_OFF
+                    if not calls and reply.reasoning_tail.strip():  # what it had worked out is not lost
+                        nudge += prompts.THOUGHT_SO_FAR.format(tail=reply.reasoning_tail.strip())
+                if messages[-1] is cut_off:  # cut off again: one nudge, not a pile of them
+                    messages.pop()
+                cut_off = {"role": "user", "content": nudge}
+                messages.append(cut_off)
                 continue
+            unstick = False
 
             if calls:
                 nudges = 0

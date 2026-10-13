@@ -649,3 +649,35 @@ async def test_a_stopped_run_goes_on_with_its_conversation(project):
     CoderAgent.repair(broken)
     assert [m.get("tool_call_id") for m in broken] == [None, None, "a", "b"] and broken[3]["content"] == prompts.STOPPED_CALL
 
+
+
+@pytest.mark.anyio
+async def test_thinking_in_circles_is_stopped_and_not_given_back(project):
+    circle = "Let me just follow the instructions and see what happens. Actually, that is confusing. " * 40
+    agent, client, _ = make_agent(
+        project,
+        [
+            say(finish="length", thinking="An idea. " * 20 + "It ends here."),
+            say(thinking=circle, text="never reached"),
+            say(calls=[plan_call()]),
+            say("stop"),
+        ],
+        max_nudges=2,
+    )
+    await agent.run("task")
+    second, third, fourth = client.requests[1:4]
+    assert second["messages"][-1]["content"].endswith("It ends here.") and second["temperature"] == 0.6
+    nudge = third["messages"][-1]["content"]
+    assert nudge == prompts.LOOPING.format(action=prompts.LOOPING_NO_PLAN) and "follow the instructions" not in nudge
+    assert len(third["messages"]) == len(second["messages"])  # the nudge before it is replaced, not piled up
+    assert third["temperature"] == 0.9 and third["extra_body"] == {"top_k": 20, "repeat_penalty": 1.1}
+    assert fourth["temperature"] == 0.6 and fourth["extra_body"] == {"top_k": 20}  # it acted: back to normal
+
+
+def test_only_thinking_that_repeats_itself_goes_in_circles():
+    from local_ai.core.llm import goes_in_circles
+
+    quoted = "x = compute(a, b) and then the result is checked against the table of known values. " * 4
+    assert not goes_in_circles("First I read the code. " + quoted + "So the bug is in compute.")
+    assert not goes_in_circles("short " * 10)
+    assert goes_in_circles("Start. " + "I will follow the user. But the issue says otherwise. This is confusing. " * 20)

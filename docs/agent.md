@@ -92,7 +92,8 @@ PDF). The sidebar lists:
 Model output is shown as it is written: Markdown, coloured code and LaTeX formulas (`$..$`, `$$..$$`, `\(..\)`,
 `\[..\]`). The **⚙** button of the message box opens the settings of the chat: the model (from those LM Studio
 has), temperature, max tokens, max turns, the context limit and the thinking limit (code) or max steps
-(research). Empty fields use the defaults; the
+(research). A code reply that only thinks is stopped at the thinking limit, and at once when the thinking repeats
+itself; the model is then told to act. Empty fields use the defaults; the
 settings are saved with the chat and remembered for the next new one. During a code run the box also shows the
 turn, the speed in tokens per second and how full the context is; at 100% it is compacted, and **Compact** does it
 earlier. The context limit is 300 000 characters (about 90k tokens), which needs a context length of 131072 in
