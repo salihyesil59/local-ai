@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -114,8 +115,10 @@ def zim_catalog(query: str = "", lang: str = "", name: str = "", limit: int = 50
     return books
 
 
-def download(url: str, dest: Path, quiet: bool = False) -> Path:
-    """Resumable download to dest (via dest.part), verified against <url>.sha256 when published."""
+def download(url: str, dest: Path, quiet: bool = False, progress: Callable[[int, int], None] | None = None) -> Path:
+    """Resumable download to dest (via dest.part), verified against <url>.sha256 when published. progress(done,
+    total) is called after every MiB (total 0 when unknown); an exception it raises stops the download, and the
+    part already downloaded is kept for the next try."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     done = part.stat().st_size if part.exists() else 0
@@ -137,6 +140,8 @@ def download(url: str, dest: Path, quiet: bool = False) -> Path:
                 while chunk := resp.read(1 << 20):
                     f.write(chunk)
                     done += len(chunk)
+                    if progress:
+                        progress(done, total)
                     if not quiet and time.monotonic() - last > 2:
                         pct = f" {100 * done / total:.1f}%" if total else ""
                         print(f"  {dest.name}: {_human(done)}{pct}", file=sys.stderr)
@@ -171,22 +176,28 @@ def local_zims(folder: Path) -> list[dict]:
     return out
 
 
+def newer_release(z: dict) -> dict | None:
+    """The newest release of a local ZIM (from local_zims) in the Kiwix catalog, when it is newer; needs the
+    internet."""
+    candidates = []
+    for name in dict.fromkeys([z["prefix"], z["prefix"].rsplit("_", 1)[0]]):
+        for book in zim_catalog(name=name, limit=200):
+            m = ZIM_NAME_RE.match(book["file"])
+            if m and m["prefix"] == z["prefix"] and m["date"] > z["date"]:
+                candidates.append((m["date"], book))
+    return max(candidates, key=lambda c: c[0])[1] if candidates else None
+
+
 def zim_update(folder: Path, keep_old: bool = False, quiet: bool = False) -> list[str]:
     messages = []
     for z in local_zims(folder):
         if not z["date"]:
             messages.append(f"skip {z['path'].name}: no date in file name")
             continue
-        candidates = []
-        for name in dict.fromkeys([z["prefix"], z["prefix"].rsplit("_", 1)[0]]):
-            for book in zim_catalog(name=name, limit=200):
-                m = ZIM_NAME_RE.match(book["file"])
-                if m and m["prefix"] == z["prefix"] and m["date"] > z["date"]:
-                    candidates.append((m["date"], book))
-        if not candidates:
+        newest = newer_release(z)
+        if newest is None:
             messages.append(f"up to date: {z['path'].name}")
             continue
-        _, newest = max(candidates, key=lambda c: c[0])
         new_path = download(newest["url"], folder / newest["file"], quiet)
         messages.append(f"updated: {z['path'].name} -> {new_path.name}")
         if not keep_old:

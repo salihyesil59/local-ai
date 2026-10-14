@@ -25,7 +25,9 @@ Browse newer releases at [download.kiwix.org/zim/wikipedia](https://download.kiw
 ## Your library
 
 Put books, lecture notes and papers (PDF / .md / .txt, subfolders included) into `LOCAL_AI_LIBRARY` (default
-`%USERPROFILE%\physics-library`, on Linux `~/physics-library`). Free sources that work well:
+`%USERPROFILE%\local-ai-library`, on Linux `~/local-ai-library`; an existing `physics-library` folder is still used
+when there is no `local-ai-library`), or drop them onto the **Offline** view of the web UI, which copies them there.
+Free sources that work well:
 
 - David Tong's Cambridge lecture notes ([davidtong.org/teaching](https://davidtong.org/teaching/));
 - Sean Carroll's *Lecture Notes on General Relativity* (arXiv:gr-qc/9712019);

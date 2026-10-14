@@ -19,6 +19,10 @@ SYSTEM = (
 MAX_TOOL_ROUNDS = 8  # replies with tool calls in a row; the reply after them is given no tools
 MAX_TOOL_CHARS = 8000  # of one tool result kept in the conversation
 CUT_OFF = "\n\n*(The reply was cut off at the token limit: raise Max tokens in the settings.)*"
+ANSWER_NOW = (
+    "Your last reply was cut off while you were still thinking. Do not think it through again: answer now, "
+    "briefly, from what you know and what the tools returned."
+)
 
 
 class ChatAgent:
@@ -51,13 +55,14 @@ class ChatAgent:
             self.messages.append({"role": "system", "content": SYSTEM})
         self.messages.append({"role": "user", "content": with_images(text, images)})
         specs = [t.spec() for t in self.tools.values()] or None
-        for turn in range(1, MAX_TOOL_ROUNDS + 2):
+        nudge = None  # the request to answer at once, after a reply that only thought
+        for turn in range(1, MAX_TOOL_ROUNDS + 3):
             self.fit()
             context = size(self.messages)
             offered = specs if turn <= MAX_TOOL_ROUNDS else None
             batch = TokenBatcher(lambda chunk, thinking: self.emit("token", text=chunk, thinking=thinking))
             try:
-                reply = await self.llm.complete(self.messages, offered, batch.add)
+                reply = await self.llm.complete(self.messages, offered, batch.add, unstick=nudge is not None)
             finally:
                 batch.flush()
                 self.emit("stream_end")
@@ -82,6 +87,12 @@ class ChatAgent:
                         {"role": "tool", "tool_call_id": call["id"], "content": trim(await self.call(call), MAX_TOOL_CHARS)}
                     )
                 continue
+            if reply.finish_reason == "length" and not answer and nudge is None:
+                nudge = {"role": "user", "content": ANSWER_NOW}  # once, sampled more freely
+                self.messages.append(nudge)
+                continue
+            if nudge in self.messages:  # the conversation keeps the answer, not the request for it
+                self.messages.remove(nudge)
             if reply.finish_reason == "length":
                 answer += CUT_OFF
             self.messages.append({"role": "assistant", "content": answer})

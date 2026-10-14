@@ -53,6 +53,13 @@ SPEEDS = {
     "fast": {"max_thinking_chars": 5000},
     "quick": {"max_thinking_chars": 3000, "max_turns": 25},
 }
+CHAT_THINKING_CHARS = 16_000  # about 5000 tokens of thinking in a chat reply
+NOTEBOOK_TOOLS = ("library__search_library", "library__read_library")
+NOTEBOOK_NOTE = (
+    "\n\n[The user chose the notebook \"{name}\" for this message. Its files: {files}. search_library searches "
+    "only these files (you need not pass scope); answer from them and say which file and page each part of the "
+    "answer comes from. Pass scope=\"\" only when the user asks to search beyond the notebook.]"
+)
 IMAGES_ONLY = "Look at the attached image and help with what it shows."  # a message that is only images
 FOLLOW_UP = "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThe answer was:\n{answer}"
 STOPPED_RUN = (
@@ -72,6 +79,7 @@ class Run:
     folder: str | None = None  # id of the chat folder it is sorted into
     pinned: bool = False  # kept at the top of the chat list
     images: list[str] = field(default_factory=list)  # names of the images sent with the first message
+    notebook: str = ""  # the notebook (a folder notebooks/<name> of the library) its last message chose
     settings: dict = field(default_factory=dict)  # model, temperature, ... chosen for this chat
     created: float = field(default_factory=time.time)
     events: list[dict] = field(default_factory=list)
@@ -145,6 +153,7 @@ class Run:
             "folder": self.folder,
             "pinned": self.pinned,
             "images": self.images,
+            "notebook": self.notebook,
             "resumable": bool(self.loaded and self.resumable()),
             "settings": self.settings,
             "created": self.created,
@@ -216,6 +225,8 @@ async def run_chat(
     """Chat mode: one answer of a plain conversation. The conversation of the chat is kept like a code chat's."""
     selected = set(options.get("servers") or [])
     tools = bridge.as_tools(selected - {"coder", settings.notebook_server}) if bridge and selected else {}
+    if bridge and options.get("notebook"):  # a chat with a notebook searches it, whatever else is switched on
+        tools.update({n: t for n, t in bridge.as_tools({"library"}).items() if n in NOTEBOOK_TOOLS})
     if tools:
         active = sorted({bridge.tools[name].server for name in tools})
         run.push({"kind": "log", "text": f"Tools of: {', '.join(active)} ({len(tools)} tools)"})
@@ -225,7 +236,8 @@ async def run_chat(
         max_tokens=settings.max_tokens,
         temperature=settings.temperature,
         top_p=settings.top_p,
-        max_thinking_chars=0,  # a chat thinks as long as its token limit lets it
+        # longer than in code mode, but a reply that thinks in circles is still stopped (and asked to answer)
+        max_thinking_chars=run.settings.get("max_thinking_chars", CHAT_THINKING_CHARS),
     )
     context = run.settings.get("context_chars", 300_000)
     agent = ChatAgent(llm, emit=lambda kind, **data: run.push({"kind": kind, **data}), tools=tools, context_chars=context)

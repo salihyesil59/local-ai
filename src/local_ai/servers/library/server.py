@@ -1,7 +1,8 @@
 """Library MCP server: everything the model can look up.
 
 Tools:
-  search_library  passages from your library (LOCAL_AI_LIBRARY), offline arXiv abstracts and, on request, ZIM archives
+  search_library  passages from your library (LOCAL_AI_LIBRARY), offline arXiv abstracts and, on request, ZIM archives;
+                  scope limits it to one folder of the library (a notebook: notebooks/<name>)
   read_library    pages of a library file, or a search hit with its neighbours
   wikipedia     a Wikipedia article (or one section) from the offline archives, online as fallback
   docs          offline programming documentation (DevDocs archives)
@@ -17,7 +18,7 @@ reciprocal-rank fusion, then optionally re-ranked with a cross-encoder (LOCAL_AI
 
 Environment:
   LOCAL_AI_WORKSPACE         workspace root (default ~/local-ai-workspace)
-  LOCAL_AI_LIBRARY           your PDF / .md / .txt files (default ~/physics-library)
+  LOCAL_AI_LIBRARY           your PDF / .md / .txt files (default ~/local-ai-library)
   LOCAL_AI_ZIM_DIR           ZIM folders and/or files, separated by os.pathsep (default ~/wiki-zim)
   LOCAL_AI_BASE_URL          LM Studio server (default http://localhost:1234/v1)
   LOCAL_AI_EMBED_MODEL       embedding model id in LM Studio (default text-embedding-qwen3-embedding-0.6b)
@@ -43,6 +44,7 @@ from pathlib import Path
 import numpy as np
 
 from local_ai.servers.common import (
+    NOTEBOOKS,
     FastMCP,
     connect,
     from_blob,
@@ -402,14 +404,38 @@ class Library:
 
     # -- search --------------------------------------------------------------
 
-    def search(self, query: str, k: int = 8, sources: str = "library,arxiv", english_query: str = "") -> list[dict]:
+    def scope_folder(self, scope: str) -> Path:
+        """The folder of the library a search is limited to; ValueError for one that is not in it."""
+        root = library_dir().resolve()
+        folder = (root / scope.strip().strip("/\\")).resolve()
+        if not folder.is_dir() and (root / NOTEBOOKS / scope.strip()).is_dir():  # the name of a notebook alone
+            folder = (root / NOTEBOOKS / scope.strip()).resolve()
+        if folder != root and root not in folder.parents:
+            raise ValueError(f"{scope} is not a folder of the library")
+        if not folder.is_dir():
+            raise ValueError(f"no folder {scope} in the library")
+        return folder
+
+    def search(
+        self, query: str, k: int = 8, sources: str = "library,arxiv", english_query: str = "", scope: str = ""
+    ) -> list[dict]:
+        """scope: a folder of the library (a notebook); only its files are searched, and they are indexed first,
+        so a file added a moment ago is found."""
         wanted = {s.strip().lower() for s in sources.split(",") if s.strip()} or {"library", "arxiv"}
         kinds = set().union(*(SOURCE_KINDS.get(w, {w}) for w in wanted))
-        if kinds & LIBRARY_KINDS:
+        prefix = ""
+        if scope.strip():
+            folder = self.scope_folder(scope)
+            self.index_folder(str(folder))
+            kinds, prefix = set(LIBRARY_KINDS), f"{folder}{os.sep}"
+        elif kinds & LIBRARY_KINDS:
             self.ensure_library()
         if "zim" in kinds:
             self._zim_candidates([query, english_query])
         placeholders = ",".join("?" * len(kinds))
+        # within the scope folder only (no scope: an empty prefix matches every path)
+        within = "AND substr(d.path, 1, ?) = ?"
+        scoped = (len(prefix), prefix)
 
         # 1) keyword ranking (BM25)
         bm25_ids: list[int] = []
@@ -420,9 +446,9 @@ class Library:
                 for r in self.conn.execute(
                     f"""SELECT c.id FROM chunks_fts f JOIN chunks c ON c.id = f.rowid
                         JOIN docs d ON d.id = c.doc_id
-                        WHERE chunks_fts MATCH ? AND d.kind IN ({placeholders})
+                        WHERE chunks_fts MATCH ? AND d.kind IN ({placeholders}) {within}
                         ORDER BY bm25(chunks_fts) LIMIT 50""",
-                    (match, *kinds),
+                    (match, *kinds, *scoped),
                 )
             ]
 
@@ -434,8 +460,8 @@ class Library:
             qvec = qvecs.mean(axis=0)
             rows = self.conn.execute(
                 f"""SELECT c.id, c.embedding FROM chunks c JOIN docs d ON d.id = c.doc_id
-                    WHERE c.embedding IS NOT NULL AND d.kind IN ({placeholders})""",
-                tuple(kinds),
+                    WHERE c.embedding IS NOT NULL AND d.kind IN ({placeholders}) {within}""",
+                (*kinds, *scoped),
             ).fetchall()
             if rows:
                 matrix = np.stack([from_blob(r["embedding"]) for r in rows])
@@ -540,7 +566,9 @@ def build_server(library: Library | None = None) -> FastMCP:
     )
 
     @mcp.tool()
-    def search_library(query: str, english_query: str = "", sources: str = "library,arxiv", k: int = 8) -> str:
+    def search_library(
+        query: str, english_query: str = "", sources: str = "library,arxiv", k: int = 8, scope: str = ""
+    ) -> str:
         """Find passages about a topic in the user's own library (books, lecture notes, papers) and in the offline
         arXiv abstracts. Use this before answering from memory.
 
@@ -550,8 +578,13 @@ def build_server(library: Library | None = None) -> FastMCP:
         documentation archives (slower); for a known Wikipedia article use the wikipedia tool instead.
         Each hit shows a chunk id, title, page and source; read either with read_library. Authors, year, DOI and
         citekey are shown when known: copy them when you cite.
+        scope: a folder of the library, e.g. "notebooks/cosmology" (a notebook the user chose): only its files are
+        searched and sources is ignored. Empty: everything in sources.
         """
-        hits = lib.search(query, k=max(1, min(k, 20)), sources=sources, english_query=english_query)
+        try:
+            hits = lib.search(query, k=max(1, min(k, 20)), sources=sources, english_query=english_query, scope=scope)
+        except ValueError as e:
+            return f"Error: {e}"
         note = (
             f"\n\n(Note: {lib.auto_pending} library files are not indexed yet; they are added on the next searches.)"
             if lib.auto_pending

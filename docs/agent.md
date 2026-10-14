@@ -117,6 +117,24 @@ open and shows the passage of the tool output the quote was taken from.
 The top bar switches the language of the page (English / Turkish; what the agents write stays in their own
 language) and the theme (system, light, dark).
 
+### Offline: notebooks, library and ZIM archives
+
+The **Offline** view of the sidebar manages what the agents read without the internet:
+
+- **Notebooks**: a notebook is a handful of files for one topic, kept in `notebooks/<name>/` of the library. Choose
+  it with the notebook chooser of the message box (Chat and Research): `search_library` then looks only into its
+  files (they are indexed the moment it searches, so a file added a minute ago is found), and the model is told to
+  answer from them and name file and page. Asked to look further ("search the whole library"), it passes
+  `scope=""`. Less to search, less to read: the answer comes faster than from the whole library.
+- **Library**: drop PDF, Markdown or text files to copy them into `LOCAL_AI_LIBRARY`; the list shows which files
+  the search index has. Files can be deleted here.
+- **ZIM archives**: the archives of `LOCAL_AI_ZIM_DIR`; **Check for updates** asks the Kiwix catalog for newer
+  releases (needs the internet) and downloads the chosen ones, with progress and Cancel (a cancelled download goes
+  on where it stopped next time). The old file is deleted after the new one is complete, unless you keep it.
+
+The folders are those of the `library` server in the UI's mcp.json (its `env`), so the view and the agents see the
+same files.
+
 ### Tools: MCP servers
 
 The **Tools** button of the message box chooses the MCP servers a message may use (a switch per server,

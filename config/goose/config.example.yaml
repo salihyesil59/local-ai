@@ -23,7 +23,7 @@ extensions:
     args: []
     env_keys: []
     envs:
-      LOCAL_AI_LIBRARY: C:\Users\salih\physics-library
+      LOCAL_AI_LIBRARY: C:\Users\salih\local-ai-library
       LOCAL_AI_ZIM_DIR: C:\Users\salih\wiki-zim
       LOCAL_AI_EMBED_BACKEND: none
     timeout: 300

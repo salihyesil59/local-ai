@@ -426,6 +426,22 @@ input, select, textarea { accent-color: var(--accent); }
 /* the Tools view: MCP servers */
 .view.page h2 { margin-top: 0; font-weight: 600; }
 .mcp-list { display: grid; gap: 10px; margin: 16px 0 24px; }
+.offline-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 14px 16px; margin: 16px 0; display: grid; gap: 10px; }
+.offline-card h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.notebook-list { display: grid; gap: 10px; }
+.notebook { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 8px; }
+.file-rows { display: grid; gap: 2px; }
+.file-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; font-size: 13.5px; }
+.file-row:hover { background: var(--surface-2); }
+.file-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drop { border: 1px dashed var(--border); border-radius: var(--radius); padding: 12px; color: var(--muted); font-size: 13.5px; }
+.notebook.drop { border-style: solid; color: inherit; }
+.drop.dropping { outline: 2px dashed var(--accent); outline-offset: 2px; }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+.bar { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); }
+select.pill { appearance: none; -webkit-appearance: none; cursor: pointer; max-width: 220px; color: var(--muted); }
+select.pill.chosen { color: var(--fg); border-color: var(--accent); }
 .mcp-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; display: grid; gap: 8px; }
 .mcp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .mcp-head .muted { font-size: 13px; }

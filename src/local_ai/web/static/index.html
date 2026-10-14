@@ -30,6 +30,7 @@
         <button class="tab" data-view="memory" data-icon="layers" role="tab">Memory</button>
         <button class="tab" data-view="skills" data-icon="star" role="tab">Skills</button>
         <button class="tab" data-view="tools" data-icon="plug" role="tab">Tools</button>
+        <button class="tab" data-view="offline" data-icon="folder" role="tab">Offline</button>
       </div>
       <div id="side-list" class="side-list"></div>
     </nav>
@@ -88,6 +89,7 @@
                 <button type="button" class="mode active" data-mode="research" role="tab">Research</button>
                 <button type="button" class="mode" data-mode="code" role="tab">Code</button>
               </div>
+              <select id="notebook" class="pill not-code" title="A notebook: this message searches only its files" aria-label="Notebook"></select>
               <label id="fast-opt" class="opt agent-only"><input type="checkbox" id="fast"> <span>Fast</span></label>
               <label id="quick-opt" class="opt agent-only"><input type="checkbox" id="quick"> <span>Quick</span></label>
               <span class="spacer"></span>
@@ -147,6 +149,37 @@
           </div>
         </form>
         <p id="mcp-config" class="muted note"></p>
+      </section>
+      <section id="view-offline" class="view page" hidden>
+        <h2>Offline</h2>
+        <p class="muted">What the agents can read without the internet: notebooks, your library and the ZIM archives.</p>
+        <div class="offline-card">
+          <h3>Notebooks</h3>
+          <p class="muted note">A notebook is a handful of files for one topic. Choose it at the message box of a chat or a research: the model then searches only its files, not the whole library.</p>
+          <form id="notebook-add" class="row">
+            <input id="notebook-name" placeholder="Name of a new notebook" autocomplete="off">
+            <button class="ghost" type="submit">Create</button>
+          </form>
+          <div id="notebook-list" class="notebook-list"></div>
+        </div>
+        <div class="offline-card">
+          <h3>Library</h3>
+          <p id="library-dir" class="muted note"></p>
+          <div id="library-drop" class="drop" tabindex="0">Drop PDF, Markdown or text files here, or <button id="library-pick" class="link" type="button">choose files</button>. They are copied into the library and indexed on the next search.</div>
+          <input id="library-input" type="file" accept=".pdf,.md,.txt" multiple hidden>
+          <div id="library-files" class="file-rows"></div>
+        </div>
+        <div class="offline-card">
+          <h3>ZIM archives</h3>
+          <p id="zim-dirs" class="muted note"></p>
+          <div id="zim-list" class="file-rows"></div>
+          <div class="row">
+            <button id="zim-check" class="ghost" type="button">Check for updates</button>
+            <span class="muted note">Needs the internet: newer releases come from the Kiwix catalog.</span>
+          </div>
+          <div id="zim-updates"></div>
+          <div id="zim-job"></div>
+        </div>
       </section>
     </main>
   </div>

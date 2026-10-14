@@ -38,8 +38,15 @@ def cache_dir(name: str) -> Path:
 
 
 def library_dir() -> Path:
-    """LOCAL_AI_LIBRARY (default ~/physics-library): the user's own PDF / .md / .txt files."""
-    return Path(os.environ.get("LOCAL_AI_LIBRARY") or "~/physics-library").expanduser()
+    """LOCAL_AI_LIBRARY (default ~/local-ai-library, or the older ~/physics-library when only that one exists): the
+    user's own PDF / .md / .txt files. Its folder notebooks/ holds one folder per notebook."""
+    if os.environ.get("LOCAL_AI_LIBRARY"):
+        return Path(os.environ["LOCAL_AI_LIBRARY"]).expanduser()
+    new, old = Path("~/local-ai-library").expanduser(), Path("~/physics-library").expanduser()
+    return old if old.is_dir() and not new.is_dir() else new
+
+
+NOTEBOOKS = "notebooks"  # the folder of the library that holds the notebooks, one folder each
 
 
 def zim_paths() -> list[Path]:

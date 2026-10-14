@@ -29,6 +29,12 @@ async def test_bridge_exposes_and_calls_tools(mcp_config):
         assert not err and "(1 parts)" in text
         text, err = await bridge.call("library__read_library", {"source": "../mcp.json"})
         assert not err and text.startswith("Not found")  # nothing outside the library can be read
+        bridge.defaults = {"library__search_library": {"scope": "notebooks/none"}}  # a notebook chosen in the UI
+        text, err = await bridge.call("library__search_library", {"query": "speed of light"})
+        assert "no folder notebooks/none" in text  # the scope the model left out was filled in
+        text, err = await bridge.call("library__search_library", {"query": "speed of light", "scope": ""})
+        assert "299792458" in text  # given by the model, it wins
+        bridge.defaults = {}
 
         text, err = await bridge.call("library__nope", {})
         assert err and "unknown tool" in text

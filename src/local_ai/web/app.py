@@ -43,7 +43,8 @@ from local_ai.research.config import AgentSettings
 from local_ai.servers.common import slugify, workspace_root
 from local_ai.servers.export import FORMATS, ExportError, export, render_body, render_markdown
 
-from .runs import ACTIVE, IMAGES_ONLY, Run, clean_settings, run_chat, run_code, run_research
+from . import offline
+from .runs import ACTIVE, IMAGES_ONLY, NOTEBOOK_NOTE, Run, clean_settings, run_chat, run_code, run_research
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
@@ -176,6 +177,10 @@ def create_app(
     os.environ.setdefault("LOCAL_AI_WORKSPACE", str(workspace))
     store = Store(workspace)
     state: dict = {"bridge": None, "client": client, "runs": {}, "lock": asyncio.Lock(), "error": None}
+    zim_job = offline.ZimJob()
+
+    def where() -> offline.Places:
+        return offline.places(config_path)
 
     def attach_store(run: Run) -> None:
         run.sink = lambda event: store.append_event(run.id, event)
@@ -191,6 +196,7 @@ def create_app(
             folder=meta.get("folder"),
             pinned=bool(meta.get("pinned")),
             images=list(meta.get("images") or []),
+            notebook=meta.get("notebook") or "",
             settings=meta.get("settings") or {},
             created=meta.get("created", 0),
             loaded=False,
@@ -259,6 +265,16 @@ def create_app(
                         setattr(run_settings, key, value)
                 if options.get("servers") is not None:
                     run_settings.servers = list(options["servers"])
+                notebook = options.get("notebook") or ""
+                if notebook and options.get("mode") != "code":
+                    # search_library looks only into the notebook's folder, unless the model asks for more
+                    files = offline.notebook_files(where(), notebook)
+                    if state["bridge"]:
+                        state["bridge"].defaults = {"library__search_library": {"scope": f"notebooks/{notebook}"}}
+                    if run_settings.servers is not None and "library" not in run_settings.servers:  # None: all
+                        run_settings.servers = [*run_settings.servers, "library"]
+                    question += NOTEBOOK_NOTE.format(name=notebook, files=", ".join(files) or "(none yet)")
+                    run.push({"kind": "log", "text": f"Notebook: {notebook} ({len(files)} files)"})
                 if options.get("mode") == "code":
                     await run_code(run, question, options, run_settings, state["client"], state["bridge"], store)
                 elif options.get("mode") == "chat":
@@ -274,12 +290,17 @@ def create_app(
                         state["bridge"],
                         lambda e: run.push(decorate(e)),
                     )
+            except FileNotFoundError as e:
+                run.status = "failed"
+                run.push({"kind": "error", "text": f"No notebook {e}: it was deleted or renamed."})
             except asyncio.CancelledError:
                 run.status = "cancelled"
             except Exception as e:
                 run.status = "failed"
                 run.push({"kind": "error", "text": f"{type(e).__name__}: {e}"})
             finally:
+                if state["bridge"]:
+                    state["bridge"].defaults = {}
                 store.update_run(run.id, status=run.status)
                 run.push({"kind": "end", "status": run.status})
 
@@ -428,6 +449,7 @@ def create_app(
             run.folder, run.mode = chat_folder, body.get("mode") if body.get("mode") in ("code", "chat") else "research"
             run.settings = clean_settings(body.get("settings"))
             run.images = [store.save_image(run.id, data, ext) for data, ext in pictures]
+            run.notebook = str(body.get("notebook") or "")
             store.add_run(
                 run.id,
                 question=run.question,
@@ -438,6 +460,7 @@ def create_app(
                 settings=run.settings,
                 created=run.created,
                 images=run.images,
+                notebook=run.notebook,
             )
             attach_store(run)
             state["runs"][run.id] = run
@@ -516,8 +539,9 @@ def create_app(
             options["with_earlier_answer"], task = task, message
         if "settings" in body:
             run.settings = clean_settings(body["settings"])
+        run.notebook = str(body.get("notebook") or "")
         run.status = "queued"
-        store.update_run(run.id, status="queued", settings=run.settings)
+        store.update_run(run.id, status="queued", settings=run.settings, notebook=run.notebook)
         text = message or ("(continue the research)" if project else "(continue the plan)")
         run.push({"kind": "user", "text": text, **shown})
         # a research follow-up with a question gets a project of its own; without one the stopped project goes on
@@ -773,6 +797,78 @@ def create_app(
             return JSONResponse({"error": f"Could not open the folder dialog ({e}). Type the path instead."}, 503)
         return JSONResponse({"path": path})
 
+    # -- the Offline view: library files, notebooks, ZIM archives ---------------------------------------
+
+    async def offline_state(request: Request) -> Response:
+        places = where()
+        listing = await asyncio.to_thread(offline.library_listing, places)
+        archives = await asyncio.to_thread(offline.zim_listing, places)
+        zims = {"dirs": [str(d) for d in places.zim_dirs], "archives": archives}
+        return JSONResponse({"library": listing, "zim": zims, "job": zim_job.state})
+
+    async def offline_upload(request: Request) -> Response:
+        """A file into the library: the body is the file, folder and name are in the query."""
+        if int(request.headers.get("content-length") or 0) > offline.MAX_UPLOAD:
+            return JSONResponse({"error": "the file is too large"}, status_code=413)
+        content = await request.body()
+        try:
+            entry = await asyncio.to_thread(
+                offline.save_file, where(), request.query_params.get("folder", ""),
+                request.query_params.get("name", ""), content,
+            )  # fmt: skip
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse(entry, status_code=201)
+
+    async def offline_delete(request: Request) -> Response:
+        try:
+            offline.delete_file(where(), request.query_params.get("path", ""))
+        except (ValueError, FileNotFoundError):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"ok": True})
+
+    async def create_notebook(request: Request) -> Response:
+        try:
+            name = offline.create_notebook(where(), str((await request.json()).get("name", "")))
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"name": name}, status_code=201)
+
+    async def delete_notebook(request: Request) -> Response:
+        try:
+            offline.delete_notebook(where(), request.path_params["name"])
+        except FileNotFoundError:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse({"ok": True})
+
+    async def zim_updates(request: Request) -> Response:
+        try:
+            found = await asyncio.to_thread(offline.zim_updates, where())
+        except Exception as e:  # no internet, or the catalog did not answer
+            return JSONResponse({"error": f"Could not reach the Kiwix catalog: {e}"}, status_code=502)
+        return JSONResponse(found)
+
+    async def zim_update(request: Request) -> Response:
+        """Download the newer releases of the chosen archives (the catalog is asked again: no URL from outside)."""
+        body = await request.json()
+        wanted = set(body.get("files") or [])
+        try:
+            found = await asyncio.to_thread(offline.zim_updates, where())
+        except Exception as e:
+            return JSONResponse({"error": f"Could not reach the Kiwix catalog: {e}"}, status_code=502)
+        chosen = [u for u in found if not wanted or u["file"] in wanted]
+        if not chosen:
+            return JSONResponse({"error": "no update for these archives"}, status_code=400)
+        try:
+            zim_job.start(chosen, keep_old=bool(body.get("keep_old")))
+        except RuntimeError as e:
+            return JSONResponse({"error": str(e)}, status_code=409)
+        return JSONResponse(zim_job.state, status_code=202)
+
+    async def zim_cancel(request: Request) -> Response:
+        zim_job.cancelled.set()
+        return JSONResponse(zim_job.state)
+
     async def run_image(request: Request) -> Response:
         """An image sent with a message of a chat."""
         path = store.image_path(request.path_params["run_id"], request.path_params["name"])
@@ -799,6 +895,14 @@ def create_app(
         Route("/api/runs/{run_id}/events", run_events),
         Route("/api/runs/{run_id}/messages", add_message, methods=["POST"]),
         Route("/api/runs/{run_id}/images/{name}", run_image),
+        Route("/api/offline", offline_state),
+        Route("/api/offline/files", offline_upload, methods=["POST"]),
+        Route("/api/offline/files", offline_delete, methods=["DELETE"]),
+        Route("/api/offline/notebooks", create_notebook, methods=["POST"]),
+        Route("/api/offline/notebooks/{name}", delete_notebook, methods=["DELETE"]),
+        Route("/api/offline/zim/updates", zim_updates),
+        Route("/api/offline/zim/update", zim_update, methods=["POST"]),
+        Route("/api/offline/zim/cancel", zim_cancel, methods=["POST"]),
         Route("/api/runs/{run_id}", update_run, methods=["PATCH"]),
         Route("/api/runs/{run_id}", delete_run, methods=["DELETE"]),
         Route("/api/folders", list_folders),

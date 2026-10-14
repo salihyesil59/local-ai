@@ -308,8 +308,156 @@ document.querySelectorAll(".tab").forEach((tab) =>
     if (v === "memory") { show("memory"); $("#side-list").replaceChildren(); loadMemory(); }
     if (v === "skills") { show("skills"); $("#side-list").replaceChildren(); loadSkills(); }
     if (v === "tools") { show("tools"); $("#side-list").replaceChildren(); loadTools(); }
+    if (v === "offline") { show("offline"); $("#side-list").replaceChildren(); loadOffline(); }
   })
 );
+
+// -- Offline: notebooks, library files and ZIM archives --------------------------------------------
+const megabytes = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB`
+  : `${Math.max(1, Math.round(n / 1024))} KB`);
+state.notebooks = [];
+
+// The notebook chooser of the message box: the notebooks of the library, the chosen one kept while it exists.
+function renderNotebookChooser() {
+  const box = $("#notebook"), chosen = box.value;
+  box.replaceChildren(el("option", { value: "" }, t("No notebook")),
+    ...state.notebooks.map((n) => el("option", { value: n.name }, `${t("Notebook")}: ${n.name} (${n.files.length})`)));
+  box.value = state.notebooks.some((n) => n.name === chosen) ? chosen : "";
+  box.classList.toggle("chosen", !!box.value);
+}
+function setNotebook(name) {
+  if (name && !state.notebooks.some((n) => n.name === name)) state.notebooks.push({ name, files: [] }); // until the list loads
+  renderNotebookChooser();
+  $("#notebook").value = name;
+  $("#notebook").classList.toggle("chosen", !!name);
+}
+$("#notebook").addEventListener("change", () => $("#notebook").classList.toggle("chosen", !!$("#notebook").value));
+
+async function upload(files, folder) {
+  for (const file of files) {
+    try {
+      const res = await fetch(`/api/offline/files?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(file.name)}`,
+        { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      toast(t("Added: {name}", { name: data.path }));
+    } catch (e) { fail(e); }
+  }
+  loadOffline();
+}
+
+// A place files can be dropped onto (and chosen for) that uploads them into folder.
+function dropTarget(zone, folder, input) {
+  zone.addEventListener("dragover", (ev) => { if ([...ev.dataTransfer.types].includes("Files")) { ev.preventDefault(); zone.classList.add("dropping"); } });
+  zone.addEventListener("dragleave", () => zone.classList.remove("dropping"));
+  zone.addEventListener("drop", (ev) => { ev.preventDefault(); zone.classList.remove("dropping"); upload([...ev.dataTransfer.files], folder()); });
+  if (input) input.addEventListener("change", () => { upload([...input.files], folder()); input.value = ""; });
+}
+
+function fileRow(f, label = f.path) {
+  const remove = el("button", { class: "ghost small danger", type: "button", title: t("Delete"), "aria-label": t("Delete") }, icon("x"));
+  remove.addEventListener("click", async () => {
+    if (!(await confirmDialog(t('Delete "{name}" from the library?', { name: f.path })))) return;
+    try { await api(`/api/offline/files?path=${encodeURIComponent(f.path)}`, { method: "DELETE" }); } catch (e) { fail(e); }
+    loadOffline();
+  });
+  return el("div", { class: "file-row" }, icon("file"), el("span", { class: "name", title: f.path }, label),
+    el("span", { class: "muted" }, megabytes(f.size)),
+    el("span", { class: `badge ${f.indexed ? "fact" : ""}`, title: f.indexed ? t("In the search index") : t("Indexed on the next search") }, f.indexed ? t("indexed") : t("new")),
+    remove);
+}
+
+function renderNotebooks(notebooks) {
+  $("#notebook-list").replaceChildren(...(notebooks.length ? notebooks.map((n) => {
+    const input = el("input", { type: "file", accept: ".pdf,.md,.txt", multiple: true, hidden: true });
+    const add = el("button", { class: "ghost small", type: "button" }, icon("plus"), ` ${t("Add files")}`);
+    add.addEventListener("click", () => input.click());
+    const remove = el("button", { class: "ghost small danger", type: "button" }, t("Delete"));
+    remove.addEventListener("click", async () => {
+      if (!(await confirmDialog(t('Delete the notebook "{name}" and its {n} files?', { name: n.name, n: n.files.length })))) return;
+      try { await api(`/api/offline/notebooks/${encodeURIComponent(n.name)}`, { method: "DELETE" }); } catch (e) { fail(e); }
+      loadOffline();
+    });
+    const card = el("div", { class: "notebook drop" },
+      el("div", { class: "mcp-head" }, icon("book"), el("strong", {}, n.name), el("span", { class: "muted" }, `${n.files.length} ${t("files")}`),
+        el("span", { class: "spacer" }), add, remove, input),
+      n.files.length ? el("div", { class: "file-rows" }, n.files.map((f) => fileRow(f, f.path.split("/").slice(2).join("/"))))
+        : el("p", { class: "muted note" }, t("Drop files here or use Add files.")));
+    dropTarget(card, () => `notebooks/${n.name}`, input);
+    return card;
+  }) : [el("p", { class: "muted" }, t("No notebooks yet."))]));
+}
+
+function renderZims(zim, job) {
+  $("#zim-dirs").textContent = `${t("Folders")}: ${zim.dirs.join(" · ")}`;
+  $("#zim-list").replaceChildren(...(zim.archives.length ? zim.archives.map((a) =>
+    el("div", { class: "file-row" }, icon("layers"), el("span", { class: "name", title: a.file }, a.name), el("span", { class: "muted" }, a.date || ""),
+      el("span", { class: "muted" }, megabytes(a.size)))) : [el("p", { class: "muted" }, t("No ZIM archives in these folders."))]));
+  const box = $("#zim-job");
+  if (job.running) {
+    const pct = job.total ? Math.round((100 * job.done) / job.total) : 0;
+    const cancel = el("button", { class: "ghost small", type: "button" }, t("Cancel"));
+    cancel.addEventListener("click", () => api("/api/offline/zim/cancel", { method: "POST" }).catch(fail));
+    box.replaceChildren(el("div", { class: "row" }, el("span", {}, `${t("Downloading")} ${job.file}: ${megabytes(job.done)} / ${megabytes(job.total)}`), cancel),
+      el("div", { class: "bar" }, el("span", { style: `width:${pct}%` })));
+    clearTimeout(state.zimPoll);
+    state.zimPoll = setTimeout(() => state.view === "offline" && loadOffline(), 2000);
+  } else {
+    box.replaceChildren(...(job.log || []).map((line) => el("div", { class: "log" }, line)));
+  }
+}
+
+$("#zim-check").addEventListener("click", async () => {
+  const button = $("#zim-check"), box = $("#zim-updates");
+  button.disabled = true;
+  box.replaceChildren(el("p", { class: "muted" }, t("Asking the Kiwix catalog…")));
+  try {
+    const updates = await api("/api/offline/zim/updates");
+    if (!updates.length) { box.replaceChildren(el("p", { class: "log success" }, t("All archives are up to date."))); return; }
+    const boxes = updates.map((u) => el("input", { type: "checkbox", checked: true, value: u.file }));
+    const keep = el("input", { type: "checkbox" });
+    const go = el("button", { class: "primary", type: "button" }, t("Download the updates"));
+    go.addEventListener("click", async () => {
+      try {
+        await api("/api/offline/zim/update", { method: "POST", body: JSON.stringify({ files: boxes.filter((b) => b.checked).map((b) => b.value), keep_old: keep.checked }) });
+        box.replaceChildren();
+        loadOffline();
+      } catch (e) { fail(e); }
+    });
+    box.replaceChildren(...updates.map((u, i) => el("label", { class: "file-row" }, boxes[i], el("span", { class: "name" }, `${u.file} → ${u.new_file}`), el("span", { class: "muted" }, megabytes(u.size)))),
+      el("div", { class: "row" }, go, el("label", { class: "opt" }, keep, ` ${t("Keep the old files")}`)));
+  } catch (e) {
+    box.replaceChildren(el("p", { class: "log warning" }, e.message));
+  } finally { button.disabled = false; }
+});
+
+$("#notebook-add").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    const { name } = await api("/api/offline/notebooks", { method: "POST", body: JSON.stringify({ name: $("#notebook-name").value }) });
+    $("#notebook-name").value = "";
+    toast(t("Notebook created: {name}", { name }));
+    loadOffline();
+  } catch (e) { fail(e); }
+});
+
+$("#library-pick").addEventListener("click", () => $("#library-input").click());
+dropTarget($("#library-drop"), () => "", $("#library-input"));
+
+async function loadOffline() {
+  try {
+    const data = await api("/api/offline");
+    state.notebooks = data.library.notebooks;
+    renderNotebookChooser();
+    if (state.view !== "offline") return;
+    const lib = data.library;
+    $("#library-dir").textContent = `${t("Folder")}: ${lib.dir}${lib.exists ? "" : ` (${t("created with the first file")})`}`;
+    renderNotebooks(lib.notebooks);
+    $("#library-files").replaceChildren(...(lib.files.length ? lib.files.map((f) => fileRow(f)) : [el("p", { class: "muted" }, t("No files yet."))]),
+      ...(lib.more ? [el("p", { class: "muted note" }, t("{n} more files not shown", { n: lib.more }))] : []));
+    renderZims(data.zim, data.job);
+  } catch (e) { fail(e); }
+}
 
 // -- small dialogs: a toast, a confirmation, a text edited in place ----------------------------
 function toast(message, kind = "info") {
@@ -558,9 +706,9 @@ document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", ()
 function updateComposer() {
   const code = state.mode === "code", chat = state.mode === "chat";
   const run = state.runs[state.currentRun];
-  for (const n of document.querySelectorAll(".code-only, .research-only, .agent-only, .new-only")) {
+  for (const n of document.querySelectorAll(".code-only, .research-only, .agent-only, .not-code, .new-only")) {
     n.hidden = (n.classList.contains("code-only") && !code) || (n.classList.contains("research-only") && state.mode !== "research")
-      || (n.classList.contains("agent-only") && chat) || (n.classList.contains("new-only") && !!run);
+      || (n.classList.contains("agent-only") && chat) || (n.classList.contains("not-code") && code) || (n.classList.contains("new-only") && !!run);
   }
   const info = $("#chat-info");
   info.hidden = !run;
@@ -697,6 +845,7 @@ $("#ask").addEventListener("submit", async (ev) => {
     return;
   }
   const options = { question, images, servers: getSelectedMcpServers(), settings: getSettings() };
+  if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
   if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked });
   if (state.mode === "research") options.parallel = +$("#parallel").value;
   try {
@@ -845,6 +994,7 @@ function attach(runId) {
   if (run) {
     setSettings(run.settings || {});
     setMode(run.mode);
+    setNotebook(run.notebook || "");
     userBubble(run.question, run.images);
   }
   const ctx = newContext(run ? run.question : "");
@@ -1600,4 +1750,5 @@ applyTheme(currentTheme());
 loadStatus();
 setInterval(loadStatus, 15000);
 loadModels();
+loadOffline(); // the notebooks for the chooser of the message box
 newChat();

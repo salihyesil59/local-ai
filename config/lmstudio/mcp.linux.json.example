@@ -4,7 +4,7 @@
       "command": "/home/you/local-ai/.venv/bin/local-ai-library",
       "env": {
         "LOCAL_AI_WORKSPACE": "/home/you/local-ai-workspace",
-        "LOCAL_AI_LIBRARY": "/home/you/physics-library",
+        "LOCAL_AI_LIBRARY": "/home/you/local-ai-library",
         "LOCAL_AI_ZIM_DIR": "/home/you/wiki-zim",
         "LOCAL_AI_EMBED_BACKEND": "none"
       }

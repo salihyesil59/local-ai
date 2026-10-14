@@ -208,3 +208,23 @@ def test_reading_returns_whole_pages_and_says_where_to_go_on(tmp_path):
     rest = arxiv.read_pdf(str(paper), page=last + 1, pages=1)
     assert f"Page {last + 1} ends." in rest and "Go on with" not in rest
 
+
+
+def test_a_search_with_a_scope_looks_only_into_that_folder(tmp_path, monkeypatch):
+    papers = tmp_path / "papers"
+    book = papers / "notebooks" / "cosmo"
+    book.mkdir(parents=True)
+    (papers / "general.md").write_text("The Hubble constant measures the expansion rate.", encoding="utf-8")
+    (book / "friedmann.md").write_text("The Friedmann equation relates the Hubble rate to density.", encoding="utf-8")
+    monkeypatch.setenv("LOCAL_AI_LIBRARY", str(papers))
+    library = Library(tmp_path / "scope.sqlite", zim_paths=[], embedder=HashEmbedder())
+
+    assert {Path(h["path"]).name for h in library.search("Hubble")} == {"general.md", "friedmann.md"}
+    assert [Path(h["path"]).name for h in library.search("Hubble", scope="notebooks/cosmo")] == ["friedmann.md"]
+    (book / "planck.md").write_text("Planck measured the Hubble constant from the CMB.", encoding="utf-8")
+    found = {Path(h["path"]).name for h in library.search("Hubble constant", scope="notebooks/cosmo")}
+    assert found == {"friedmann.md", "planck.md"}  # a file added a moment ago is indexed by the scoped search
+    assert len(library.search("Hubble constant", scope="cosmo")) == 2  # the name of a notebook is enough
+    for bad in ("notebooks/none", "../outside"):
+        with pytest.raises(ValueError):
+            library.search("Hubble", scope=bad)

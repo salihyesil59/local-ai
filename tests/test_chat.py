@@ -77,3 +77,26 @@ def test_a_chat_in_the_ui_goes_on_with_its_conversation():
         events = read_events(ui, run["id"])
         assert [e["text"] for e in events if e["kind"] == "answer"] == ["Merhaba!", "Selam verdin."]
         assert [m["role"] for m in client.requests[1]["messages"]] == ["system", "user", "assistant", "user"]
+
+
+@pytest.mark.anyio
+async def test_a_reply_that_only_thought_is_asked_once_to_answer_now():
+    class ThinksFirst(ScriptedClient):
+        async def create(self, **kwargs):
+            stream = await super().create(**kwargs)
+            first = len(self.requests) == 1
+
+            async def cut():
+                async for chunk in stream:
+                    if first and chunk.choices[0].finish_reason:
+                        chunk = ScriptedClient.chunk("length")
+                    yield chunk
+
+            return cut()
+
+    client = ThinksFirst([("", []), ("67.4 km/s/Mpc.", [])])
+    agent = ChatAgent(LLM(client, "m"))
+    assert await agent.reply("Hubble sabiti?") == "67.4 km/s/Mpc."
+    assert client.requests[1]["messages"][-1]["content"].startswith("Your last reply was cut off")
+    assert client.requests[1]["temperature"] == 0.9  # sampled more freely
+    assert [m["role"] for m in agent.messages] == ["system", "user", "assistant"]  # the request is not kept

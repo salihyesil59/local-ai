@@ -61,7 +61,7 @@ the environment first with `.venv\Scripts\Activate.ps1`. If PowerShell blocks sc
 3. **System prompt** for the chat: [config/lmstudio/system-prompt.md](config/lmstudio/system-prompt.md). Save it
    as a preset.
 4. **Offline data:** put Kiwix ZIM archives (Wikipedia, DevDocs) into `LOCAL_AI_ZIM_DIR` (e.g.
-   `C:\Users\you\wiki-zim`) and your PDFs into `LOCAL_AI_LIBRARY` (e.g. `C:\Users\you\physics-library`). See
+   `C:\Users\you\wiki-zim`) and your PDFs into `LOCAL_AI_LIBRARY` (e.g. `C:\Users\you\local-ai-library`). See
    [docs/offline-data.md](docs/offline-data.md).
 5. **Index** (optional): `.venv\Scripts\local-ai-index.exe` indexes the library at once (~20 s for 560 files;
    see `--help` for Zotero, BibTeX and arXiv metadata).
@@ -179,7 +179,7 @@ All servers and agents read the same environment variables (set them in `mcp.jso
 | Variable | Default | Used for |
 |---|---|---|
 | `LOCAL_AI_WORKSPACE` | `%USERPROFILE%\local-ai-workspace` | notes, reports, memory, indexes, caches |
-| `LOCAL_AI_LIBRARY` | `%USERPROFILE%\physics-library` | your PDF / .md / .txt files, indexed automatically |
+| `LOCAL_AI_LIBRARY` | `%USERPROFILE%\local-ai-library` | your PDF / .md / .txt files, indexed automatically; `notebooks\` holds the notebooks |
 | `LOCAL_AI_ZIM_DIR` | `%USERPROFILE%\wiki-zim` | ZIM folders and/or files, separated by `;` (Linux: `:`) |
 | `LOCAL_AI_BASE_URL` | `http://localhost:1234/v1` | LM Studio's OpenAI-compatible server |
 | `LOCAL_AI_API_KEY` | `lm-studio` | API key sent to that server |

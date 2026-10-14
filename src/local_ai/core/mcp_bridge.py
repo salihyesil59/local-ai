@@ -132,6 +132,9 @@ class MCPBridge:
         self._running: dict[str, tuple[asyncio.Task, asyncio.Event]] = {}
         # Read-only tools whose results may be reused within a run (set by the agent).
         self.cacheable: set[str] = set()
+        # Arguments a tool gets when the model leaves them out, for the run in progress (the web UI sets the scope of
+        # library__search_library to the notebook of a chat).
+        self.defaults: dict[str, dict] = {}
         self._cache: dict[tuple[str, str], asyncio.Future] = {}
         self.cache_hits = 0
 
@@ -271,6 +274,7 @@ class MCPBridge:
         arguments, problem = parse_arguments(arguments)
         if problem:
             return problem, True
+        arguments = {**self.defaults.get(name, {}), **arguments}
         if name not in self.cacheable:
             return await self._call(tool, name, arguments)
         # Read-only tool: reuse a finished or in-flight identical call (parallel sub-questions often overlap).
