@@ -177,7 +177,7 @@ What the chat set in its settings (thinking limit, max turns) wins over these. I
 need a read and an edit per file.
 
 Code mode uses the model, `temperature` and `top_p` of the UI; it needs none of the MCP servers, and can use
-the ones selected with the MCP chips. One run at a time, research or code, because one model is loaded.
+the ones selected with the MCP chips. It can run beside a research or a chat (see below).
 
 ### Working in an existing repository
 
@@ -224,9 +224,16 @@ changed; in a research chat the sub-questions and the registered sources. File e
 verify as a test result (PASSED / FAILED). **Project files** in the panel of a code chat lists the files of the
 project folder; a click shows a file.
 
-While a code run works, the message box sends a message to the running agent (**Steer**): the model reads it
-before its next reply, so the reply it is writing and its tool calls still finish first. A research run takes no
-messages until it has ended.
+A chat takes messages while it works. A code run reads one before its next reply (**Steer**), so the reply it
+is writing and its tool calls still finish first. A chat answers it when the current answer is done (between tool
+calls it reads it at once), and a research researches it as a follow-up question when the current research is
+done. Each such message has a **Send now** button: it stops what the chat is doing (what it has done stays, as
+after Stop) and answers the message at once.
+
+Chats work at the same time, in any mode: a research, a code run and a chat can run side by side, up to four (the
+requests LM Studio serves at once by default; more wait). Two code runs in the same project folder do not: the
+second waits for the first. Side by side, each is slower than alone, since they share the model; a research with
+**Parallel** above 1 uses several of those requests itself.
 
 ## Export
 

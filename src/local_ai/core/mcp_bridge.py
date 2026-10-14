@@ -12,6 +12,7 @@ import json
 import os
 import re
 from contextlib import AsyncExitStack
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +22,10 @@ from mcp.client.stdio import stdio_client
 from local_ai.core.tools import Tool, parse_arguments
 
 DEFAULT_MCP_CONFIG = Path("~/.lmstudio/mcp.json").expanduser()
+# Arguments a tool gets when the model leaves them out, for the run whose task sets them (a context variable: runs
+# that work at the same time each have their own; the web UI sets the scope of library__search_library to the
+# notebook of a chat).
+TOOL_DEFAULTS: ContextVar[dict[str, dict] | None] = ContextVar("tool_defaults", default=None)
 SEPARATOR = "__"
 
 
@@ -132,9 +137,6 @@ class MCPBridge:
         self._running: dict[str, tuple[asyncio.Task, asyncio.Event]] = {}
         # Read-only tools whose results may be reused within a run (set by the agent).
         self.cacheable: set[str] = set()
-        # Arguments a tool gets when the model leaves them out, for the run in progress (the web UI sets the scope of
-        # library__search_library to the notebook of a chat).
-        self.defaults: dict[str, dict] = {}
         self._cache: dict[tuple[str, str], asyncio.Future] = {}
         self.cache_hits = 0
 
@@ -274,7 +276,7 @@ class MCPBridge:
         arguments, problem = parse_arguments(arguments)
         if problem:
             return problem, True
-        arguments = {**self.defaults.get(name, {}), **arguments}
+        arguments = {**(TOOL_DEFAULTS.get() or {}).get(name, {}), **arguments}
         if name not in self.cacheable:
             return await self._call(tool, name, arguments)
         # Read-only tool: reuse a finished or in-flight identical call (parallel sub-questions often overlap).

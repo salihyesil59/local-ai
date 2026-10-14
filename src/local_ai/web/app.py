@@ -31,6 +31,7 @@ from local_ai.coder import files as coder_files
 from local_ai.core import images as img
 from local_ai.core.llm import pick_model
 from local_ai.core.mcp_bridge import (
+    TOOL_DEFAULTS,
     MCPBridge,
     ServerConfig,
     load_mcp_config,
@@ -48,6 +49,7 @@ from .runs import ACTIVE, IMAGES_ONLY, NOTEBOOK_NOTE, Run, clean_settings, run_c
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
+MAX_RUNS = 4  # chats working at the same time, any mode: the parallel requests LM Studio serves by default
 REVALIDATE = {"Cache-Control": "no-cache"}  # the browser asks each time, so a new version of the UI is used at once
 
 
@@ -176,7 +178,12 @@ def create_app(
     workspace = resolve_workspace(servers)
     os.environ.setdefault("LOCAL_AI_WORKSPACE", str(workspace))
     store = Store(workspace)
-    state: dict = {"bridge": None, "client": client, "runs": {}, "lock": asyncio.Lock(), "error": None}
+    # slots: runs that work at the same time, any mode (LM Studio answers that many requests at once; more wait);
+    # folders: a code run waits for another one in the same project folder; active: runs working now
+    state: dict = {
+        "bridge": None, "client": client, "runs": {}, "error": None,
+        "slots": asyncio.Semaphore(MAX_RUNS), "folders": {}, "active": 0,
+    }  # fmt: skip
     zim_job = offline.ZimJob()
 
     def where() -> offline.Places:
@@ -248,61 +255,89 @@ def create_app(
         return event
 
     async def execute(run: Run, options: dict, question: str, project: str = "") -> None:
-        """Run one message of a chat: the first one, or a follow-up (project is the research project)."""
-        async with state["lock"]:
-            run.status = "running"
-            store.update_run(run.id, status="running")
-            run.push({"kind": "status", "status": "running"})
+        """Run one message of a chat: the first one, or a follow-up (project is the research project). Chats of any
+        mode work at the same time, up to MAX_RUNS; a code run waits for another one in the same project folder."""
+        folder = None
+        if options.get("mode") == "code":
+            key = str(Path(str(options.get("folder", ""))).expanduser().resolve()).lower()
+            folder = state["folders"].setdefault(key, asyncio.Lock())
+        async with state["slots"], folder or contextlib.nullcontext():
+            state["active"] += 1
             try:
-                if not settings.model and "model" not in run.settings:
-                    settings.model = await pick_model(state["client"])
-                    if not settings.model:
-                        raise RuntimeError("No model loaded in LM Studio.")
-                run_settings = AgentSettings(**{**settings.__dict__})
-                run_settings.stream = True
-                for key, value in run.settings.items():  # what this chat chose in the settings drawer
-                    if hasattr(run_settings, key):
-                        setattr(run_settings, key, value)
-                if options.get("servers") is not None:
-                    run_settings.servers = list(options["servers"])
-                notebook = options.get("notebook") or ""
-                if notebook and options.get("mode") != "code":
-                    # search_library looks only into the notebook's folder, unless the model asks for more
-                    files = offline.notebook_files(where(), notebook)
-                    if state["bridge"]:
-                        state["bridge"].defaults = {"library__search_library": {"scope": f"notebooks/{notebook}"}}
-                    if run_settings.servers is not None and "library" not in run_settings.servers:  # None: all
-                        run_settings.servers = [*run_settings.servers, "library"]
-                    question += NOTEBOOK_NOTE.format(name=notebook, files=", ".join(files) or "(none yet)")
-                    run.push({"kind": "log", "text": f"Notebook: {notebook} ({len(files)} files)"})
-                if options.get("mode") == "code":
-                    await run_code(run, question, options, run_settings, state["client"], state["bridge"], store)
-                elif options.get("mode") == "chat":
-                    await run_chat(run, question, options, run_settings, state["client"], state["bridge"], store)
-                else:
-                    await run_research(
-                        run,
-                        question,
-                        project,
-                        options,
-                        run_settings,
-                        state["client"],
-                        state["bridge"],
-                        lambda e: run.push(decorate(e)),
-                    )
-            except FileNotFoundError as e:
-                run.status = "failed"
-                run.push({"kind": "error", "text": f"No notebook {e}: it was deleted or renamed."})
-            except asyncio.CancelledError:
-                run.status = "cancelled"
-            except Exception as e:
-                run.status = "failed"
-                run.push({"kind": "error", "text": f"{type(e).__name__}: {e}"})
+                await work(run, options, question, project)
             finally:
-                if state["bridge"]:
-                    state["bridge"].defaults = {}
-                store.update_run(run.id, status=run.status)
-                run.push({"kind": "end", "status": run.status})
+                state["active"] -= 1
+
+    async def work(run: Run, options: dict, question: str, project: str) -> None:
+        """One message of a chat, with its events and the status of the run."""
+        run.status = "running"
+        store.update_run(run.id, status="running")
+        run.push({"kind": "status", "status": "running"})
+        try:
+            if not settings.model and "model" not in run.settings:
+                settings.model = await pick_model(state["client"])
+                if not settings.model:
+                    raise RuntimeError("No model loaded in LM Studio.")
+            run_settings = AgentSettings(**{**settings.__dict__})
+            run_settings.stream = True
+            for key, value in run.settings.items():  # what this chat chose in the settings drawer
+                if hasattr(run_settings, key):
+                    setattr(run_settings, key, value)
+            if options.get("servers") is not None:
+                run_settings.servers = list(options["servers"])
+            notebook, note = options.get("notebook") or "", ""
+            if notebook and options.get("mode") != "code":
+                # search_library looks only into the notebook's folder, unless the model asks for more
+                files = offline.notebook_files(where(), notebook)
+                # for this run's task only: runs at the same time have their own
+                TOOL_DEFAULTS.set({"library__search_library": {"scope": f"notebooks/{notebook}"}})
+                if run_settings.servers is not None and "library" not in run_settings.servers:  # None: all
+                    run_settings.servers = [*run_settings.servers, "library"]
+                note = NOTEBOOK_NOTE.format(name=notebook, files=", ".join(files) or "(none yet)")
+                question += note
+                run.push({"kind": "log", "text": f"Notebook: {notebook} ({len(files)} files)"})
+            if options.get("mode") == "code":
+                await run_code(run, question, options, run_settings, state["client"], state["bridge"], store)
+            elif options.get("mode") == "chat":
+                await run_chat(run, question, options, run_settings, state["client"], state["bridge"], store)
+            else:
+                await run_research(
+                    run,
+                    question,
+                    project,
+                    options,
+                    run_settings,
+                    state["client"],
+                    state["bridge"],
+                    lambda e: run.push(decorate(e)),
+                )
+                asked = run.last_question()
+                while run.queued:  # sent while it ran: researched now, each with the answer before it
+                    message, paths = run.queued.pop(0)
+                    run.push({"kind": "dequeued"})
+                    run.push({"kind": "log", "text": f"Now the question sent during the research: {message}"})
+                    task = run.follow_up(message, asked) + note
+                    follow = {**options, "image_paths": paths, "resume": False}
+                    await run_research(
+                        run, task, "", follow, run_settings, state["client"], state["bridge"],
+                        lambda e: run.push(decorate(e)),
+                    )  # fmt: skip
+                    asked = message
+        except FileNotFoundError as e:
+            run.status = "failed"
+            run.push({"kind": "error", "text": f"No notebook {e}: it was deleted or renamed."})
+        except asyncio.CancelledError:
+            run.status = "cancelled"
+        except Exception as e:
+            run.status = "failed"
+            run.push({"kind": "error", "text": f"{type(e).__name__}: {e}"})
+        finally:
+            if run.queued:  # the research was stopped before it came to them
+                text = f"{len(run.queued)} message(s) sent during the research were not researched; send them again."
+                run.push({"kind": "log", "level": "warning", "text": text})
+                run.queued.clear()
+            store.update_run(run.id, status=run.status)
+            run.push({"kind": "end", "status": run.status})
 
     # -- endpoints -------------------------------------------------------------------
 
@@ -320,7 +355,7 @@ def create_app(
                 "tools": len(bridge.tools) if bridge else 0,
                 "workspace": str(workspace),
                 "formats": list(FORMATS),
-                "busy": state["lock"].locked(),
+                "busy": state["active"] > 0,
             }
         )
 
@@ -371,8 +406,8 @@ def create_app(
             return JSONResponse({"error": "this UI was started without an mcp.json to change"}, status_code=400)
         if state["bridge"] is None:
             return JSONResponse({"error": state["error"] or "MCP servers not ready"}, status_code=503)
-        if state["lock"].locked():
-            return JSONResponse({"error": "wait until the run has ended"}, status_code=409)
+        if state["active"]:
+            return JSONResponse({"error": "wait until the runs have ended"}, status_code=409)
         if name is not None and name not in read_servers(config_path):
             return JSONResponse({"error": "unknown server"}, status_code=404)
         return None
@@ -513,10 +548,15 @@ def create_app(
             return {"images": names} if names else {}
 
         if run.status in ACTIVE:
+            if run.status == "running" and message and run.mode == "research":
+                shown = keep_images()  # researched when the running research is done
+                run.queued.append((message, [store.image_path(run.id, n) for n in shown.get("images", [])]))
+                run.push({"kind": "steer", "text": message, **shown})
+                return JSONResponse(run.summary(), status_code=202)
             if run.status == "running" and message and hasattr(run.agent, "steer"):
                 shown = keep_images()
                 run.agent.steer(message, [store.image_path(run.id, n) for n in shown.get("images", [])])
-                run.push({"kind": "steer", "text": message, **shown})  # a code run takes a message while it works
+                run.push({"kind": "steer", "text": message, **shown})  # a code or chat run takes it while it works
                 return JSONResponse(run.summary(), status_code=202)
             return JSONResponse({"error": "wait until the run has ended, or cancel it"}, status_code=409)
         load_events(run)
@@ -531,7 +571,12 @@ def create_app(
                 if not project:
                     return JSONResponse({"error": "question is required"}, status_code=400)
         shown = keep_images()
-        paths = [store.image_path(run.id, n) for n in shown.get("images", [])]
+        return follow_up(run, body, message, project, shown.get("images", []))
+
+    def follow_up(run: Run, body: dict, message: str, project: str, images: list[str], shown: bool = True) -> Response:
+        """Start the next message of a chat (images: names of its saved images). shown=False: the message is on
+        the page already (it was queued while the chat worked), the user event only starts its part."""
+        paths = [store.image_path(run.id, n) for n in images]
         options = {**body, "images": None, "image_paths": paths, "mode": run.mode, "folder": run.project}
         options["resume"] = bool(project)
         task = run.follow_up(message) if message else ""  # an empty message continues the plan of a code chat
@@ -543,10 +588,28 @@ def create_app(
         run.status = "queued"
         store.update_run(run.id, status="queued", settings=run.settings, notebook=run.notebook)
         text = message or ("(continue the research)" if project else "(continue the plan)")
-        run.push({"kind": "user", "text": text, **shown})
+        run.push({"kind": "user", "text": text, **({"images": images} if images else {}), **({} if shown else {"queued": True})})
         # a research follow-up with a question gets a project of its own; without one the stopped project goes on
         run.task = asyncio.create_task(execute(run, options, task, project))
         return JSONResponse(run.summary(), status_code=202)
+
+    async def send_now(request: Request) -> Response:
+        """The messages a chat queued while it worked, answered now: what it is doing is stopped (what it has done
+        stays, as after Stop) and they become its next message. The body has the options of a message."""
+        run = state["runs"].get(request.path_params["run_id"])
+        if run is None:
+            return JSONResponse({"error": "unknown run"}, status_code=404)
+        pending = run.queued if run.mode == "research" else getattr(run.agent, "steering", None)
+        if run.status != "running" or not pending:
+            return JSONResponse({"error": "the message is being answered already"}, status_code=409)
+        items = list(pending)
+        pending.clear()
+        run.task.cancel()
+        await asyncio.gather(run.task, return_exceptions=True)
+        message = "\n\n".join(text for text, _ in items)
+        images = [path.name for _, paths in items for path in paths]
+        body = await request.json() if int(request.headers.get("content-length") or 0) else {}
+        return follow_up(run, body, message, "", images, shown=False)
 
     async def run_events(request: Request) -> Response:
         run = state["runs"].get(request.path_params["run_id"])
@@ -894,6 +957,7 @@ def create_app(
         Route("/api/runs", list_runs),
         Route("/api/runs/{run_id}/events", run_events),
         Route("/api/runs/{run_id}/messages", add_message, methods=["POST"]),
+        Route("/api/runs/{run_id}/send-now", send_now, methods=["POST"]),
         Route("/api/runs/{run_id}/images/{name}", run_image),
         Route("/api/offline", offline_state),
         Route("/api/offline/files", offline_upload, methods=["POST"]),
@@ -926,6 +990,7 @@ def create_app(
     ]
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.runs = state["runs"]
+    app.state.slots = state["slots"]  # the runs that may work at the same time
     app.state.store = store
     return app
 

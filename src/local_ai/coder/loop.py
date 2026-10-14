@@ -331,6 +331,7 @@ class CoderAgent:
                 messages = self.messages = await self.compact(messages, manual)
             while self.steering and not wrap_up:  # in the wrap-up the model may not act on it
                 message, shown = self.steering.pop(0)
+                self.emit("dequeued")
                 messages.append({"role": "user", "content": with_images(prompts.STEER.format(message=message), shown)})
                 nudges = 0
             context = size(messages)

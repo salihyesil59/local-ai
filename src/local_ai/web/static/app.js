@@ -713,8 +713,8 @@ function updateComposer() {
   const info = $("#chat-info");
   info.hidden = !run;
   if (run) info.textContent = code ? `${t("Code")} · ${run.project}` : chat ? t("Chat") : t("Research · follow-up in this chat");
-  const steer = state.running && code && !!run; // a code run takes a message while it works
-  const action = steer ? t("Steer") : run || chat ? t("Send") : code ? t("Code") : t("Research");
+  const steer = state.running && !!run; // a running chat takes a message: code reads it, chat and research queue it
+  const action = steer && code ? t("Steer") : run || chat ? t("Send") : code ? t("Code") : t("Research");
   $("#run").replaceChildren(icon("up"));
   $("#run").title = `${action} (Ctrl+Enter)`;
   $("#run").setAttribute("aria-label", action);
@@ -730,7 +730,9 @@ function updateComposer() {
   const resume = !!run && state.mode === "research" && !state.running && run.resumable; // a stopped research can go on
   // code mode may continue an existing plan without a new task; a message of images alone needs no text
   q.required = !state.images.length && ((!code && !resume) || steer);
-  q.placeholder = chat ? t("Write a message — any language. Images can be pasted or dropped here.")
+  q.placeholder = chat && steer ? t("Write your next message: it is answered when the current reply is done.")
+    : steer && !code ? t("Write your next question: it is researched when this research is done.")
+    : chat ? t("Write a message — any language. Images can be pasted or dropped here.")
     : steer ? t("Tell the agent what to change. It reads the message before its next reply.") : run
     ? (code ? t("Next instruction for this project. Leave empty to continue the plan.")
       : resume ? t("Ask something with what was found so far, or leave empty to go on with the research.") : t("Ask a follow-up question."))
@@ -834,7 +836,7 @@ $("#ask").addEventListener("submit", async (ev) => {
   const images = [...state.images];
   const empty = !question && !images.length;
   const code = state.mode === "code", chat = state.mode === "chat";
-  const steer = state.running && code && state.currentRun;
+  const steer = state.running && state.currentRun;
   const resume = state.mode === "research" && state.currentRun && state.runs[state.currentRun]?.resumable;
   if ((empty && ((!code && !resume) || steer)) || (state.running && !steer)) return;
   if (steer) { // the live stream shows the message when the server has taken it
@@ -1022,6 +1024,23 @@ function scrollDown() {
   tl.scrollTop = tl.scrollHeight;
 }
 function append(...nodes) { $("#timeline").append(...nodes); }
+
+// "Send now" on a message the chat queued while it works: stop what it does and answer the message at once.
+function addSendNow() {
+  const turn = $("#timeline").lastElementChild;
+  const button = el("button", { class: "ghost small send-now", type: "button", title: t("Stop the current work and answer this message now") }, t("Send now"));
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    const options = { servers: getSelectedMcpServers(), settings: getSettings() };
+    if (state.mode !== "code" && $("#notebook").value) options.notebook = $("#notebook").value;
+    try {
+      await api(`/api/runs/${state.currentRun}/send-now`, { method: "POST", body: JSON.stringify(options) });
+      attach(state.currentRun); // the stopped part has ended: follow the new one
+    } catch (e) { fail(e); button.remove(); }
+  });
+  turn.append(button);
+}
+function clearSendNow() { document.querySelectorAll(".send-now").forEach((b) => b.remove()); }
 
 function userBubble(text, images = []) {
   const auto = /^\((continue|resume)\b/.test(text); // sent by the page, not typed
@@ -1387,10 +1406,15 @@ function renderEvent(e, ctx) {
   switch (e.kind) {
     case "user":
       nextMessage(ctx, e.text);
-      userBubble(e.text, e.images);
+      clearSendNow();
+      if (!e.queued) userBubble(e.text, e.images); // a queued message is on the page already
       break;
-    case "steer": // sent while the agent was working
+    case "steer": // sent while the agent was working: read by a code run, queued by a chat or a research
       userBubble(e.text, e.images);
+      if (state.running) addSendNow();
+      break;
+    case "dequeued": // the oldest queued message is being read now
+      document.querySelector(".send-now")?.remove();
       break;
     case "token": {
       const box = liveBox(ctx, e.index ?? "main");
@@ -1504,6 +1528,7 @@ function renderEvent(e, ctx) {
       break;
     case "segment_end": // an earlier message of this chat ended here
     case "end":
+      clearSendNow();
       if (e.status !== "done") append(el("div", { class: "log warning" }, `${t("Run")} ${t(e.status)}.`));
       break;
   }

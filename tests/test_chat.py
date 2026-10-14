@@ -1,6 +1,8 @@
 """Chat mode: a plain conversation with the model, with images and the MCP tools the user switched on."""
 
+import asyncio
 import json
+import time
 
 import pytest
 
@@ -100,3 +102,85 @@ async def test_a_reply_that_only_thought_is_asked_once_to_answer_now():
     assert client.requests[1]["messages"][-1]["content"].startswith("Your last reply was cut off")
     assert client.requests[1]["temperature"] == 0.9  # sampled more freely
     assert [m["role"] for m in agent.messages] == ["system", "user", "assistant"]  # the request is not kept
+
+
+def test_a_message_sent_while_a_chat_answers_is_queued_and_can_be_sent_now():
+    class Slow(ScriptedClient):
+        async def create(self, **kwargs):
+            if not self.requests:  # the first answer takes long: the user sends the next message meanwhile
+                self.requests.append(kwargs)
+                await asyncio.sleep(60)
+            return await super().create(**kwargs)
+
+    client = Slow([("İkinciye cevap.", [])])
+    with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
+        run = ui.post("/api/runs", json={"mode": "chat", "question": "Birinci"}).json()
+        chat = ui.app.state.runs[run["id"]]
+        while not client.requests:  # it has started answering
+            time.sleep(0.01)
+        assert ui.post(f"/api/runs/{run['id']}/messages", json={"question": "İkinci"}).status_code == 202
+        assert chat.agent.steering == [("İkinci", [])] and chat.events[-1] == {"kind": "steer", "text": "İkinci"}
+
+        assert ui.post(f"/api/runs/{run['id']}/send-now", json={"servers": []}).status_code == 202
+        events = read_events(ui, run["id"])
+        assert {"kind": "user", "text": "İkinci", "queued": True} in events  # on the page already, as a steer
+        assert [e["text"] for e in events if e["kind"] == "answer"] == ["İkinciye cevap."]
+        assert [m["content"] for m in client.requests[-1]["messages"][1:]] == ["Birinci", "İkinci"]  # kept
+        assert ui.post(f"/api/runs/{run['id']}/send-now", json={}).status_code == 409  # nothing queued
+
+
+@pytest.mark.anyio
+async def test_the_runner_answers_the_queued_messages_in_turn():
+    from local_ai.web.runs import Run, run_chat
+
+    run = Run(id="r", question="Birinci", project="", mode="chat")
+
+    class Meanwhile(ScriptedClient):
+        async def create(self, **kwargs):
+            if not self.requests:  # the second message arrives while the first answer is written
+                run.agent.steer("İkinci")
+            return await super().create(**kwargs)
+
+    client = Meanwhile([("Bir.", []), ("İki.", [])])
+    await run_chat(run, "Birinci", {}, AgentSettings(model="m"), client, None)
+    assert [e["text"] for e in run.events if e["kind"] == "answer"] == ["Bir.", "İki."]
+    assert {"kind": "dequeued"} in run.events
+    assert [m["role"] for m in client.requests[1]["messages"]] == ["system", "user", "assistant", "user"]
+
+
+def test_a_question_sent_during_a_research_waits_for_it():
+    from local_ai.web.runs import Run
+
+    with TestClient(create_app([], AgentSettings(model="test"), client=ScriptedClient([]))) as ui:
+        ui.app.state.runs["x"] = run = Run(id="x", question="Derin soru", project="p", status="running")
+        assert ui.post("/api/runs/x/messages", json={"question": "Basit soru"}).status_code == 202
+        assert run.queued == [("Basit soru", [])] and run.events[-1] == {"kind": "steer", "text": "Basit soru"}
+        run.events.append({"kind": "report", "text": "Derin cevap."})
+        task = run.follow_up("Basit soru", "Derin soru")
+        assert task.startswith("Basit soru") and "Derin soru" in task and "Derin cevap." in task
+
+
+def test_chats_of_every_mode_work_at_the_same_time_but_not_in_one_folder(tmp_path):
+    class Busy(ScriptedClient):
+        async def create(self, **kwargs):
+            if kwargs["messages"][0]["content"].startswith("You are a coding agent"):
+                self.requests.append(kwargs)
+                await asyncio.sleep(60)  # a code run that works for long
+            return await super().create(**kwargs)
+
+    client = Busy([("Hemen.", [])])
+    with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
+        def code(folder):
+            body = {"mode": "code", "question": "x", "folder": str(tmp_path / folder)}
+            return ui.app.state.runs[ui.post("/api/runs", json=body).json()["id"]]
+
+        first, other = code("app"), code("lib")
+        while len(client.requests) < 2:  # both work: different folders
+            time.sleep(0.01)
+        same = code("app")
+        run = ui.post("/api/runs", json={"mode": "chat", "question": "Basit soru"}).json()
+        events = read_events(ui, run["id"])
+        assert [e["text"] for e in events if e["kind"] == "answer"] == ["Hemen."]  # beside two code runs
+        assert (first.status, other.status, same.status) == ("running", "running", "queued")  # one folder: waits
+        for r in (first, other, same):
+            ui.post(f"/api/runs/{r.id}/cancel")

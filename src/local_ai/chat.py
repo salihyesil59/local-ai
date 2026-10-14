@@ -40,6 +40,12 @@ class ChatAgent:
         self.tools = tools or {}
         self.context_chars = context_chars
         self.messages: list[dict] = []
+        # messages the user sent while a reply was being written, with their images: read before the next tool
+        # round, or answered one after the other when the reply is done
+        self.steering: list[tuple[str, list[Path]]] = []
+
+    def steer(self, message: str, images: list[Path] | None = None) -> None:
+        self.steering.append((message, list(images or [])))
 
     def fit(self) -> None:
         """Drop the oldest messages (not the instructions) when the conversation outgrows the context; a kept
@@ -57,6 +63,11 @@ class ChatAgent:
         specs = [t.spec() for t in self.tools.values()] or None
         nudge = None  # the request to answer at once, after a reply that only thought
         for turn in range(1, MAX_TOOL_ROUNDS + 3):
+            if turn > 1:  # after a tool round the model reads what the user sent in the meantime
+                while self.steering:
+                    message, shown = self.steering.pop(0)
+                    self.emit("dequeued")
+                    self.messages.append({"role": "user", "content": with_images(message, shown)})
             self.fit()
             context = size(self.messages)
             offered = specs if turn <= MAX_TOOL_ROUNDS else None

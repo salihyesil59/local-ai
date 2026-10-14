@@ -80,6 +80,8 @@ class Run:
     pinned: bool = False  # kept at the top of the chat list
     images: list[str] = field(default_factory=list)  # names of the images sent with the first message
     notebook: str = ""  # the notebook (a folder notebooks/<name> of the library) its last message chose
+    # questions sent while a research ran, with their image files: researched one after the other when it is done
+    queued: list[tuple[str, list[Path]]] = field(default_factory=list)
     settings: dict = field(default_factory=dict)  # model, temperature, ... chosen for this chat
     created: float = field(default_factory=time.time)
     events: list[dict] = field(default_factory=list)
@@ -127,20 +129,18 @@ class Run:
             return None
         return next((e["name"] for e in reversed(events) if e["kind"] == "project"), None)
 
-    def follow_up(self, message: str) -> str:
+    def follow_up(self, message: str, question: str = "") -> str:
         """A follow-up message as the task for an agent, which starts without the conversation: the earlier
-        question comes with its answer, or, when that run was stopped, with what it had found until then."""
+        question (the last one of the chat unless given) comes with its answer, or, when that run was stopped,
+        with what it had found until then."""
+        question = question or self.last_question()
         found = self.found_so_far()
         if found:
-            return STOPPED_RUN.format(
-                message=message, question=trim(self.last_question(), 600), found=trim(found, EARLIER_CHARS)
-            )
+            return STOPPED_RUN.format(message=message, question=trim(question, 600), found=trim(found, EARLIER_CHARS))
         answer = next((e["text"] for e in reversed(self.events) if e["kind"] in ("answer", "report")), "")
         if not answer:
             return message
-        return FOLLOW_UP.format(
-            message=message, question=trim(self.last_question(), 600), answer=trim(answer, EARLIER_CHARS)
-        )
+        return FOLLOW_UP.format(message=message, question=trim(question, 600), answer=trim(answer, EARLIER_CHARS))
 
     def summary(self) -> dict:
         return {
@@ -250,11 +250,16 @@ async def run_chat(
     run.agent = agent
     try:
         answer = await agent.reply(message, options.get("image_paths"))
+        run.push({"kind": "answer", "text": answer, "html": render_markdown(answer)})
+        while agent.steering:  # sent while it answered: each gets its answer in turn (shown when it arrived)
+            message, shown = agent.steering.pop(0)
+            run.push({"kind": "dequeued"})
+            answer = await agent.reply(message, shown)
+            run.push({"kind": "answer", "text": answer, "html": render_markdown(answer)})
     finally:  # also when the user stops it: the next message goes on with the conversation
         if store:
             store.save_messages(run.id, {"messages": agent.messages})
-    run.push({"kind": "answer", "text": answer, "html": render_markdown(answer)})
-    run.status = "done"
+    run.status = "done"  # no await since the last check: a message sent now finds the run done and starts anew
 
 
 async def run_research(
