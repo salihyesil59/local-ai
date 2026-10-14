@@ -21,7 +21,7 @@ const api = async (path, opts = {}) => {
 };
 
 // runs: id -> summary of every chat; currentRun: the chat that is open (null = a new chat is being written)
-const state = { status: {}, view: "new", runs: {}, runList: [], currentRun: null, running: false, source: null, project: null, mode: "research", folders: [], targetFolder: null };
+const state = { status: {}, view: "new", runs: {}, runList: [], currentRun: null, running: false, source: null, project: null, mode: "research", folders: [], targetFolder: null, images: [] };
 
 // Remembered per browser; storage may be unavailable, the page works without it.
 const remember = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
@@ -37,6 +37,7 @@ const ICONS = {
   layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
   star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
   plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
@@ -240,7 +241,8 @@ async function loadTools() {
         el("span", { class: `dot ${state_}` }), el("strong", {}, s.name), el("span", { class: "muted" }, label), el("span", { class: "spacer" }),
         data.editable && !s.required ? el("label", { class: "switch", title: t("On or off") },
           el("input", { type: "checkbox", role: "switch", checked: !s.disabled, "aria-label": `${s.name}: ${t("On or off")}`,
-            onchange: (ev) => change(s.name, { method: "PATCH", body: JSON.stringify({ disabled: !ev.target.checked }) }) }), el("span", { class: "knob" })) : null,
+            onchange: (ev) => change(s.name, { method: "PATCH", body: JSON.stringify({ disabled: !ev.target.checked }) }) }), el("span", { class: "knob" }))
+          : s.required ? el("span", { class: "badge", title: t("The research agent keeps its plans, findings, memory and reports in this server, so it cannot be switched off or removed.") }, t("always on")) : null,
         data.editable && !s.disabled ? el("button", { class: "ghost small", type: "button", onclick: () => change(s.name, { method: "PATCH", body: "{}" }) }, t("Restart")) : null,
         data.editable && !s.required ? el("button", { class: "ghost small danger", type: "button", onclick: async () => {
           if (await confirmDialog(t('Remove the server "{name}" from the list?', { name: s.name }), t("Remove"))) change(s.name, { method: "DELETE" });
@@ -569,7 +571,8 @@ function updateComposer() {
   if (!state.running) $("#compact").hidden = true; // shown by the first "turn" event, which only code runs send
   const q = $("#question");
   const resume = !!run && !code && !state.running && run.resumable; // a stopped research can go on
-  q.required = (!code && !resume) || steer; // code mode may continue an existing plan without a new task
+  // code mode may continue an existing plan without a new task; a message of images alone needs no text
+  q.required = !state.images.length && ((!code && !resume) || steer);
   q.placeholder = steer ? t("Tell the agent what to change. It reads the message before its next reply.") : run
     ? (code ? t("Next instruction for this project. Leave empty to continue the plan.")
       : resume ? t("Ask something with what was found so far, or leave empty to go on with the research.") : t("Ask a follow-up question."))
@@ -596,22 +599,94 @@ $("#browse").addEventListener("click", async () => {
   }
 });
 
+// -- images: attached with the button, pasted or dropped; made smaller here and sent with the message ------
+const IMAGES = { max: 6, side: 1600, bytes: 3 * 1024 * 1024 };
+const IMAGE_TYPES = /^image\/(png|jpeg|webp|gif)$/;
+
+function renderAttachments() {
+  const box = $("#attachments");
+  box.hidden = !state.images.length;
+  box.replaceChildren(...state.images.map((url, i) => {
+    const remove = el("button", { type: "button", class: "remove", title: t("Remove"), "aria-label": t("Remove") }, icon("x"));
+    remove.addEventListener("click", () => { state.images.splice(i, 1); renderAttachments(); });
+    return el("div", { class: "thumb" }, el("img", { src: url, alt: t("Attached image") }), remove);
+  }));
+  updateComposer();
+}
+
+const readAsDataURL = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(blob);
+});
+
+// A large picture is scaled down (a screenshot keeps its text readable at 1600 px); PNG stays PNG for sharp text.
+async function shrink(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, IMAGES.side / Math.max(bitmap.width, bitmap.height));
+  if (scale === 1 && file.size <= IMAGES.bytes) { bitmap.close(); return readAsDataURL(file); }
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.92);
+}
+
+async function addImages(files) {
+  for (const file of files) {
+    if (!IMAGE_TYPES.test(file.type)) { toast(t("Only PNG, JPEG, WebP or GIF images can be attached."), "error"); continue; }
+    if (state.images.length >= IMAGES.max) { toast(t("At most 6 images per message."), "error"); break; }
+    try { state.images.push(await shrink(file)); } catch (e) { fail(e); }
+  }
+  renderAttachments();
+}
+
+$("#attach").replaceChildren(icon("image"));
+$("#attach").addEventListener("click", () => $("#attach-input").click());
+$("#attach-input").addEventListener("change", (ev) => { addImages([...ev.target.files]); ev.target.value = ""; });
+$("#question").addEventListener("paste", (ev) => {
+  const files = [...(ev.clipboardData?.items || [])].filter((i) => i.kind === "file" && IMAGE_TYPES.test(i.type)).map((i) => i.getAsFile());
+  if (files.length) { ev.preventDefault(); addImages(files); }
+});
+$("#ask").addEventListener("dragover", (ev) => {
+  if (![...ev.dataTransfer.types].includes("Files")) return;
+  ev.preventDefault();
+  $("#ask").classList.add("dropping");
+});
+$("#ask").addEventListener("dragleave", (ev) => { if (!$("#ask").contains(ev.relatedTarget)) $("#ask").classList.remove("dropping"); });
+$("#ask").addEventListener("drop", (ev) => {
+  $("#ask").classList.remove("dropping");
+  if (!ev.dataTransfer.files.length) return;
+  ev.preventDefault();
+  addImages([...ev.dataTransfer.files]);
+});
+
+function sent() { // the message was taken: the box is empty for the next one
+  $("#question").value = "";
+  resizeQuestion();
+  state.images = [];
+  renderAttachments();
+}
+
 $("#ask").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const question = $("#question").value.trim();
+  const images = [...state.images];
+  const empty = !question && !images.length;
   const code = state.mode === "code";
   const steer = state.running && code && state.currentRun;
   const resume = !code && state.currentRun && state.runs[state.currentRun]?.resumable;
-  if ((!question && ((!code && !resume) || steer)) || (state.running && !steer)) return;
+  if ((empty && ((!code && !resume) || steer)) || (state.running && !steer)) return;
   if (steer) { // the live stream shows the message when the server has taken it
     try {
-      await api(`/api/runs/${state.currentRun}/messages`, { method: "POST", body: JSON.stringify({ question }) });
-      $("#question").value = "";
-      resizeQuestion();
+      await api(`/api/runs/${state.currentRun}/messages`, { method: "POST", body: JSON.stringify({ question, images }) });
+      sent();
     } catch (e) { fail(e); }
     return;
   }
-  const options = { question, servers: getSelectedMcpServers(), settings: getSettings() };
+  const options = { question, images, servers: getSelectedMcpServers(), settings: getSettings() };
   if (!code) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, parallel: +$("#parallel").value });
   try {
     let run;
@@ -623,8 +698,7 @@ $("#ask").addEventListener("submit", async (ev) => {
       const body = code ? { ...options, mode: "code", folder } : { ...options, project: $("#project").value.trim() };
       run = await api("/api/runs", { method: "POST", body: JSON.stringify({ ...body, chat_folder: state.targetFolder }) });
     }
-    $("#question").value = "";
-    resizeQuestion();
+    sent();
     state.runs[run.id] = run;
     attach(run.id);
     renderRunsSidebar();
@@ -758,7 +832,7 @@ function attach(runId) {
   if (run) {
     setSettings(run.settings || {});
     setMode(run.mode === "code" ? "code" : "research");
-    userBubble(run.question);
+    userBubble(run.question, run.images);
   }
   const ctx = newContext(run ? run.question : "");
   setRunning(true);
@@ -785,9 +859,13 @@ function scrollDown() {
 }
 function append(...nodes) { $("#timeline").append(...nodes); }
 
-function userBubble(text) {
+function userBubble(text, images = []) {
   const auto = /^\((continue|resume)\b/.test(text); // sent by the page, not typed
-  append(el("div", { class: "turn" }, el("div", { class: "bubble" + (auto ? " auto" : "") }, auto ? t(text.slice(1, -1)) : text)));
+  const pictures = images.length ? el("div", { class: "bubble-images" }, images.map((name) => {
+    const url = `/api/runs/${state.currentRun}/images/${encodeURIComponent(name)}`;
+    return el("a", { href: url, target: "_blank", rel: "noopener" }, el("img", { src: url, alt: t("Attached image"), loading: "lazy" }));
+  })) : null;
+  append(el("div", { class: "turn" }, el("div", { class: "bubble" + (auto ? " auto" : "") }, pictures, auto ? t(text.slice(1, -1)) : text)));
 }
 
 function card(ctx, key, title, badge) {
@@ -1144,10 +1222,10 @@ function renderEvent(e, ctx) {
   switch (e.kind) {
     case "user":
       nextMessage(ctx, e.text);
-      userBubble(e.text);
+      userBubble(e.text, e.images);
       break;
     case "steer": // sent while the agent was working
-      userBubble(e.text);
+      userBubble(e.text, e.images);
       break;
     case "token": {
       const box = liveBox(ctx, e.index ?? "main");

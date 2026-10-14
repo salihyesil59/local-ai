@@ -141,7 +141,7 @@ def test_a_follow_up_message_continues_the_same_chat(tmp_path):
         # while a code run works, a message steers its agent; without an agent the chat is busy
         run.status = "running"
         assert client.post(f"/api/runs/{run_id}/messages", json={"question": "Use tabs"}).status_code == 202
-        assert run.agent.steering == ["Use tabs"] and run.events[-1] == {"kind": "steer", "text": "Use tabs"}
+        assert run.agent.steering == [("Use tabs", [])] and run.events[-1] == {"kind": "steer", "text": "Use tabs"}
         run.agent = None
         assert client.post(f"/api/runs/{run_id}/messages", json={"question": "x"}).status_code == 409
         run.status = "done"

@@ -89,6 +89,12 @@ PDF). The sidebar lists:
 - long-term memory, with search and forget;
 - skills.
 
+Images go with a message through the image button of the message box, or pasted (Ctrl+V) or dropped onto it: up
+to six PNG, JPEG, WebP or GIF images, large ones scaled down to 1600 px. A code chat gives them to the model with the
+message (a screenshot of an error, a sketch of a layout); a research chat first has the model write down what they
+show (text exactly, plots and tables described) and researches with that. The model needs vision: in LM Studio load
+it with its `mmproj` file. The images are kept with the chat in `<workspace>/ui/images/`.
+
 Model output is shown as it is written: Markdown, coloured code and LaTeX formulas (`$..$`, `$$..$$`, `\(..\)`,
 `\[..\]`). The **⚙** button of the message box opens the settings of the chat: the model (from those LM Studio
 has), temperature, max tokens, max turns, the context limit and the thinking limit (code) or max steps

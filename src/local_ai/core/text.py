@@ -10,6 +10,7 @@ THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 INLINE_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 FUNCTION_CALL_RE = re.compile(r"<function=([\w.\-]+)>(.*?)</function>", re.DOTALL)
 PARAMETER_RE = re.compile(r"<parameter=(\w+)>\s*(.*?)\s*</parameter>", re.DOTALL)
+IMAGE_CHARS = 4500  # what an image in a message counts for in the context size (about 1500 tokens)
 TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>.*?</tool_call>|<function=[\w.\-]+>.*?</function>", re.DOTALL)
 
 
@@ -102,7 +103,11 @@ def size(messages: list[dict]) -> int:
     """Rough context size in characters."""
     total = 0
     for m in messages:
-        total += len(m.get("content") or "")
+        content = m.get("content") or ""
+        if isinstance(content, list):  # text and images
+            total += sum(len(p.get("text", "")) if p.get("type") == "text" else IMAGE_CHARS for p in content)
+        else:
+            total += len(content)
         for call in m.get("tool_calls") or []:
             total += len(call["function"]["name"]) + len(call["function"]["arguments"])
     return total

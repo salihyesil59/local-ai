@@ -34,9 +34,11 @@ class ScriptedClient:
 
     def __init__(self, replies):
         self.replies = list(replies)
+        self.requests = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     async def create(self, **kwargs):
+        self.requests.append(kwargs)
         text, calls = self.replies.pop(0)
 
         async def stream():

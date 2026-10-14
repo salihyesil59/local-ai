@@ -77,8 +77,11 @@
               <input id="folder" placeholder="Project folder, absolute path (e.g. C:\Users\you\Github\test\app)">
               <button id="browse" class="ghost" type="button">Browse…</button>
             </div>
+            <div id="attachments" class="attachments" hidden></div>
+            <input id="attach-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
             <textarea id="question" rows="1" placeholder="Ask a research question — any language." required></textarea>
             <div class="ask-bar">
+              <button id="attach" class="pill icon-only" type="button" title="Attach images (or paste / drop them)" aria-label="Attach images"></button>
               <button id="tools-toggle" class="pill" type="button" title="The MCP servers this message may use" aria-expanded="false"></button>
               <div class="modes new-only" role="tablist" aria-label="Mode">
                 <button type="button" class="mode active" data-mode="research" role="tab">Research</button>

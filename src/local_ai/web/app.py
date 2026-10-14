@@ -28,6 +28,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from local_ai.coder import files as coder_files
+from local_ai.core import images as img
 from local_ai.core.llm import pick_model
 from local_ai.core.mcp_bridge import (
     MCPBridge,
@@ -42,7 +43,7 @@ from local_ai.research.config import AgentSettings
 from local_ai.servers.common import slugify, workspace_root
 from local_ai.servers.export import FORMATS, ExportError, export, render_body, render_markdown
 
-from .runs import ACTIVE, Run, clean_settings, run_code, run_research
+from .runs import ACTIVE, IMAGES_ONLY, Run, clean_settings, run_code, run_research
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
@@ -189,6 +190,7 @@ def create_app(
             title=meta.get("title", ""),
             folder=meta.get("folder"),
             pinned=bool(meta.get("pinned")),
+            images=list(meta.get("images") or []),
             settings=meta.get("settings") or {},
             created=meta.get("created", 0),
             loaded=False,
@@ -413,10 +415,17 @@ def create_app(
         chat_folder = body.get("chat_folder") or None
         if not store.folder_exists(chat_folder):
             return JSONResponse({"error": "unknown folder"}, status_code=400)
+        try:
+            pictures = img.decode(body.get("images"))
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        if pictures and not question:
+            question = IMAGES_ONLY
 
         def start(run: Run) -> Response:
             run.folder, run.mode = chat_folder, "code" if body.get("mode") == "code" else "research"
             run.settings = clean_settings(body.get("settings"))
+            run.images = [store.save_image(run.id, data, ext) for data, ext in pictures]
             store.add_run(
                 run.id,
                 question=run.question,
@@ -426,10 +435,12 @@ def create_app(
                 folder=chat_folder,
                 settings=run.settings,
                 created=run.created,
+                images=run.images,
             )
             attach_store(run)
             state["runs"][run.id] = run
-            run.task = asyncio.create_task(execute(run, body, run.question, run.project))
+            options = {**body, "images": None, "image_paths": [store.image_path(run.id, n) for n in run.images]}
+            run.task = asyncio.create_task(execute(run, options, run.question, run.project))
             return JSONResponse(run.summary(), status_code=201)
 
         if body.get("mode") == "code":
@@ -460,10 +471,23 @@ def create_app(
             return JSONResponse({"error": "unknown run"}, status_code=404)
         body = await request.json()
         message = str(body.get("question", "")).strip()
+        try:
+            pictures = img.decode(body.get("images"))
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        if pictures and not message:
+            message = IMAGES_ONLY
+
+        def keep_images() -> dict:
+            """Save the images of this message; the user event shows them, the agent gets their files."""
+            names = [store.save_image(run.id, data, ext) for data, ext in pictures]
+            return {"images": names} if names else {}
+
         if run.status in ACTIVE:
             if run.status == "running" and message and hasattr(run.agent, "steer"):
-                run.agent.steer(message)  # a code run takes a message while it works
-                run.push({"kind": "steer", "text": message})
+                shown = keep_images()
+                run.agent.steer(message, [store.image_path(run.id, n) for n in shown.get("images", [])])
+                run.push({"kind": "steer", "text": message, **shown})  # a code run takes a message while it works
                 return JSONResponse(run.summary(), status_code=202)
             return JSONResponse({"error": "wait until the run has ended, or cancel it"}, status_code=409)
         load_events(run)
@@ -475,7 +499,10 @@ def create_app(
                 project = run.resumable()
                 if not project:
                     return JSONResponse({"error": "question is required"}, status_code=400)
-        options = {**body, "mode": run.mode, "folder": run.project, "resume": bool(project)}
+        shown = keep_images()
+        paths = [store.image_path(run.id, n) for n in shown.get("images", [])]
+        options = {**body, "images": None, "image_paths": paths, "mode": run.mode, "folder": run.project}
+        options["resume"] = bool(project)
         task = run.follow_up(message) if message else ""  # an empty message continues the plan of a code chat
         if run.mode == "code":  # the agent still has the conversation: the message alone is enough
             options["with_earlier_answer"], task = task, message
@@ -483,7 +510,8 @@ def create_app(
             run.settings = clean_settings(body["settings"])
         run.status = "queued"
         store.update_run(run.id, status="queued", settings=run.settings)
-        run.push({"kind": "user", "text": message or ("(continue the research)" if project else "(continue the plan)")})
+        text = message or ("(continue the research)" if project else "(continue the plan)")
+        run.push({"kind": "user", "text": text, **shown})
         # a research follow-up with a question gets a project of its own; without one the stopped project goes on
         run.task = asyncio.create_task(execute(run, options, task, project))
         return JSONResponse(run.summary(), status_code=202)
@@ -737,6 +765,13 @@ def create_app(
             return JSONResponse({"error": f"Could not open the folder dialog ({e}). Type the path instead."}, 503)
         return JSONResponse({"path": path})
 
+    async def run_image(request: Request) -> Response:
+        """An image sent with a message of a chat."""
+        path = store.image_path(request.path_params["run_id"], request.path_params["name"])
+        if path is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return FileResponse(path)
+
     async def files(request: Request) -> Response:
         path = (workspace / request.path_params["path"]).resolve()
         if not path.is_relative_to(workspace) or not path.is_file():
@@ -755,6 +790,7 @@ def create_app(
         Route("/api/runs", list_runs),
         Route("/api/runs/{run_id}/events", run_events),
         Route("/api/runs/{run_id}/messages", add_message, methods=["POST"]),
+        Route("/api/runs/{run_id}/images/{name}", run_image),
         Route("/api/runs/{run_id}", update_run, methods=["PATCH"]),
         Route("/api/runs/{run_id}", delete_run, methods=["DELETE"]),
         Route("/api/folders", list_folders),

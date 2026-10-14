@@ -11,6 +11,7 @@ from pathlib import Path
 
 from local_ai.coder import state as coder_state
 from local_ai.coder.loop import CoderAgent, Settings
+from local_ai.core import images as img
 from local_ai.core.llm import LLM
 from local_ai.core.mcp_bridge import MCPBridge
 from local_ai.core.text import trim
@@ -46,6 +47,7 @@ def clean_settings(raw) -> dict:
             settings[key] = value
     return settings
 EARLIER_CHARS = 3000  # of the last answer shown to the agent with a follow-up message
+IMAGES_ONLY = "Look at the attached image and help with what it shows."  # a message that is only images
 FOLLOW_UP = "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThe answer was:\n{answer}"
 STOPPED_RUN = (
     "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThat run was stopped before it had an "
@@ -63,6 +65,7 @@ class Run:
     title: str = ""  # chosen by the user; empty = shortened from the question
     folder: str | None = None  # id of the chat folder it is sorted into
     pinned: bool = False  # kept at the top of the chat list
+    images: list[str] = field(default_factory=list)  # names of the images sent with the first message
     settings: dict = field(default_factory=dict)  # model, temperature, ... chosen for this chat
     created: float = field(default_factory=time.time)
     events: list[dict] = field(default_factory=list)
@@ -135,6 +138,7 @@ class Run:
             "title": self.title,
             "folder": self.folder,
             "pinned": self.pinned,
+            "images": self.images,
             "resumable": bool(self.loaded and self.resumable()),
             "settings": self.settings,
             "created": self.created,
@@ -182,7 +186,7 @@ async def run_code(
     run.agent = agent
     coder_state.moim_file().write_text(coder_state.IDLE, encoding="utf-8")
     try:
-        outcome = await agent.run(task)
+        outcome = await agent.run(task, options.get("image_paths"))
     finally:  # also when the user stops the run: the conversation so far is what the next message goes on with
         if store:
             store.save_messages(run.id, {"messages": agent.messages, "interrupted": agent.interrupted})
@@ -211,6 +215,13 @@ async def run_research(
     settings.gap_check = settings.gap_check and not fast
     settings.learn = settings.learn and not fast
     settings.parallel = max(1, min(int(options.get("parallel") or settings.parallel), 8))
+    paths = options.get("image_paths") or []
+    if paths:  # the research agent works with text: the model writes down what the images show
+        on_event({"kind": "log", "text": f"Reading the {len(paths)} attached image(s)"})
+        llm = LLM(client, settings.model, max_tokens=settings.max_tokens, temperature=settings.temperature)
+        text = await img.describe(llm, paths, question)
+        on_event({"kind": "log", "text": f"What the image(s) show: {trim(text, 1500)}"})
+        question = img.described(question, len(paths), text)
     agent = ResearchAgent(client, bridge, settings, on_event=on_event)
     if options.get("quick") and not options.get("resume"):
         await agent.quick(question)

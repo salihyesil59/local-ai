@@ -4,16 +4,20 @@
                               folder, created}}}
 <workspace>/ui/runs/<id>.jsonl  the events of a run, one JSON object per line (live token output is not kept)
 <workspace>/ui/runs/<id>.chat.json  the conversation of a code chat with the model, to go on with it later
+<workspace>/ui/images/<id>/   the images sent with the messages of a chat
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import time
 import uuid
 from pathlib import Path
+
+IMAGE_NAME = re.compile(r"[0-9a-f]{12}\.(?:png|jpg|webp|gif)")
 
 
 class Store:
@@ -53,6 +57,7 @@ class Store:
         self.save()
         (self.dir / "runs" / f"{run_id}.jsonl").unlink(missing_ok=True)
         (self.dir / "runs" / f"{run_id}.chat.json").unlink(missing_ok=True)
+        shutil.rmtree(self.dir / "images" / run_id, ignore_errors=True)
 
     # -- folders -----------------------------------------------------------------
 
@@ -119,6 +124,23 @@ class Store:
             return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
         except json.JSONDecodeError:  # cut off by a crash: the chat starts a new conversation
             return {}
+
+    # -- images ------------------------------------------------------------------
+
+    def save_image(self, run_id: str, data: bytes, ext: str) -> str:
+        """Keep an image sent with a message; returns its name within the chat."""
+        name = f"{uuid.uuid4().hex[:12]}.{ext}"
+        folder = self.dir / "images" / run_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
+        return name
+
+    def image_path(self, run_id: str, name: str) -> Path | None:
+        """The file of an image of a chat; None for a name that is not one (no path can leave the folder)."""
+        if not IMAGE_NAME.fullmatch(name) or not re.fullmatch(r"\w+", run_id):
+            return None
+        path = self.dir / "images" / run_id / name
+        return path if path.is_file() else None
 
     def clear(self) -> None:
         """For tests and resets: forget everything."""

@@ -8,6 +8,12 @@ const TR = {
   "Commands and chats": "Komutlar ve sohbetler", "connecting…": "bağlanıyor…", "server not reachable": "sunucuya ulaşılamıyor",
   "model: auto": "model: otomatik", "no servers": "sunucu yok", "tools": "araç", "MCP server": "MCP sunucusu",
   "Drag to resize; double-click to reset": "Genişliği değiştirmek için sürükle; sıfırlamak için çift tıkla",
+  "Attach images (or paste / drop them)": "Görsel ekle (ya da yapıştır / sürükle bırak)", "Attach images": "Görsel ekle",
+  "Attached image": "Eklenen görsel", "Only PNG, JPEG, WebP or GIF images can be attached.": "Yalnızca PNG, JPEG, WebP ya da GIF görseller eklenebilir.",
+  "At most 6 images per message.": "Bir mesajda en çok 6 görsel olabilir.",
+  "always on": "hep açık",
+  "The research agent keeps its plans, findings, memory and reports in this server, so it cannot be switched off or removed.":
+    "Araştırma ajanı planlarını, bulgularını, belleğini ve raporlarını bu sunucuda tutar; bu yüzden kapatılamaz ve kaldırılamaz.",
   "Tools": "Araçlar", "Servers this message may use": "Bu mesajın kullanabileceği sunucular", "No servers are running.": "Çalışan sunucu yok.",
   "Manage servers…": "Sunucuları yönet…", "The MCP servers this message may use": "Bu mesajın kullanabileceği MCP sunucuları",
   "MCP servers give the agents their tools. Add one you wrote or downloaded; it starts at once and is saved in the server list.":

@@ -32,6 +32,7 @@ from local_ai.coder import skills as sk
 from local_ai.coder import state as st
 from local_ai.coder import workflow as wf
 from local_ai.coder.tools import EDIT_TOOLS, VERIFY_TIMEOUT, coder_tools
+from local_ai.core.images import text_of, with_images
 from local_ai.core.llm import LLM, Reply, TokenBatcher
 from local_ai.core.text import parse_inline_tool_calls, size, strip_think, strip_tool_calls, trim
 from local_ai.core.tools import Tool, parse_arguments
@@ -95,7 +96,8 @@ class CoderAgent:
         self.messages: list[dict] = []  # the conversation; it goes on with the next run
         self.interrupted = False  # the last run did not return: the user stopped it
         self.earlier_plan = False  # the plan on disk was finished before this run: it is not this task's
-        self.steering: list[str] = []  # messages of the user that the model has not seen yet
+        # messages of the user that the model has not seen yet, with the images that came with them
+        self.steering: list[tuple[str, list[Path]]] = []
         self.looked: dict[tuple[str, str], int] = {}  # look-up -> the number of edits when it was made
         self.edits_made = 0
 
@@ -175,16 +177,16 @@ class CoderAgent:
         """Compact before the next model reply (the UI's Compact button)."""
         self.compact_requested = True
 
-    def steer(self, message: str) -> None:
+    def steer(self, message: str, images: list[Path] | None = None) -> None:
         """A message of the user for the running task; the model reads it before its next reply."""
-        self.steering.append(message)
+        self.steering.append((message, list(images or [])))
 
     @staticmethod
     def transcript(messages: list[dict]) -> str:
         """The dropped messages as short text for the model that writes the notes (the newest part is kept)."""
         lines = []
         for m in messages:
-            text = (m.get("content") or "").strip()
+            text = text_of(m.get("content")).strip()
             calls = "; ".join(
                 f"{c['function']['name']}({c['function']['arguments'][:200]})" for c in m.get("tool_calls") or []
             )
@@ -260,14 +262,15 @@ class CoderAgent:
                     messages.insert(i, {"role": "tool", "tool_call_id": call["id"], "content": prompts.STOPPED_CALL})
                     i += 1
 
-    async def run(self, task: str) -> Outcome:
-        """Work on a task until it is done or a limit is hit. A later call goes on with the same conversation."""
+    async def run(self, task: str, images: list[Path] | None = None) -> Outcome:
+        """Work on a task until it is done or a limit is hit. A later call goes on with the same conversation.
+        images (a screenshot of an error, a sketch) come with the task; the model must be able to read images."""
         stopped, self.interrupted = self.interrupted, True
-        outcome = await self.work(task, stopped)
+        outcome = await self.work(task, stopped, images)
         self.interrupted = False  # not reached when the run is cancelled
         return outcome
 
-    async def work(self, task: str, stopped: bool) -> Outcome:
+    async def work(self, task: str, stopped: bool, images: list[Path] | None = None) -> Outcome:
         state = st.load(self.root)
         status = st.render(self.root, state) if state and not st.finished(state) else None
         # A finished plan is the earlier task's: this task is done only after a plan of its own.
@@ -278,9 +281,9 @@ class CoderAgent:
             self.repair(self.messages)
             self.tools.update(coder_tools(self.root, require_skill=False))  # it has planned in this chat before
             text = prompts.next_message(task, self.root, status, self.earlier_plan, stopped)
-            self.messages.append({"role": "user", "content": text})
+            self.messages.append({"role": "user", "content": with_images(text, images)})
         else:
-            self.messages = await self.opening(task, status)
+            self.messages = await self.opening(task, status, images)
         messages = self.messages
         specs = [t.spec() for t in self.tools.values()]
         edits = nudges = 0
@@ -292,7 +295,8 @@ class CoderAgent:
                 manual, self.compact_requested = self.compact_requested, False
                 messages = self.messages = await self.compact(messages, manual)
             while self.steering and not wrap_up:  # in the wrap-up the model has no tools to act on it
-                messages.append({"role": "user", "content": prompts.STEER.format(message=self.steering.pop(0))})
+                message, shown = self.steering.pop(0)
+                messages.append({"role": "user", "content": with_images(prompts.STEER.format(message=message), shown)})
                 nudges = 0
             context = size(messages)
             try:
@@ -376,7 +380,7 @@ class CoderAgent:
 
         return Outcome(False, f"turn limit ({self.settings.max_turns}) reached")
 
-    async def opening(self, task: str, status: str | None) -> list[dict]:
+    async def opening(self, task: str, status: str | None, images: list[Path] | None = None) -> list[dict]:
         """The first two messages of a conversation: the instructions, and the task with what comes with it."""
         base_tools = coder_tools(self.root, False)
         extra_names = [name for name in self.tools if name not in base_tools]
@@ -395,8 +399,9 @@ class CoderAgent:
             {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names)},
             {
                 "role": "user",
-                "content": prompts.first_message(
-                    task, self.root, status, skills.get(given), self.earlier_plan, overview
+                "content": with_images(
+                    prompts.first_message(task, self.root, status, skills.get(given), self.earlier_plan, overview),
+                    images,
                 ),
             },
         ]
