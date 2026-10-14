@@ -681,3 +681,11 @@ def test_only_thinking_that_repeats_itself_goes_in_circles():
     assert not goes_in_circles("First I read the code. " + quoted + "So the bug is in compute.")
     assert not goes_in_circles("short " * 10)
     assert goes_in_circles("Start. " + "I will follow the user. But the issue says otherwise. This is confusing. " * 20)
+
+
+@pytest.mark.anyio
+async def test_a_long_stretch_of_cut_offs_is_sampled_more_freely(project):
+    script = [say(finish="length", thinking=f"Idea number {i}.") for i in range(3)] + [say(calls=[plan_call()]), say("x")]
+    agent, client, _ = make_agent(project, script, max_nudges=3)
+    await agent.run("task")
+    assert [r["temperature"] for r in client.requests[:5]] == [0.6, 0.6, 0.6, 0.9, 0.6]

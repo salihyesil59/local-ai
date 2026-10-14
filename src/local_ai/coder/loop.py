@@ -43,6 +43,7 @@ READ_TOOLS = ("read_arxiv", "read_pdf", "read_library")
 MAP_TOOLS = ("repo_map", "outline", "search")  # the coder's own
 # Calls that only look: the same one again, with no edit in between, tells the model nothing new.
 LOOKUPS = ("read_file", "list_files", *MAP_TOOLS)
+UNSTICK_AFTER = 3  # cut-off replies in a row after which the next one is sampled more freely
 TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
 
 
@@ -314,7 +315,7 @@ class CoderAgent:
                 nudges += 1
                 if nudges > self.settings.max_nudges:
                     return Outcome(False, "the model keeps running out of tokens without acting")
-                unstick = reply.looping
+                unstick = reply.looping or nudges >= UNSTICK_AFTER  # a long stretch of cut-offs is a loop too
                 if reply.looping:  # its thinking is not given back: reading it again keeps the loop going
                     action = prompts.LOOPING_PLAN if st.load(self.root) else prompts.LOOPING_NO_PLAN
                     nudge = prompts.LOOPING.format(action=action)

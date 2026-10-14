@@ -16,4 +16,7 @@ keywords: bug, fix, hata, düzelt, error, crash, broken, fails, çalışmıyor, 
    Fix that line. Do not add a special case for the one input and do not catch the exception to hide it.
 5. Call verify. If other tests break, your fix changed behaviour that was right: narrow the fix. Never change
    what an existing test expects, and add your tests next to the existing ones (edit_file), never in place of them.
-6. In the review, add a test for a neighbouring input of the bug (empty, zero, negative, the other branch).
+6. Look for the same mistake next to it: the other branches of the same if/elif, and the same kind of line
+   elsewhere (search for it). Run an input that reaches each of them with run_python; fix the ones that are
+   wrong in the same way and test them too.
+7. In the review, add a test for a neighbouring input of the bug (empty, zero, negative, the other branch).
