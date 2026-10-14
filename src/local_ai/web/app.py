@@ -46,6 +46,16 @@ from .runs import ACTIVE, Run, clean_settings, run_code, run_research
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
+REVALIDATE = {"Cache-Control": "no-cache"}  # the browser asks each time, so a new version of the UI is used at once
+
+
+class UIFiles(StaticFiles):
+    """The files of the UI, never taken from the browser's cache unchecked (an unchanged file costs a 304)."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(REVALIDATE)
+        return response
 
 
 def resolve_workspace(servers: list[ServerConfig]) -> Path:
@@ -272,7 +282,7 @@ def create_app(
     # -- endpoints -------------------------------------------------------------------
 
     async def index(request: Request) -> Response:
-        return FileResponse(STATIC / "index.html")
+        return FileResponse(STATIC / "index.html", headers=REVALIDATE)
 
     async def status(request: Request) -> Response:
         bridge = state["bridge"]
@@ -764,7 +774,7 @@ def create_app(
         Route("/api/skills", skills),
         Route("/api/pick-folder", pick_folder, methods=["POST"]),
         Route("/files/{path:path}", files),
-        Mount("/static", StaticFiles(directory=STATIC), name="static"),
+        Mount("/static", UIFiles(directory=STATIC), name="static"),
     ]
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.runs = state["runs"]

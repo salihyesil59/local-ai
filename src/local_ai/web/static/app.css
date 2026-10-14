@@ -63,7 +63,7 @@ input, select { background: var(--surface-2); border: 1px solid var(--border); b
 .spacer { flex: 1; }
 
 /* -- chat: timeline above, composer at the bottom, progress panel on the right ------------------------------ */
-.view.chat { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: 100%; }
+.view.chat { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: 100%; position: relative; }
 .chat-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 20px 8px; display: flex; flex-direction: column; gap: 10px; }
 .timeline > * { width: 100%; max-width: 860px; margin-inline: auto; min-width: 0; flex: none; }
@@ -141,7 +141,7 @@ details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
 .toolbar .muted { font-size: 13px; }
 
 /* -- progress panel ------------------------------------------------------------------------------------- */
-.side-panel { width: 320px; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 16px; display: grid; gap: 18px; align-content: start; }
+.side-panel { width: var(--panel, 320px); border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 16px; display: grid; gap: 18px; align-content: start; }
 .side-panel h4 { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .side-panel .goal { font-size: 14px; margin-bottom: 8px; overflow-wrap: anywhere; }
 .side-panel details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
@@ -203,6 +203,7 @@ details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
   .view.chat { display: flex; flex-direction: column; }
   .chat-main { flex: 1; }
   .side-panel { order: -1; width: auto; max-height: 30vh; border-left: 0; border-bottom: 1px solid var(--border); }
+  .panel-resizer { display: none; }
 }
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
@@ -317,6 +318,8 @@ kbd { font: 11px var(--mono); border: 1px solid var(--border); border-radius: 4p
 .resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s ease; }
 .resizer:hover::after, .resizer:focus-visible::after, .resizer.dragging::after { background: var(--accent); }
 .resizer:focus-visible { outline: none; }
+.panel-resizer { left: auto; right: calc(var(--panel, 320px) - 4px); }
+.side-panel[hidden] + .panel-resizer { display: none; }
 body.resizing { cursor: col-resize; user-select: none; }
 
 /* -- the history of a chat in the progress panel: one entry per message ---------------------------------- */

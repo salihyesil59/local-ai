@@ -66,8 +66,9 @@ def test_status_and_index(client):
     assert s["error"] is None and {"notebook", "library", "compute"} <= set(s["servers"])
     assert "html" in s["formats"]
     page = client.get("/")
-    assert page.status_code == 200 and "Local AI" in page.text
-    assert client.get("/static/app.js").status_code == 200
+    assert page.status_code == 200 and "Local AI" in page.text and page.headers["cache-control"] == "no-cache"
+    script = client.get("/static/app.js")
+    assert script.status_code == 200 and script.headers["cache-control"] == "no-cache"  # a new version is used at once
 
 
 def test_run_project_export_memory(client):

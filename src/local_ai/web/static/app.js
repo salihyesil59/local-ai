@@ -87,8 +87,9 @@ $("#lang").addEventListener("click", switchLanguage);
 $("#lang").textContent = LANG.toUpperCase();
 $("#lang").title = t("Language");
 
-// -- the width of the sidebar: dragged at its edge, remembered in this browser -------------------
+// -- the widths of the sidebar and the progress panel: dragged at their edge, remembered in this browser ----
 const SIDEBAR = { min: 200, max: 640, initial: 280 };
+const PANEL = { min: 260, max: 900, initial: 320 };
 
 function setSidebar(width, save = true) {
   width = Math.round(Math.max(SIDEBAR.min, Math.min(width, SIDEBAR.max, window.innerWidth - 360)));
@@ -97,29 +98,56 @@ function setSidebar(width, save = true) {
   if (save) remember("sidebar", String(width));
 }
 
-$("#resizer").addEventListener("pointerdown", (ev) => {
-  const handle = ev.currentTarget, left = $(".layout").getBoundingClientRect().left;
-  handle.setPointerCapture(ev.pointerId);
-  handle.classList.add("dragging");
-  document.body.classList.add("resizing");
-  const move = (e) => setSidebar(e.clientX - left, false);
-  const stop = () => {
-    handle.removeEventListener("pointermove", move);
-    handle.classList.remove("dragging");
-    document.body.classList.remove("resizing");
-    remember("sidebar", String(parseInt($(".layout").style.getPropertyValue("--sidebar"), 10) || SIDEBAR.initial));
-  };
-  handle.addEventListener("pointermove", move);
-  handle.addEventListener("pointerup", stop, { once: true });
-  handle.addEventListener("pointercancel", stop, { once: true });
+function setPanel(width, save = true) {
+  const sidebar = parseInt($(".layout").style.getPropertyValue("--sidebar"), 10) || SIDEBAR.initial;
+  width = Math.round(Math.max(PANEL.min, Math.min(width, PANEL.max, window.innerWidth - sidebar - 420)));
+  $("#view-new").style.setProperty("--panel", `${width}px`);
+  $("#panel-resizer").setAttribute("aria-valuenow", width);
+  if (save) remember("panel", String(width));
+}
+
+// handle: the drag handle; set(width, save); width(pointer x) while dragging; current(); grow: +1 when the
+// right arrow key widens, -1 when it narrows (the panel's edge is on its left).
+function resizable(handle, { set, width, current, initial, grow }) {
+  handle.addEventListener("pointerdown", (ev) => {
+    handle.setPointerCapture(ev.pointerId);
+    handle.classList.add("dragging");
+    document.body.classList.add("resizing");
+    const move = (e) => set(width(e.clientX), false);
+    const stop = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      set(current());
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop, { once: true });
+    handle.addEventListener("pointercancel", stop, { once: true });
+  });
+  handle.addEventListener("dblclick", () => set(initial));
+  handle.addEventListener("keydown", (ev) => {
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    ev.preventDefault();
+    set(current() + (ev.key === "ArrowRight" ? 16 : -16) * grow);
+  });
+}
+
+resizable($("#resizer"), {
+  set: setSidebar,
+  width: (x) => x - $(".layout").getBoundingClientRect().left,
+  current: () => parseInt($(".layout").style.getPropertyValue("--sidebar"), 10) || SIDEBAR.initial,
+  initial: SIDEBAR.initial,
+  grow: 1,
 });
-$("#resizer").addEventListener("dblclick", () => setSidebar(SIDEBAR.initial));
-$("#resizer").addEventListener("keydown", (ev) => {
-  if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
-  ev.preventDefault();
-  setSidebar((parseInt($(".layout").style.getPropertyValue("--sidebar"), 10) || SIDEBAR.initial) + (ev.key === "ArrowRight" ? 16 : -16));
+resizable($("#panel-resizer"), {
+  set: setPanel,
+  width: (x) => $("#view-new").getBoundingClientRect().right - x,
+  current: () => parseInt($("#view-new").style.getPropertyValue("--panel"), 10) || PANEL.initial,
+  initial: PANEL.initial,
+  grow: -1,
 });
 if (+recall("sidebar")) setSidebar(+recall("sidebar"), false);
+if (+recall("panel")) setPanel(+recall("panel"), false);
 
 // -- status -----------------------------------------------------------------------
 async function loadStatus() {
