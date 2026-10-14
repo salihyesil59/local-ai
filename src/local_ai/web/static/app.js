@@ -176,7 +176,8 @@ function chosenServers() {
   let saved = null;
   try { saved = JSON.parse(recall("mcp_servers_" + state.mode) || "null"); } catch {}
   const offered = offeredServers();
-  return Array.isArray(saved) ? offered.filter((s) => saved.includes(s)) : offered; // all, until the user chooses
+  if (Array.isArray(saved)) return offered.filter((s) => saved.includes(s));
+  return state.mode === "chat" ? [] : offered; // until the user chooses: a chat has no tools, the agents all
 }
 
 function getSelectedMcpServers() {
@@ -472,7 +473,7 @@ function chatRow(r) {
     ondragend: () => { state.dragging = null; } },
     el("button", { class: "side-item", onclick: () => attach(r.id), title: r.question },
       el("span", { class: "t" }, r.pinned ? icon("pin") : null, chatTitle(r)),
-      el("small", {}, el("span", { class: `dot ${r.status}` }), `${t(r.mode === "code" ? "code" : "research")} · ${t(r.status)}`)),
+      el("small", {}, el("span", { class: `dot ${r.status}` }), `${t(knownMode(r.mode))} · ${t(r.status)}`)),
     el("button", { class: "icon", title: t("Rename, pin, move, delete"), onclick: (ev) => chatMenu(ev.currentTarget, r) }, icon("dots")));
 }
 
@@ -543,8 +544,11 @@ function shortTitle(text, max = 40) {
 }
 
 // -- the composer: starts a chat, or sends a follow-up message in the open one ----------------
+const MODES = ["chat", "research", "code"];
+const knownMode = (mode) => (MODES.includes(mode) ? mode : "research");
+
 function setMode(mode) {
-  state.mode = mode;
+  state.mode = knownMode(mode);
   document.querySelectorAll(".mode").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
   renderMcpSelectors();
   updateComposer();
@@ -552,28 +556,34 @@ function setMode(mode) {
 document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", () => { remember("mode", b.dataset.mode); setMode(b.dataset.mode); }));
 
 function updateComposer() {
-  const code = state.mode === "code";
+  const code = state.mode === "code", chat = state.mode === "chat";
   const run = state.runs[state.currentRun];
-  for (const n of document.querySelectorAll(".code-only, .research-only, .new-only")) {
-    n.hidden = (n.classList.contains("code-only") && !code) || (n.classList.contains("research-only") && code) || (n.classList.contains("new-only") && !!run);
+  for (const n of document.querySelectorAll(".code-only, .research-only, .agent-only, .new-only")) {
+    n.hidden = (n.classList.contains("code-only") && !code) || (n.classList.contains("research-only") && state.mode !== "research")
+      || (n.classList.contains("agent-only") && chat) || (n.classList.contains("new-only") && !!run);
   }
   const info = $("#chat-info");
   info.hidden = !run;
-  if (run) info.textContent = code ? `${t("Code")} · ${run.project}` : t("Research · follow-up in this chat");
+  if (run) info.textContent = code ? `${t("Code")} · ${run.project}` : chat ? t("Chat") : t("Research · follow-up in this chat");
   const steer = state.running && code && !!run; // a code run takes a message while it works
-  const action = steer ? t("Steer") : run ? t("Send") : code ? t("Code") : t("Research");
+  const action = steer ? t("Steer") : run || chat ? t("Send") : code ? t("Code") : t("Research");
   $("#run").replaceChildren(icon("up"));
   $("#run").title = `${action} (Ctrl+Enter)`;
   $("#run").setAttribute("aria-label", action);
   $("#chat-title").textContent = run ? chatTitle(run) : "";
+  $("#fast-opt").title = code ? t("Plan and verify, but no review at the end and no project map; shorter thinking")
+    : t("Skip review, gap check and learning");
+  $("#quick-opt").title = code ? t("A small mechanical change (a rename): no plan, the tests run once at the end")
+    : t("Quick answer: one tool loop, no plan or report");
   $("#run").disabled = state.running && !steer;
   $("#cancel").hidden = !state.running;
   if (!state.running) $("#compact").hidden = true; // shown by the first "turn" event, which only code runs send
   const q = $("#question");
-  const resume = !!run && !code && !state.running && run.resumable; // a stopped research can go on
+  const resume = !!run && state.mode === "research" && !state.running && run.resumable; // a stopped research can go on
   // code mode may continue an existing plan without a new task; a message of images alone needs no text
   q.required = !state.images.length && ((!code && !resume) || steer);
-  q.placeholder = steer ? t("Tell the agent what to change. It reads the message before its next reply.") : run
+  q.placeholder = chat ? t("Write a message — any language. Images can be pasted or dropped here.")
+    : steer ? t("Tell the agent what to change. It reads the message before its next reply.") : run
     ? (code ? t("Next instruction for this project. Leave empty to continue the plan.")
       : resume ? t("Ask something with what was found so far, or leave empty to go on with the research.") : t("Ask a follow-up question."))
     : (code ? t("What to build, change or fix. Leave empty to continue the plan in the folder.") : t("Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”"));
@@ -675,9 +685,9 @@ $("#ask").addEventListener("submit", async (ev) => {
   const question = $("#question").value.trim();
   const images = [...state.images];
   const empty = !question && !images.length;
-  const code = state.mode === "code";
+  const code = state.mode === "code", chat = state.mode === "chat";
   const steer = state.running && code && state.currentRun;
-  const resume = !code && state.currentRun && state.runs[state.currentRun]?.resumable;
+  const resume = state.mode === "research" && state.currentRun && state.runs[state.currentRun]?.resumable;
   if ((empty && ((!code && !resume) || steer)) || (state.running && !steer)) return;
   if (steer) { // the live stream shows the message when the server has taken it
     try {
@@ -687,7 +697,8 @@ $("#ask").addEventListener("submit", async (ev) => {
     return;
   }
   const options = { question, images, servers: getSelectedMcpServers(), settings: getSettings() };
-  if (!code) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, parallel: +$("#parallel").value });
+  if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked });
+  if (state.mode === "research") options.parallel = +$("#parallel").value;
   try {
     let run;
     if (state.currentRun) {
@@ -695,7 +706,8 @@ $("#ask").addEventListener("submit", async (ev) => {
     } else {
       const folder = $("#folder").value.trim();
       if (code) remember("folder", folder);
-      const body = code ? { ...options, mode: "code", folder } : { ...options, project: $("#project").value.trim() };
+      const body = code ? { ...options, mode: "code", folder } : chat ? { ...options, mode: "chat" }
+        : { ...options, project: $("#project").value.trim() };
       run = await api("/api/runs", { method: "POST", body: JSON.stringify({ ...body, chat_folder: state.targetFolder }) });
     }
     sent();
@@ -730,10 +742,11 @@ const SETTINGS = ["model", "temperature", "max_tokens", "max_turns", "context_ch
 const CODE_SETTINGS = ["max_turns", "context_chars", "max_thinking_chars"], RESEARCH_SETTINGS = ["max_steps"];
 
 function getSettings() {
-  const code = state.mode === "code";
+  const code = state.mode === "code", chat = state.mode === "chat";
   const settings = {};
   for (const key of SETTINGS) {
-    if ((code ? RESEARCH_SETTINGS : CODE_SETTINGS).includes(key)) continue; // the other agent's limits
+    // the other agent's limits; a chat has none of them (its context limit is the code chat's field, kept)
+    if ((code ? RESEARCH_SETTINGS : chat ? [...RESEARCH_SETTINGS, "max_turns", "max_thinking_chars"] : CODE_SETTINGS).includes(key)) continue;
     const value = $(`#set-${key}`).value.trim();
     if (value) settings[key] = key === "model" ? value : +value;
   }
@@ -802,7 +815,7 @@ function newChat() {
   $("#side-panel").hidden = true;
   $("#meter").hidden = true;
   setSettings(recalledSettings());
-  setMode(recall("mode") === "code" ? "code" : "research");
+  setMode(recall("mode"));
   setRunning(false);
   renderRunsSidebar();
   $("#question").focus();
@@ -831,10 +844,11 @@ function attach(runId) {
   $("#meter").hidden = true;
   if (run) {
     setSettings(run.settings || {});
-    setMode(run.mode === "code" ? "code" : "research");
+    setMode(run.mode);
     userBubble(run.question, run.images);
   }
   const ctx = newContext(run ? run.question : "");
+  ctx.mode = run ? knownMode(run.mode) : state.mode;
   setRunning(true);
   const source = new EventSource(`/api/runs/${runId}/events`);
   state.source = source;
@@ -894,7 +908,8 @@ function closeLive(ctx, key) {
   const parts = [];
   const thinking = box.querySelector(".live-thinking").textContent;
   if (thinking.trim()) parts.push(el("details", { class: "call thinking" }, el("summary", {}, `${t("Thinking")} (${thinking.length} ${t("chars")})`), el("pre", {}, thinking)));
-  if (box.text.trim()) parts.push(el("details", { class: "call" }, el("summary", {}, `${t("Model output")} (${box.text.length} ${t("chars")})`), box.querySelector(".live-text")));
+  // in a chat the answer follows as the message itself
+  if (box.text.trim() && ctx.mode !== "chat") parts.push(el("details", { class: "call" }, el("summary", {}, `${t("Model output")} (${box.text.length} ${t("chars")})`), box.querySelector(".live-text")));
   box.replaceWith(...parts);
 }
 
@@ -1298,8 +1313,9 @@ function renderEvent(e, ctx) {
       append(el("article", { class: "report" }, el("div", { html: e.html })));
       break;
     case "turn": {
-      $("#compact").hidden = !state.running;
+      $("#compact").hidden = !state.running || ctx.mode === "chat";
       renderMeter(e);
+      if (ctx.mode === "chat" && !e.tool_calls.length && e.finish !== "length") break; // a plain answer: no turn card
       const key = `turn-${e.turn}`;
       const info = [`${Math.round(e.seconds)} s`, e.tokens ? `${e.tokens} ${t("tokens")}` : null, e.finish === "length" ? t("cut off") : null].filter(Boolean).join(" · ");
       if (e.tool_calls.length || e.finish === "length") {
@@ -1521,7 +1537,7 @@ function commands() {
     { label: t("Go to Memory"), action: () => goTo("memory") },
     { label: t("Go to Skills"), action: () => goTo("skills") },
     { label: t("Go to Tools (MCP servers)"), action: () => goTo("tools") },
-    ...state.runList.map((r) => ({ label: chatTitle(r), hint: `${t(r.mode === "code" ? "code" : "research")} · ${t(r.status)}`, action: () => attach(r.id) })),
+    ...state.runList.map((r) => ({ label: chatTitle(r), hint: `${t(knownMode(r.mode))} · ${t(r.status)}`, action: () => attach(r.id) })),
   ].filter(Boolean);
 }
 

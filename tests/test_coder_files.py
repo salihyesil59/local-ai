@@ -123,3 +123,23 @@ def test_existing_tests_are_kept_once(project):
     assert replaced.startswith("Error: not changed") and "test_area, test_zero" in replaced
     assert tools["write_file"]("tests/test_new.py", "def test_mine():\n    pass\n").startswith("Wrote")
     assert tools["edit_file"]("tests/test_new.py", "pass", "assert 1") == "Edited tests/test_new.py."  # its own
+
+
+def test_replace_in_files_renames_in_one_call(project):
+    (project / "pkg").mkdir()
+    (project / "pkg" / "calc.py").write_bytes(b"def total(xs):\r\n    subtotal = 0\r\n    return total_of(xs)\r\n")
+    (project / "pkg" / "use.py").write_text("from pkg.calc import total\nprint(total([1]))\n", encoding="utf-8")
+    (project / "notes.md").write_text("total is used in calc\n", encoding="utf-8")
+    (project / "logo.png").write_bytes(b"\x89PNG\x00\xff total")
+
+    out = fl.replace_in_files(project, "total", "grand_total", glob="*.py", word=True)
+    assert out.splitlines() == ["Replaced 3 occurrences in 2 files:", "  pkg/calc.py: 1", "  pkg/use.py: 2"]
+    calc = (project / "pkg" / "calc.py").read_bytes()
+    assert calc == b"def grand_total(xs):\r\n    subtotal = 0\r\n    return total_of(xs)\r\n"  # words only, CRLF kept
+    assert (project / "notes.md").read_text(encoding="utf-8") == "total is used in calc\n"  # not a *.py file
+
+    assert "Replaced 1" in fl.replace_in_files(project, r"def (\w+)\(", r"def \1_v2(", path="pkg/calc.py", regex=True)
+    assert b"def grand_total_v2(xs)" in (project / "pkg" / "calc.py").read_bytes()
+    assert fl.replace_in_files(project, "nothing_like_it", "x").startswith("No match")
+    assert fl.replace_in_files(project, "(", "x", regex=True).startswith("Error")
+    assert fl.replace_in_files(project, "a", "b", path="../outside").startswith("Error")

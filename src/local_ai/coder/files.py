@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from fnmatch import fnmatch
 from pathlib import Path
 
 from local_ai.coder.state import STATE_DIR
@@ -75,6 +76,41 @@ def edit_file(root: Path, path: str, old: str, new: str) -> str:
         return f"Error: old text appears {count} times in {path}. Include more surrounding lines to make it unique."
     target.write_bytes(raw.replace(old, new).encode("utf-8"))
     return f"Edited {path}."
+
+
+def replace_in_files(
+    root: Path, old: str, new: str, path: str = ".", glob: str = "", word: bool = False, regex: bool = False
+) -> str:
+    """Replace every occurrence of `old` in the text files under path (a rename in one call). word: whole words
+    only; regex: old is a regular expression and new may use \\1; glob: only files whose name matches."""
+    if not old:
+        return "Error: old must not be empty."
+    try:
+        base = resolve(root, path)
+        found = old if regex else re.escape(old)
+        pattern = re.compile(rf"\b(?:{found})\b" if word else found)
+    except (ValueError, re.error) as e:
+        return f"Error: {e}"
+    files = [base] if base.is_file() else [root / name for name in walk(root, base) if not name.endswith("/")]
+    changed = []
+    for target in files:
+        rel = target.relative_to(root).as_posix()
+        if glob and not (fnmatch(target.name, glob) or fnmatch(rel, glob)):
+            continue
+        try:
+            text = target.read_bytes().decode("utf-8")  # bytes: the line endings stay as they are
+            result, count = pattern.subn(new if regex else (lambda _: new), text)
+        except UnicodeDecodeError:
+            continue  # not a text file
+        except (OSError, re.error) as e:
+            return f"Error in {rel}: {e}" + (f" ({len(changed)} files were changed before it)" if changed else "")
+        if count:
+            target.write_bytes(result.encode("utf-8"))
+            changed.append(f"  {rel}: {count}")
+    if not changed:
+        return f"No match for {old!r} under {path}; nothing was changed."
+    total = sum(int(line.rsplit(": ", 1)[1]) for line in changed)
+    return f"Replaced {total} occurrences in {len(changed)} files:\n" + "\n".join(changed[:100])
 
 
 def walk(root: Path, base: Path | None = None) -> list[str]:

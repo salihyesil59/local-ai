@@ -87,7 +87,7 @@ async def test_task_ends_only_when_verify_says_all_done(project):
     first = client.requests[0]
     assert first["max_tokens"] == 8192 and first["extra_body"] == {"top_k": 20} and first["stream"] is True
     assert {t["function"]["name"] for t in first["tools"]} >= {"plan", "verify", "write_file"}
-    assert "tools" not in client.requests[-1]  # the summary turn has no tools
+    assert client.requests[-1]["tools"] == first["tools"]  # the same prompt: the server reuses its cache
     assert [e["tokens"] for k, e in events if k == "turn"][0] == 42
     turns = [e for k, e in events if k == "turn"]
     assert turns[0]["max_turns"] == 80 and turns[0]["context_limit"] == 300_000  # for the UI's meter
@@ -689,3 +689,42 @@ async def test_a_long_stretch_of_cut_offs_is_sampled_more_freely(project):
     agent, client, _ = make_agent(project, script, max_nudges=3)
     await agent.run("task")
     assert [r["temperature"] for r in client.requests[:5]] == [0.6, 0.6, 0.6, 0.9, 0.6]
+
+
+@pytest.mark.anyio
+async def test_a_quick_task_has_no_plan_and_ends_with_the_tests(project):
+    (project / "calc.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
+    (project / "test_calc.py").write_text("from calc import total\n\n\ndef test_total():\n    assert total([1, 2]) == 3\n")
+    agent, client, events = make_agent(
+        project,
+        [
+            say(calls=[call("search", pattern="total")]),
+            say(calls=[call("replace_in_files", old="total", new="grand_total", word=True)]),
+            say("total -> grand_total, 2 dosyada."),
+        ],
+        speed="quick",
+    )
+    outcome = await agent.run("Rename total to grand_total everywhere")
+    assert outcome.finished and outcome.summary == "total -> grand_total, 2 dosyada.\n\nTestler geçti."
+    assert st.load(project) is None and "grand_total" in (project / "test_calc.py").read_text()
+    first = client.requests[0]
+    assert "quick mode" in first["messages"][0]["content"] and first["messages"][1]["content"].startswith("Quick task")
+    names = {t["function"]["name"] for t in first["tools"]}
+    assert "replace_in_files" in names and not names & {"plan", "verify", "status", "load_skill"}
+    assert any(k == "log" and "Tests after the change" in e["text"] for k, e in events)
+
+
+@pytest.mark.anyio
+async def test_a_fast_task_ends_with_its_last_step(project):
+    agent, client, _ = make_agent(
+        project,
+        [
+            say(calls=[plan_call()]),
+            say(calls=[call("write_file", path="test_it.py", content=PASSING), call("verify", note="test_it.py")]),
+            say("Bitti."),
+        ],
+        speed="fast",
+    )
+    outcome = await agent.run("Add things")
+    assert outcome.finished and outcome.summary == "Bitti." and len(client.requests) == 3  # no review turn
+    assert st.finished(st.load(project))

@@ -43,7 +43,7 @@ from local_ai.research.config import AgentSettings
 from local_ai.servers.common import slugify, workspace_root
 from local_ai.servers.export import FORMATS, ExportError, export, render_body, render_markdown
 
-from .runs import ACTIVE, IMAGES_ONLY, Run, clean_settings, run_code, run_research
+from .runs import ACTIVE, IMAGES_ONLY, Run, clean_settings, run_chat, run_code, run_research
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
@@ -261,6 +261,8 @@ def create_app(
                     run_settings.servers = list(options["servers"])
                 if options.get("mode") == "code":
                     await run_code(run, question, options, run_settings, state["client"], state["bridge"], store)
+                elif options.get("mode") == "chat":
+                    await run_chat(run, question, options, run_settings, state["client"], state["bridge"], store)
                 else:
                     await run_research(
                         run,
@@ -408,7 +410,7 @@ def create_app(
 
     async def create_run(request: Request) -> Response:
         body = await request.json()
-        if body.get("mode") != "code" and state["bridge"] is None:
+        if body.get("mode") not in ("code", "chat") and state["bridge"] is None:
             return JSONResponse({"error": state["error"] or "MCP servers not ready"}, status_code=503)
         question = str(body.get("question", "")).strip()
         project = str(body.get("project", "")).strip()
@@ -423,7 +425,7 @@ def create_app(
             question = IMAGES_ONLY
 
         def start(run: Run) -> Response:
-            run.folder, run.mode = chat_folder, "code" if body.get("mode") == "code" else "research"
+            run.folder, run.mode = chat_folder, body.get("mode") if body.get("mode") in ("code", "chat") else "research"
             run.settings = clean_settings(body.get("settings"))
             run.images = [store.save_image(run.id, data, ext) for data, ext in pictures]
             store.add_run(
@@ -448,6 +450,10 @@ def create_app(
             if not folder or not Path(folder).expanduser().is_absolute():
                 return JSONResponse({"error": "give the project folder as an absolute path"}, status_code=400)
             return start(Run(id=uuid.uuid4().hex[:12], question=question or "(continue the plan)", project=folder))
+        if body.get("mode") == "chat":
+            if not question:
+                return JSONResponse({"error": "write a message"}, status_code=400)
+            return start(Run(id=uuid.uuid4().hex[:12], question=question, project=""))
         if not question and not (body.get("resume") and project):
             return JSONResponse({"error": "question is required"}, status_code=400)
         return start(Run(id=uuid.uuid4().hex[:12], question=question or f"(resume {project})", project=project))
@@ -492,7 +498,9 @@ def create_app(
             return JSONResponse({"error": "wait until the run has ended, or cancel it"}, status_code=409)
         load_events(run)
         project = ""
-        if run.mode != "code":
+        if run.mode == "chat" and not message:
+            return JSONResponse({"error": "write a message"}, status_code=400)
+        if run.mode == "research":
             if state["bridge"] is None:
                 return JSONResponse({"error": state["error"] or "MCP servers not ready"}, status_code=503)
             if not message:  # go on with the research that was stopped, from its saved plan and findings
@@ -504,7 +512,7 @@ def create_app(
         options = {**body, "images": None, "image_paths": paths, "mode": run.mode, "folder": run.project}
         options["resume"] = bool(project)
         task = run.follow_up(message) if message else ""  # an empty message continues the plan of a code chat
-        if run.mode == "code":  # the agent still has the conversation: the message alone is enough
+        if run.mode in ("code", "chat"):  # the agent still has the conversation: the message alone is enough
             options["with_earlier_answer"], task = task, message
         if "settings" in body:
             run.settings = clean_settings(body["settings"])

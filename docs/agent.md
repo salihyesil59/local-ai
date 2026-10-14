@@ -89,6 +89,12 @@ PDF). The sidebar lists:
 - long-term memory, with search and forget;
 - skills.
 
+The message box has three modes: **Chat**, **Research** and **Code**. Chat is a plain conversation with the model,
+like the chat of LM Studio: no plan, no agent loop and no tools of its own, follow-up messages in the same chat, and
+images. It offers no MCP server until you switch one on in the Tools menu of the message box (remembered for chats);
+then the model may call its tools. The settings of a chat are the model, temperature and max tokens; a reply thinks
+as long as max tokens allows, and a conversation longer than the context limit drops its oldest messages.
+
 Images go with a message through the image button of the message box, or pasted (Ctrl+V) or dropped onto it: up
 to six PNG, JPEG, WebP or GIF images, large ones scaled down to 1600 px. A code chat gives them to the model with the
 message (a screenshot of an error, a sketch of a layout); a research chat first has the model write down what they
@@ -138,6 +144,19 @@ thinking live. Leave the task empty to continue the plan in the folder. Cancel s
 conversation before the next reply (the model writes notes, the plan stays; it also happens by itself when the
 context gets long). The agent loads built-in coding skills (bug fix, new feature, refactor, from a paper, edge
 cases, CLI) and your own from `~/.local-coder/skills`.
+
+Two boxes make a code run shorter:
+
+- **Quick**, for a small mechanical change (rename a variable everywhere, fix one line): no plan, no verify per
+  step and no review. The model changes the files, answers with what it changed, and the program runs the
+  project's tests once at the end (the answer says whether they pass). Thinking is cut at 3000 characters, the
+  run at 25 turns.
+- **Fast**, for a real but small task: plan and verify as usual, but no review at the end and no project map with
+  the task; thinking is cut at 5000 characters.
+
+What the chat set in its settings (thinking limit, max turns) wins over these. In every mode
+`replace_in_files(old, new, path, glob, word, regex)` changes a text in all files in one call, so a rename does not
+need a read and an edit per file.
 
 Code mode uses the model, `temperature` and `top_p` of the UI; it needs none of the MCP servers, and can use
 the ones selected with the MCP chips. One run at a time, research or code, because one model is loaded.

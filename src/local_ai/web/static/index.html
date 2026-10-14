@@ -84,11 +84,12 @@
               <button id="attach" class="pill icon-only" type="button" title="Attach images (or paste / drop them)" aria-label="Attach images"></button>
               <button id="tools-toggle" class="pill" type="button" title="The MCP servers this message may use" aria-expanded="false"></button>
               <div class="modes new-only" role="tablist" aria-label="Mode">
+                <button type="button" class="mode" data-mode="chat" role="tab">Chat</button>
                 <button type="button" class="mode active" data-mode="research" role="tab">Research</button>
                 <button type="button" class="mode" data-mode="code" role="tab">Code</button>
               </div>
-              <label class="opt research-only" title="Skip review, gap check and learning"><input type="checkbox" id="fast"> <span>Fast</span></label>
-              <label class="opt research-only" title="Quick answer: one tool loop, no plan or report"><input type="checkbox" id="quick"> <span>Quick</span></label>
+              <label id="fast-opt" class="opt agent-only"><input type="checkbox" id="fast"> <span>Fast</span></label>
+              <label id="quick-opt" class="opt agent-only"><input type="checkbox" id="quick"> <span>Quick</span></label>
               <span class="spacer"></span>
               <span id="meter" class="meter" hidden></span>
               <button id="compact" class="pill" type="button" title="Shorten the conversation before the next reply: the model writes notes, the plan stays" hidden>Compact</button>

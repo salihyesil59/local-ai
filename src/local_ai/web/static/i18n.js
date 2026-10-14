@@ -11,7 +11,12 @@ const TR = {
   "Attach images (or paste / drop them)": "Görsel ekle (ya da yapıştır / sürükle bırak)", "Attach images": "Görsel ekle",
   "Attached image": "Eklenen görsel", "Only PNG, JPEG, WebP or GIF images can be attached.": "Yalnızca PNG, JPEG, WebP ya da GIF görseller eklenebilir.",
   "At most 6 images per message.": "Bir mesajda en çok 6 görsel olabilir.",
-  "always on": "hep açık",
+  "always on": "hep açık", "Chat": "Sohbet",
+  "Write a message — any language. Images can be pasted or dropped here.": "Bir mesaj yaz — herhangi bir dilde. Görseller buraya yapıştırılabilir ya da sürüklenebilir.",
+  "Plan and verify, but no review at the end and no project map; shorter thinking":
+    "Plan ve doğrulama var; sondaki inceleme ve proje haritası yok, düşünme daha kısa",
+  "A small mechanical change (a rename): no plan, the tests run once at the end":
+    "Küçük, mekanik bir değişiklik (yeniden adlandırma gibi): plan yok, testler sonda bir kez çalışır",
   "The research agent keeps its plans, findings, memory and reports in this server, so it cannot be switched off or removed.":
     "Araştırma ajanı planlarını, bulgularını, belleğini ve raporlarını bu sunucuda tutar; bu yüzden kapatılamaz ve kaldırılamaz.",
   "Tools": "Araçlar", "Servers this message may use": "Bu mesajın kullanabileceği sunucular", "No servers are running.": "Çalışan sunucu yok.",
@@ -81,7 +86,7 @@ const TR = {
   "Delete folder (chats stay)": "Klasörü sil (sohbetler kalır)", "Delete this chat?": "Bu sohbet silinsin mi?", "Chat deleted.": "Sohbet silindi.",
   "Delete the folder \"{name}\"? Its chats move out of it.": "\"{name}\" klasörü silinsin mi? İçindeki sohbetler dışarı taşınır.",
   "Chat title (empty = automatic)": "Sohbet başlığı (boş = otomatik)", "Folder name": "Klasör adı",
-  "code": "kod", "research": "araştırma", "queued": "sırada", "running": "çalışıyor", "done": "bitti", "stopped": "durdu",
+  "code": "kod", "research": "araştırma", "chat": "sohbet", "queued": "sırada", "running": "çalışıyor", "done": "bitti", "stopped": "durdu",
   "failed": "başarısız", "cancelled": "iptal edildi", "interrupted": "yarıda kaldı", "open": "açık",
   "continue the plan": "plana devam et",
   // timeline

@@ -45,12 +45,13 @@ def active_root() -> Path:
     return root
 
 
-def new_state(goal: str, steps: list[str], criteria: list[str], verify_command: str) -> dict:
+def new_state(goal: str, steps: list[str], criteria: list[str], verify_command: str, review: bool = True) -> dict:
     return {
         "goal": goal,
         "steps": [{"text": s, "done": False} for s in steps],
         "criteria": criteria,  # acceptance criteria, checked against the tests in the review
         "review": "",  # "" until the last step passes, then "open", then "done"
+        "review_needed": review,  # False (a fast run): the task is done when the last step passes
         "verify_command": verify_command,
         "attempts": 0,  # failed verifications of the current step
         "repeats": 0,  # consecutive failures with the same signature

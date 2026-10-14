@@ -30,11 +30,16 @@ def _schema(properties: dict, required: list[str]) -> dict:
 STR = {"type": "string"}
 STRS = {"type": "array", "items": {"type": "string"}}
 INT = {"type": "integer"}
+BOOL = {"type": "boolean"}
 
-EDIT_TOOLS = ("write_file", "edit_file")
+EDIT_TOOLS = ("write_file", "edit_file", "replace_in_files")
 
 
-def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
+def coder_tools(
+    root: Path, require_skill: bool = True, review: bool = True, plan_first: bool = True
+) -> dict[str, Tool]:
+    """The tools of the coding agent. review: a plan ends with a review (False: with its last step); plan_first:
+    files are changed only after a plan (False: a quick task, which has none)."""
     seen = {"skill": not require_skill}  # a skill has been read in this run
     originals: dict[Path, str | None] = {}  # file -> its text before this run first changed it (None: it was new)
     warned: set[Path] = set()  # test files whose existing tests the model was told to keep
@@ -75,7 +80,7 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
                 f"Error: the plan was not saved. Before planning, read the skill for this kind of task ({name}) "
                 f"and plan according to it, then call plan again:\n\n{skills[name]['body']}"
             )
-        return wf.make_plan(root, goal, steps, criteria, verify_command)
+        return wf.make_plan(root, goal, steps, criteria, verify_command, review)
 
     def verify(note: str = "", tests: str = "") -> str:
         return wf.run_verify(root, note, VERIFY_TIMEOUT, tests)
@@ -97,7 +102,7 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
         return wf.show_status(root)
 
     def write_file(path: str, content: str) -> str:
-        if st.load(root) is None:
+        if plan_first and st.load(root) is None:
             return NO_PLAN_YET
         before = original(path)
         if before is not None:
@@ -108,12 +113,19 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
         return fl.write_file(root, path, content)
 
     def edit_file(path: str, old: str, new: str) -> str:
-        if st.load(root) is None:
+        if plan_first and st.load(root) is None:
             return NO_PLAN_YET
         original(path)
         kept = {line.strip() for line in new.splitlines()}
         refused = keeps_tests(path, {line.strip() for line in old.splitlines()} - kept)
         return refused or fl.edit_file(root, path, old, new)
+
+    def replace_in_files(
+        old: str, new: str, path: str = ".", glob: str = "", word: bool = False, regex: bool = False
+    ) -> str:
+        if plan_first and st.load(root) is None:
+            return NO_PLAN_YET
+        return fl.replace_in_files(root, old, new, path, glob, word, regex)
 
     def load_skill(name: str) -> str:
         found = sk.load_skills()
@@ -181,6 +193,16 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
             "Replace one exact piece of text in a file. old must appear exactly once: copy it from read_file.",
             _schema({"path": STR, "old": STR, "new": STR}, ["path", "old", "new"]),
             edit_file,
+        ),
+        Tool(
+            "replace_in_files",
+            "Replace a text everywhere in the project in one call (a rename): every file under path, or only those "
+            "matching glob ('*.py'). word: whole words only (use it for a name, so total is not changed inside "
+            "subtotal); regex: old is a regular expression and new may use \\1. Returns the files and counts.",
+            _schema(
+                {"old": STR, "new": STR, "path": STR, "glob": STR, "word": BOOL, "regex": BOOL}, ["old", "new"]
+            ),
+            replace_in_files,
         ),
         Tool(
             "list_files",

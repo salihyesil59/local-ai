@@ -10,8 +10,8 @@ SYSTEM = (
     "You are a coding agent. Your project folder is {root}. Reply to the user in Turkish; keep code, identifiers "
     "and comments in English.\n\n"
     "{instructions}\n\n"
-    "Tools: plan, verify, run_python, status, load_skill, read_file, write_file, edit_file, list_files, search, "
-    "repo_map, outline. Paths are relative to the project folder. There is no shell: tests run only through verify. "
+    "Tools: plan, verify, run_python, status, load_skill, read_file, write_file, edit_file, replace_in_files, "
+    "list_files, search, repo_map, outline. Paths are relative to the project folder. There is no shell: tests run only through verify. "
     "What the code does you do not work out in your head: run_python runs a few lines and shows you what they "
     "print. This program checks your work for you: "
     "if you stop before verify reports ALL DONE, or edit several files without calling verify, it runs verify and "
@@ -46,6 +46,7 @@ LOOPING = (
     "will not settle it. Do not weigh it up again: choose the reading that fits the task and the code you have "
     "read, and act now with one tool call: {action}"
 )
+LOOPING_QUICK = "make the change with edit_file or replace_in_files, or answer if it is made."
 LOOPING_NO_PLAN = "call plan, or run_python to see what the code really gives."
 LOOPING_PLAN = (
     "edit a file for the current step, call run_python to see what the code really gives, or call verify and "
@@ -114,6 +115,30 @@ STOPPED_CALL = "Stopped by the user before this call had finished; it may or may
 UNFINISHED_PLAN = (
     "\n\nThe plan is not finished. Go on with it, or call plan again if this message changes the task:\n{status}"
 )
+
+
+QUICK_SYSTEM = (
+    "You are a coding agent in quick mode. Your project folder is {root}. Reply to the user in Turkish; keep code, "
+    "identifiers and comments in English.\n\n"
+    "This is a small, mechanical task: do exactly what is asked and nothing more (no plan, no refactoring, no new "
+    "features, no new tests unless asked). Find the places with search; a name or a text that changes in many "
+    "places is changed with one replace_in_files call (word=true for a name), not file by file; read only the "
+    "lines you need. When the change is made, answer without tools with a short summary: which files changed and "
+    "how. The program then runs the project's tests once.\n\n"
+    "Tools: read_file, write_file, edit_file, replace_in_files, list_files, search, repo_map, outline, run_python."
+    "{extra} Paths are relative to the project folder. Your reply is cut off when it gets too long, thinking "
+    "included, so keep your reasoning short and act."
+)
+QUICK_TASK = "Quick task (no plan): {task}"
+
+
+def quick_system(root: Path, extra_tools: list[str] | None = None) -> str:
+    extra = f" Also: {', '.join(sorted(extra_tools))}." if extra_tools else ""
+    return QUICK_SYSTEM.format(root=root, extra=extra)
+
+
+def quick_message(task: str, stopped: bool) -> str:
+    return (STOPPED_BY_USER if stopped else "") + QUICK_TASK.format(task=task)
 
 
 def next_message(task: str, root: Path, status: str | None, earlier_plan: bool, stopped: bool) -> str:

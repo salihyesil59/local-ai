@@ -73,7 +73,9 @@ def review_text(state: dict) -> str:
     )
 
 
-def make_plan(root: Path, goal: str, steps: list[str], criteria: list[str], verify_command: str = "") -> str:
+def make_plan(
+    root: Path, goal: str, steps: list[str], criteria: list[str], verify_command: str = "", review: bool = True
+) -> str:
     steps = [s.strip() for s in steps if s.strip()]
     criteria = [c.strip() for c in criteria if c.strip()]
     if not goal.strip() or not steps or not criteria:
@@ -88,7 +90,7 @@ def make_plan(root: Path, goal: str, steps: list[str], criteria: list[str], veri
                 "it into the step that implements what it tests, then call plan again."
             )
     chosen = vf.in_project_env(verify_command.strip(), root)
-    state = st.new_state(goal.strip(), steps, criteria, chosen or vf.detect_command(root) or "")
+    state = st.new_state(goal.strip(), steps, criteria, chosen or vf.detect_command(root) or "", review)
     # A command chosen for the task names the tests of the task: none of their failures is somebody else's.
     before = "" if chosen else failing_before(root, state)
     state["snapshot"] = vf.snapshot(root)  # after the run: tests may write files
@@ -206,6 +208,9 @@ def run_verify(root: Path, note: str = "", timeout: float = 300, tests: str = ""
                     f"{head}\nNext step {index + 2}/{total}: {state['steps'][index + 1]['text']}\n"
                     "Implement it and write its tests at the same time, then call verify."
                 )
+            elif not state.get("review_needed", True):  # a fast run ends with its last step
+                state["review"] = "done"
+                message = f"{head} All {total} steps are implemented.\n{ALL_DONE} Give the user a short summary."
             else:
                 state["review"] = "open"
                 message = f"{head} All {total} steps are implemented.\n{review_text(state)}"

@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from local_ai.chat import ChatAgent
 from local_ai.coder import state as coder_state
 from local_ai.coder.loop import CoderAgent, Settings
 from local_ai.core import images as img
@@ -47,6 +48,11 @@ def clean_settings(raw) -> dict:
             settings[key] = value
     return settings
 EARLIER_CHARS = 3000  # of the last answer shown to the agent with a follow-up message
+# The faster ways of a code run: what changes when the chat has not chosen otherwise in its settings.
+SPEEDS = {
+    "fast": {"max_thinking_chars": 5000},
+    "quick": {"max_thinking_chars": 3000, "max_turns": 25},
+}
 IMAGES_ONLY = "Look at the attached image and help with what it shows."  # a message that is only images
 FOLLOW_UP = "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThe answer was:\n{answer}"
 STOPPED_RUN = (
@@ -61,7 +67,7 @@ class Run:
     question: str
     project: str
     status: str = "queued"  # queued | running | done | stopped | failed | cancelled | interrupted
-    mode: str = "research"  # research | code
+    mode: str = "research"  # research | code | chat
     title: str = ""  # chosen by the user; empty = shortened from the question
     folder: str | None = None  # id of the chat folder it is sorted into
     pinned: bool = False  # kept at the top of the chat list
@@ -166,12 +172,17 @@ async def run_code(
         active = sorted({bridge.tools[name].server for name in extra_tools})
         run.push({"kind": "log", "text": f"Active MCP servers: {', '.join(active)} ({len(extra_tools)} tools)"})
 
+    speed = "quick" if options.get("quick") else "fast" if options.get("fast") else "normal"
+    chosen = {**SPEEDS.get(speed, {}), **run.settings}  # what the chat set in the settings drawer wins
+    if speed != "normal":
+        what = "no plan; the tests run once at the end" if speed == "quick" else "no review, no project map"
+        run.push({"kind": "log", "text": f"{speed.capitalize()} mode: {what}"})
     llm = LLM(
         client, settings.model, max_tokens=settings.max_tokens, temperature=settings.temperature, top_p=settings.top_p
     )
-    if "max_thinking_chars" in run.settings:
-        llm.max_thinking_chars = run.settings["max_thinking_chars"]
-    limits = Settings(**{k: run.settings[k] for k in ("max_turns", "context_chars") if k in run.settings})
+    if "max_thinking_chars" in chosen:
+        llm.max_thinking_chars = chosen["max_thinking_chars"]
+    limits = Settings(speed=speed, **{k: chosen[k] for k in ("max_turns", "context_chars") if k in chosen})
     agent = CoderAgent(
         llm, root, limits, emit=lambda kind, **data: run.push({"kind": kind, **data}), extra_tools=extra_tools
     )
@@ -197,6 +208,41 @@ async def run_code(
     if outcome.summary:
         run.push({"kind": "answer", "text": outcome.summary, "html": render_markdown(outcome.summary)})
     run.status = "done" if outcome.finished else "stopped"
+
+
+async def run_chat(
+    run: Run, message: str, options: dict, settings: AgentSettings, client, bridge: MCPBridge | None, store=None
+) -> None:
+    """Chat mode: one answer of a plain conversation. The conversation of the chat is kept like a code chat's."""
+    selected = set(options.get("servers") or [])
+    tools = bridge.as_tools(selected - {"coder", settings.notebook_server}) if bridge and selected else {}
+    if tools:
+        active = sorted({bridge.tools[name].server for name in tools})
+        run.push({"kind": "log", "text": f"Tools of: {', '.join(active)} ({len(tools)} tools)"})
+    llm = LLM(
+        client,
+        settings.model,
+        max_tokens=settings.max_tokens,
+        temperature=settings.temperature,
+        top_p=settings.top_p,
+        max_thinking_chars=0,  # a chat thinks as long as its token limit lets it
+    )
+    context = run.settings.get("context_chars", 300_000)
+    agent = ChatAgent(llm, emit=lambda kind, **data: run.push({"kind": kind, **data}), tools=tools, context_chars=context)
+    if isinstance(run.agent, ChatAgent):
+        agent.messages = run.agent.messages
+    elif store:
+        agent.messages = store.load_messages(run.id).get("messages", [])
+    if not agent.messages:  # nothing to go on with: the earlier answer of the chat comes with the message
+        message = options.get("with_earlier_answer") or message
+    run.agent = agent
+    try:
+        answer = await agent.reply(message, options.get("image_paths"))
+    finally:  # also when the user stops it: the next message goes on with the conversation
+        if store:
+            store.save_messages(run.id, {"messages": agent.messages})
+    run.push({"kind": "answer", "text": answer, "html": render_markdown(answer)})
+    run.status = "done"
 
 
 async def run_research(

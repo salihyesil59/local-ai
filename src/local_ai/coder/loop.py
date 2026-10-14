@@ -30,6 +30,7 @@ from local_ai.coder import navigate as nav
 from local_ai.coder import prompts
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
+from local_ai.coder import verify as vf
 from local_ai.coder import workflow as wf
 from local_ai.coder.tools import EDIT_TOOLS, VERIFY_TIMEOUT, coder_tools
 from local_ai.core.images import text_of, with_images
@@ -61,6 +62,9 @@ class Settings:
     keep_messages: int = 8  # newest messages kept by a compaction
     require_skill: bool = True  # the first plan is refused once, with the fitting skill attached
     notes_tokens: int = 4096  # the model writes notes on the dropped part (thinking included); 0 = no notes
+    # normal: plan, verify every step, review. fast: no review and no project map. quick: a small mechanical task
+    # (a rename): no plan, the model changes the files and answers, then the program runs the tests once.
+    speed: str = "normal"
 
 
 def describe_error(error: Exception) -> str:
@@ -89,7 +93,7 @@ class CoderAgent:
         self.root = root
         self.settings = settings or Settings()
         self.emit = emit or (lambda kind, **data: None)
-        self.tools: dict[str, Tool] = coder_tools(root, self.settings.require_skill)
+        self.tools: dict[str, Tool] = self.own_tools(self.settings.require_skill)
         if extra_tools:
             self.tools.update(extra_tools)
         self.compact_requested = False
@@ -102,6 +106,28 @@ class CoderAgent:
         self.edits_made = 0
 
     # -- helpers ---------------------------------------------------------------
+
+    @property
+    def quick(self) -> bool:
+        return self.settings.speed == "quick"
+
+    def own_tools(self, require_skill: bool) -> dict[str, Tool]:
+        """The coder's own tools for this run's speed; a quick task has no plan, so no tools of the plan."""
+        tools = coder_tools(self.root, require_skill, review=self.settings.speed == "normal", plan_first=not self.quick)
+        if self.quick:
+            for name in ("plan", "verify", "status", "load_skill"):
+                tools.pop(name)
+        return tools
+
+    async def final_tests(self) -> str:
+        """After a quick task: the project's tests, run once; "" when the project has none that can be found."""
+        command = vf.detect_command(self.root)
+        if not command:
+            return ""
+        result = await asyncio.to_thread(vf.run, vf.in_project_env(command, self.root), self.root, VERIFY_TIMEOUT)
+        line = "PASSED" if result.passed else f"FAILED: {vf.first_error(result.output)}"
+        self.emit("log", text=f"Tests after the change ({command}): {line}", level="info" if result.passed else "warning")
+        return line
 
     async def call_tool(self, call: dict) -> str:
         name = call["function"]["name"]
@@ -271,7 +297,7 @@ class CoderAgent:
         return outcome
 
     async def work(self, task: str, stopped: bool, images: list[Path] | None = None) -> Outcome:
-        state = st.load(self.root)
+        state = None if self.quick else st.load(self.root)  # a quick task leaves a plan on disk alone
         status = st.render(self.root, state) if state and not st.finished(state) else None
         # A finished plan is the earlier task's: this task is done only after a plan of its own.
         self.earlier_plan = state is not None and st.finished(state)
@@ -279,9 +305,18 @@ class CoderAgent:
             st.archive(self.root)
         if self.messages:
             self.repair(self.messages)
-            self.tools.update(coder_tools(self.root, require_skill=False))  # it has planned in this chat before
-            text = prompts.next_message(task, self.root, status, self.earlier_plan, stopped)
+            self.tools.update(self.own_tools(require_skill=False))  # it has planned in this chat before
+            if self.quick:
+                text = prompts.quick_message(task, stopped)
+            else:
+                text = prompts.next_message(task, self.root, status, self.earlier_plan, stopped)
             self.messages.append({"role": "user", "content": with_images(text, images)})
+        elif self.quick:
+            extra = [name for name in self.tools if name not in coder_tools(self.root, False)]
+            self.messages = [
+                {"role": "system", "content": prompts.quick_system(self.root, extra)},
+                {"role": "user", "content": with_images(prompts.quick_message(task, stopped), images)},
+            ]
         else:
             self.messages = await self.opening(task, status, images)
         messages = self.messages
@@ -294,13 +329,15 @@ class CoderAgent:
             if self.compact_requested or size(messages) > self.settings.context_chars:
                 manual, self.compact_requested = self.compact_requested, False
                 messages = self.messages = await self.compact(messages, manual)
-            while self.steering and not wrap_up:  # in the wrap-up the model has no tools to act on it
+            while self.steering and not wrap_up:  # in the wrap-up the model may not act on it
                 message, shown = self.steering.pop(0)
                 messages.append({"role": "user", "content": with_images(prompts.STEER.format(message=message), shown)})
                 nudges = 0
             context = size(messages)
             try:
-                reply = await self.complete(messages, None if wrap_up else specs, unstick)
+                # The summary gets the tools too, though it must not use them: they are part of the prompt the server
+                # has cached, and a request without them is a new prompt that is read again from the start.
+                reply = await self.complete(messages, specs, unstick)
             except Exception as e:  # the server (LM Studio) failed; the plan and the files stay on disk
                 return Outcome(False, f"the model server failed: {describe_error(e)}")
             self.emit_turn(turn, reply, context)
@@ -309,7 +346,8 @@ class CoderAgent:
             if not reply.tool_calls:  # calls written as text are run (or dropped), not shown
                 text = strip_tool_calls(text)
 
-            if wrap_up:
+            if wrap_up:  # a tool call in the summary is not run
+                text = strip_tool_calls(text)
                 messages.append({"role": "assistant", "content": text})  # the conversation may go on after it
                 return Outcome(True, "ALL DONE", text)
 
@@ -321,7 +359,10 @@ class CoderAgent:
                     return Outcome(False, "the model keeps running out of tokens without acting")
                 unstick = reply.looping or nudges >= UNSTICK_AFTER  # a long stretch of cut-offs is a loop too
                 if reply.looping:  # its thinking is not given back: reading it again keeps the loop going
-                    action = prompts.LOOPING_PLAN if st.load(self.root) else prompts.LOOPING_NO_PLAN
+                    if self.quick:
+                        action = prompts.LOOPING_QUICK
+                    else:
+                        action = prompts.LOOPING_PLAN if st.load(self.root) else prompts.LOOPING_NO_PLAN
                     nudge = prompts.LOOPING.format(action=action)
                 else:
                     nudge = prompts.CUT_OFF_CALL if calls else prompts.CUT_OFF
@@ -350,12 +391,17 @@ class CoderAgent:
                     limit = self.settings.max_read_chars if reading else self.settings.max_tool_chars
                     content = trim(output, limit)
                     messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})
-                if edits >= self.settings.edits_before_verify and st.load(self.root):
+                if edits >= self.settings.edits_before_verify and not self.quick and st.load(self.root):
                     result = await self.verify()
                     messages.append({"role": "user", "content": prompts.AUTO_VERIFY.format(edits=edits, result=result)})
                     edits = 0
             else:
                 messages.append({"role": "assistant", "content": text})
+                if self.quick:  # its answer ends a quick task; the tests say whether it broke something
+                    tests = await self.final_tests()
+                    if tests.startswith("FAILED"):
+                        return Outcome(False, "the tests fail after the change", f"{text}\n\nTestler: {tests}")
+                    return Outcome(True, "done", f"{text}\n\nTestler geçti." if tests else text)
                 state = st.load(self.root)
                 if state is not None and st.finished(state) and not self.earlier_plan:
                     return Outcome(True, "ALL DONE", text)
@@ -370,7 +416,7 @@ class CoderAgent:
                     messages.append({"role": "user", "content": prompts.STOPPED.format(result=result)})
                     edits = 0
 
-            state = st.load(self.root)
+            state = None if self.quick else st.load(self.root)
             if state is not None:
                 if state["repeats"] >= wf.REPEAT_STOP:
                     return Outcome(False, f"the same failure happened {state['repeats']} times in a row")
@@ -387,10 +433,11 @@ class CoderAgent:
         skills = sk.load_skills()
         given = sk.match(skills, task) if self.settings.require_skill and status is None else None
         if given:  # the skill comes with the task, so the first plan needs no gate
-            self.tools.update(coder_tools(self.root, require_skill=False))
+            self.tools.update(self.own_tools(require_skill=False))
             self.emit("log", text=f"Skill given with the task: {given}")
         overview = ""
-        project_map = await asyncio.to_thread(nav.task_map, self.root, task)
+        # a fast run goes without the map: it looks places up with search
+        project_map = await asyncio.to_thread(nav.task_map, self.root, task) if self.settings.speed == "normal" else ""
         if project_map:  # a large project: the model must look places up, it cannot read everything
             how = skills.get("existing-code", {}).get("body", "")
             overview = prompts.LARGE_PROJECT.format(skill=how, map=project_map)

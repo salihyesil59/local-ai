@@ -38,7 +38,7 @@ class ScriptedClient:
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     async def create(self, **kwargs):
-        self.requests.append(kwargs)
+        self.requests.append({**kwargs, "messages": list(kwargs["messages"])})  # the conversation keeps growing
         text, calls = self.replies.pop(0)
 
         async def stream():
