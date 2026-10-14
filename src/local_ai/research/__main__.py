@@ -5,6 +5,7 @@ local-ai --quick "your question"       fast answer: one tool loop, no report
 local-ai ui [--port 8765]               local web interface
 local-ai export <project> [--format html|md|bib|tex|docx|pdf]
 local-ai data ...                       download/update ZIM and arXiv data (online)
+local-ai bench setup|run|show           measure the assistant on a fixed set of tasks
 """
 
 from __future__ import annotations
@@ -143,6 +144,10 @@ def cli() -> None:
             from .data import main as data_main
 
             sys.exit(data_main(argv[1:]))
+        if argv and argv[0] == "bench":
+            from local_ai.bench.cli import main as bench_main
+
+            sys.exit(bench_main(argv[1:]))
         sys.exit(asyncio.run(main(argv)))
     except KeyboardInterrupt:
         sys.exit(130)

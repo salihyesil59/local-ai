@@ -40,7 +40,7 @@ version = { attr = "local_ai.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-local_ai = ["skills/*.md", "coder/skills/*.md", "web/static/*", "web/static/vendor/katex/*", "web/static/vendor/katex/fonts/*"]
+local_ai = ["skills/*.md", "bench/tasks.json", "coder/skills/*.md", "web/static/*", "web/static/vendor/katex/*", "web/static/vendor/katex/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

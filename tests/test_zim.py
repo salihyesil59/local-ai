@@ -54,3 +54,13 @@ def test_wikipedia_offline_and_sections(archives):
 def test_docs_filters_by_library(archives):
     assert "299792458" in zim.docs("speed of light", library="test")
     assert zim.docs("speed of light", library="numpy").startswith("No offline documentation for 'numpy'")
+
+
+def test_a_broken_or_unfinished_archive_is_skipped(tmp_path, monkeypatch):
+    make_zim(tmp_path / "wikipedia_en_test_2026-01.zim")
+    (tmp_path / "wikipedia_en_broken_2026-01.zim").write_bytes(b"not a zim")
+    make_zim(tmp_path / "wikipedia_en_partial_2026-01.zim")
+    (tmp_path / "wikipedia_en_partial_2026-01.zim.aria2").write_bytes(b"")
+    monkeypatch.setenv("LOCAL_AI_ZIM_DIR", str(tmp_path))
+    monkeypatch.setattr(zim, "_archives", None)
+    assert [name for name, _, _ in zim.archives()] == ["wikipedia_en_test_2026-01"]

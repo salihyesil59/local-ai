@@ -1,0 +1,46 @@
+{
+ "code_prompt": "Bu depo SymPy. Aşağıdaki GitHub issue'sunu çöz: hatayı kaynağında düzelt ve hatayı yeniden üreten bir test ekle.\n\nDepo çok büyük; dosyaları baştan sona okuma, önce search ile ilgili yeri bul, outline ile dosyanın yapısına bak, sonra yalnızca gereken satırları oku.\n\nplan çağrısında verify_command olarak değiştirdiğin alt paketin testlerini ver, örneğin: python -m pytest sympy/<paket> -q\n\n--- ISSUE ---\n{issue}",
+ "code": [
+  {"id": "sympy__sympy-24102", "note": "2 lines, finding the place is the work"},
+  {"id": "sympy__sympy-21614", "note": "4 lines", "python": "3.11"},
+  {"id": "sympy__sympy-21847", "note": "4 lines", "python": "3.11"},
+  {"id": "sympy__sympy-22714", "note": "2 lines"},
+  {"id": "sympy__sympy-23262", "note": "4 lines"},
+  {"id": "sympy__sympy-24213", "note": "2 lines"},
+  {"id": "sympy__sympy-24066", "note": "7 lines"},
+  {"id": "sympy__sympy-24152", "note": "9 lines"},
+  {"id": "sympy__sympy-23117", "note": "15 lines"},
+  {"id": "sympy__sympy-22840", "note": "6 lines, 95 tests must keep passing"},
+  {"id": "sympy__sympy-23191", "note": "24 lines, the hardest"}
+ ],
+ "code_defaults": {
+  "url": "https://github.com/sympy/sympy.git",
+  "packages": ["pytest<8", "pytest-timeout", "mpmath"],
+  "python": "3.13"
+ },
+ "answer_rule": "\n\nEn son satıra yalnızca şunu yaz: CEVAP: <kısa cevap>",
+ "chat": [
+  {"id": "arithmetic", "question": "17 × 23 + 144 / 12 kaç eder?", "expect": "^403(\\.0+)?$"},
+  {"id": "bat-and-ball", "question": "Bir sopa ile bir top toplam 1,10 TL. Sopa toptan 1 TL daha pahalı. Top kaç kuruş?", "expect": "^(5|0[,.]05)\\b"},
+  {"id": "letters", "question": "How many times does the letter r appear in the word strawberry?", "expect": "^(3|three|üç)\\b"},
+  {"id": "python-output", "question": "Bu kod ne yazdırır?\n\n```python\nxs = [3, 1, 4, 1, 5]\nprint(sorted(set(xs), reverse=True)[1:3])\n```", "expect": "^`?\\[4, 3\\]`?$"},
+  {"id": "integral", "question": "∫₀^π sin²(x) dx kaçtır?", "expect": "(π|\\\\pi|pi)\\s*/\\s*2|\\\\frac\\{\\\\pi\\}\\{2\\}|^1[.,]57"},
+  {"id": "ordering", "question": "Ali Ayşe'den uzun, Ayşe Mehmet'ten uzun, Zeynep Ali'den uzun. En kısa kim?", "expect": "^Mehmet\\b"},
+  {"id": "weekday", "question": "Bugün çarşamba ise 100 gün sonra haftanın hangi günü olur?", "expect": "^cuma\\b|^friday\\b"},
+  {"id": "dice", "question": "İki adil zar atılıyor. Toplamın 7 olma olasılığı nedir? Kesir olarak yaz.", "expect": "^1\\s*/\\s*6$|\\\\frac\\{1\\}\\{6\\}"},
+  {"id": "light-time", "question": "Güneş ile Dünya arası 1,496 × 10^11 m, ışık hızı 3 × 10^8 m/s. Işık bu yolu kaç dakikada alır? En yakın tam sayıya yuvarla.", "expect": "^8\\b"},
+  {"id": "complexity", "question": "Sıralı bir dizide ikili aramanın (binary search) en kötü durum zaman karmaşıklığı nedir? Büyük-O ile yaz.", "expect": "O\\(\\s*\\\\?log"}
+ ],
+ "research": [
+  {"id": "hydrogen-ionization", "question": "Hidrojen atomunun temel durumdan iyonlaşma enerjisi kaç eV'dir?", "expect": "13[.,]6"},
+  {"id": "nitrogen-boiling", "question": "Sıvı azotun 1 atm'deki kaynama noktası kaç kelvindir?", "expect": "^77\\b"},
+  {"id": "special-relativity", "question": "Einstein özel görelilik makalesini hangi yıl yayımladı?", "expect": "^1905$"},
+  {"id": "chandrasekhar", "question": "Chandrasekhar limiti kaç Güneş kütlesidir?", "expect": "^1[.,]4"},
+  {"id": "electron-mass", "question": "Elektronun durgun kütle enerjisi kaç MeV'dir?", "expect": "^0[.,]511"},
+  {"id": "carbon-14", "question": "Karbon-14'ün yarı ömrü yaklaşık kaç yıldır?", "expect": "^5[.,]?7[0-9]{2}\\b"},
+  {"id": "speed-of-sound", "question": "20 °C'deki kuru havada ses hızı yaklaşık kaç m/s'dir?", "expect": "^34[0-4]\\b"},
+  {"id": "fine-structure", "question": "İnce yapı sabitinin tersi (1/α) yaklaşık kaçtır?", "expect": "^137\\b"},
+  {"id": "planck", "question": "Planck sabitinin değeri J·s cinsinden nedir?", "expect": "6[.,]62"},
+  {"id": "sun-surface", "question": "Güneş'in yüzey (fotosfer) sıcaklığı yaklaşık kaç kelvindir?", "expect": "^5[.,]?[5-8][0-9]{2}\\b"}
+ ]
+}

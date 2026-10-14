@@ -133,7 +133,14 @@ def archives():
 
         _archives = []
         for path in zim_files():
-            archive = Archive(path)
+            if path.with_name(path.name + ".aria2").exists():  # still being downloaded
+                log(f"ZIM skipped: {path.name} is not fully downloaded")
+                continue
+            try:
+                archive = Archive(path)
+            except RuntimeError as error:  # one broken file must not take every other archive down with it
+                log(f"ZIM skipped: {path.name}: {error}")
+                continue
             language = bytes(archive.get_metadata("Language")).decode() if "Language" in archive.metadata_keys else ""
             _archives.append((path.stem, language.split(","), archive))
             log(f"ZIM loaded: {path.name} ({language}, {archive.article_count} articles)")

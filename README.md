@@ -229,6 +229,22 @@ sandbox. LM Studio asks before every tool call: always-allow the read-only tools
 
 On Linux use `.venv/bin/` instead of `.venv\Scripts\`.
 
+To measure a change (a prompt, a tool, a model, a load setting) instead of judging it by one run:
+
+```powershell
+local-ai bench setup                                  # once, online: prepares 11 SWE-bench Lite tasks of SymPy
+local-ai bench run --label "baseline"                 # coding, chat and research tasks; needs LM Studio
+local-ai bench run --suites chat,research --label x   # the fast part only (minutes instead of hours)
+local-ai bench run --label "baseline" --count 2       # in parts: the same label goes on where it stopped
+local-ai bench show                                   # the saved runs side by side
+local-ai bench show --label "baseline"                # one run, every task
+```
+
+A run with a label can be done in parts: tasks that already have a result are skipped, the run keeps the model and
+settings it started with, and a part stopped with Ctrl+C loses only the task it was working on.
+Coding tasks are scored with the benchmark's own hidden tests, chat and research questions by their short answer.
+Results, and the conversation of every coding task, go to `<workspace>/bench/results`.
+
 ## Layout
 
 ```
@@ -239,6 +255,7 @@ src/local_ai/
   servers/          MCP servers: library (+ zim, arxiv, importers), compute, notebook (+ memory, skills), docs,
                     coder; common.py (settings, embeddings), bibtex.py, export.py
   web/              web UI for both agents: app (endpoints), runs, store, static files
+  bench/            `local-ai bench`: fixed tasks to measure the assistant (SWE-bench Lite, chat, research)
   skills/           built-in research skills
 config/
   lmstudio/         mcp.json templates (Windows, Linux), system prompt, model settings
