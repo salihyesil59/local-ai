@@ -84,3 +84,42 @@ def test_run_python_shows_what_the_code_does(project):
     assert run("import shapes\nprint(shapes.area(2), '⎠')").strip() == "12 ⎠"  # the project is importable
     failed = run("import shapes\nshapes.area()")
     assert failed.startswith("The script failed.") and "TypeError" in failed and "line 2" in failed
+
+
+EXISTING = r'''from shapes import area
+
+x = 1
+
+
+def test_area():
+    expected = """\
+12
+"""
+    assert str(area(2)) + "\n" == expected
+
+
+def test_zero():
+    assert area(0) == 0
+'''
+
+
+def test_existing_tests_are_kept_once(project):
+    from local_ai.coder import state as st
+
+    (project / "tests").mkdir()
+    (project / "tests" / "test_shapes.py").write_text(EXISTING, encoding="utf-8")
+    st.save(project, st.new_state("g", ["s"], ["c"], PYTEST))
+    tools = {name: t.fn for name, t in coder_tools(project).items()}
+    path = "tests/test_shapes.py"
+
+    added = tools["edit_file"](path, "    assert area(0) == 0\n", "    assert area(0) == 0\n\n\ndef test_one():\n    assert area(1) == 3\n")
+    assert added == f"Edited {path}."  # adding a test is fine
+    refused = tools["edit_file"](path, "12\n", "13\n")
+    assert refused.startswith("Error: not changed") and "test_area" in refused and "test_zero" not in refused
+    assert tools["edit_file"](path, "12\n", "13\n") == f"Edited {path}."  # asked again: the task wants it
+
+    (project / "tests" / "test_more.py").write_text(EXISTING, encoding="utf-8")
+    replaced = tools["write_file"]("tests/test_more.py", "def test_mine():\n    pass\n")
+    assert replaced.startswith("Error: not changed") and "test_area, test_zero" in replaced
+    assert tools["write_file"]("tests/test_new.py", "def test_mine():\n    pass\n").startswith("Wrote")
+    assert tools["edit_file"]("tests/test_new.py", "pass", "assert 1") == "Edited tests/test_new.py."  # its own

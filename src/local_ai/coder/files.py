@@ -7,6 +7,7 @@ Every path is relative to the project folder and may not leave it. The plan stat
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from local_ai.coder.state import STATE_DIR
@@ -14,6 +15,9 @@ from local_ai.coder.verify import SKIP_DIRS
 
 MAX_READ = 20000  # characters returned by one read_file
 MAX_LIST = 300  # entries returned by one list_files
+TEST_FILE = re.compile(r"(^|/)(tests?/|test_[^/]*$|[^/]*_test\.\w+$)")
+TEST_DEF = re.compile(r"(?:async\s+)?def\s+(test\w*)")
+TOP_LEVEL = re.compile(r"(?:async\s+def|def|class|@)\b|\S+\s*=")  # what ends a test function at the margin
 
 
 def resolve(root: Path, path: str, write: bool = False) -> Path:
@@ -90,6 +94,25 @@ def walk(root: Path, base: Path | None = None) -> list[str]:
             continue
         names.append(f"{rel.as_posix()}/" if is_dir else rel.as_posix())
     return names
+
+
+def is_test_file(path: str) -> bool:
+    return bool(TEST_FILE.search(path.replace("\\", "/")))
+
+
+def test_lines(text: str) -> dict[str, str]:
+    """The lines of the test functions of a file (stripped, not blank), each with the name of its test. A test
+    ends at the next definition or assignment at the margin; a string at the margin (expected output) is part of it."""
+    found: dict[str, str] = {}
+    test = None
+    for line in text.splitlines():
+        code = line.lstrip()
+        if code and line == code and TOP_LEVEL.match(code):  # at the margin
+            m = TEST_DEF.match(code)
+            test = m.group(1) if m else None
+        if test and code:
+            found.setdefault(code.rstrip(), test)
+    return found
 
 
 def list_files(root: Path, path: str = ".") -> str:

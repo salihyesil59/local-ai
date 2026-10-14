@@ -148,7 +148,9 @@ task's words point to first and in detail) and the `existing-code` skill. The ag
 
 `run_python(code)` runs a short script in the project folder with the project's environment (60 s at most) and
 returns what it prints, so the agent sees what the code does and need not work it out in its thinking. It decides
-nothing: a task is done only through `verify`.
+nothing: a task is done only through `verify`. The tests that were in a file before are kept: an edit that changes
+or deletes one is refused the first time, with the advice to fix the code instead; made again (the task asks for
+that behaviour to change), it goes through.
 
 `verify(tests="tests/test_x.py")` runs only the tests of the step (pytest); the review at the end runs the
 whole suite. When the plan is saved the tests run once: those that fail already, and that the plan does not

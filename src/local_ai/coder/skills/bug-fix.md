@@ -14,5 +14,6 @@ keywords: bug, fix, hata, düzelt, error, crash, broken, fails, çalışmıyor, 
 4. Find the root cause: follow the failing input through the code and name the line where it first goes wrong.
    Do not trace long code in your head: print the values in between with run_python.
    Fix that line. Do not add a special case for the one input and do not catch the exception to hide it.
-5. Call verify. If other tests break, your fix changed behaviour that was right: narrow the fix.
+5. Call verify. If other tests break, your fix changed behaviour that was right: narrow the fix. Never change
+   what an existing test expects, and add your tests next to the existing ones (edit_file), never in place of them.
 6. In the review, add a test for a neighbouring input of the bug (empty, zero, negative, the other branch).

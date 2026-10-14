@@ -15,6 +15,12 @@ from local_ai.core.tools import Tool
 NO_PLAN_YET = "Error: there is no plan yet. Call plan first; then edit files."
 VERIFY_TIMEOUT = 900  # seconds for one verify: the whole test suite of a large project
 SCRIPT_TIMEOUT = 60  # seconds for one run_python
+EXISTING_TESTS = (
+    "Error: not changed. This would change or delete tests that were in {path} before: {tests}. An existing test "
+    "that fails after your fix means the fix broke behaviour that was right: change the fix so that the test "
+    "passes as it is. Add your own tests next to the existing ones, with edit_file. Only if the task itself asks "
+    "for the behaviour these tests check to change, make the same call again and say why in the verify note."
+)
 
 
 def _schema(properties: dict, required: list[str]) -> dict:
@@ -30,6 +36,32 @@ EDIT_TOOLS = ("write_file", "edit_file")
 
 def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
     seen = {"skill": not require_skill}  # a skill has been read in this run
+    originals: dict[Path, str | None] = {}  # file -> its text before this run first changed it (None: it was new)
+    warned: set[Path] = set()  # test files whose existing tests the model was told to keep
+
+    def original(path: str) -> str | None:
+        try:
+            target = fl.resolve(root, path)
+        except ValueError:
+            return None
+        if target not in originals:
+            try:
+                originals[target] = target.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                originals[target] = None
+        return originals[target]
+
+    def keeps_tests(path: str, removed: set[str]) -> str | None:
+        """Why a change to the existing tests of a file is refused the first time; None when it is not."""
+        before = original(path)
+        if before is None or not fl.is_test_file(path) or fl.resolve(root, path) in warned:
+            return None
+        lines = fl.test_lines(before)
+        tests = sorted({lines[line] for line in removed if line in lines})
+        if not tests:
+            return None
+        warned.add(fl.resolve(root, path))
+        return EXISTING_TESTS.format(path=path, tests=", ".join(tests[:10]))
 
     def plan(goal: str, steps: list[str], criteria: list[str], verify_command: str = "") -> str:
         steps = [steps] if isinstance(steps, str) else steps
@@ -67,12 +99,21 @@ def coder_tools(root: Path, require_skill: bool = True) -> dict[str, Tool]:
     def write_file(path: str, content: str) -> str:
         if st.load(root) is None:
             return NO_PLAN_YET
+        before = original(path)
+        if before is not None:
+            kept = {line.strip() for line in content.splitlines()}
+            refused = keeps_tests(path, {line.strip() for line in before.splitlines()} - kept)
+            if refused:
+                return refused
         return fl.write_file(root, path, content)
 
     def edit_file(path: str, old: str, new: str) -> str:
         if st.load(root) is None:
             return NO_PLAN_YET
-        return fl.edit_file(root, path, old, new)
+        original(path)
+        kept = {line.strip() for line in new.splitlines()}
+        refused = keeps_tests(path, {line.strip() for line in old.splitlines()} - kept)
+        return refused or fl.edit_file(root, path, old, new)
 
     def load_skill(name: str) -> str:
         found = sk.load_skills()
