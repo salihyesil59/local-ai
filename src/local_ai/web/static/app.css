@@ -104,6 +104,7 @@ details.call.pending summary { opacity: .7; }
 .call.thinking summary { color: var(--muted); font-style: italic; }
 .findings { border-top: 1px dashed var(--border); margin-top: 8px; padding-top: 8px; }
 .problems { color: var(--warn); margin: 0; padding-left: 18px; }
+div.problems { white-space: pre-wrap; padding-left: 0; }
 .log { font-size: 13px; color: var(--muted); } .log.warning { color: var(--warn); } .log.success { color: var(--ok); }
 .error-box { border-color: var(--err); color: var(--err); }
 .live { border-left: 3px solid var(--accent); padding: 6px 10px; margin: 8px 0; background: var(--surface-2); border-radius: 6px; }

@@ -31,6 +31,25 @@ RIGHT = {
     "fine-structure": "CEVAP: 137",
     "planck": "CEVAP: 6.626 × 10^-34 J·s",
     "sun-surface": "CEVAP: 5778 K",
+    "sevens": "CEVAP: 20",
+    "clock-angle": "CEVAP: 7,5°",
+    "last-digits": "CEVAP: 76",
+    "birthday": "CEVAP: %51",
+    "digit-sum": "CEVAP: 165",
+    "factorial-zeros": "CEVAP: 249",
+    "mississippi": "CEVAP: 34.650",
+    "average-speed": "CEVAP: 69 km/sa",
+    "stairs": "CEVAP: 89",
+    "power-mod": "CEVAP: 4",
+    "hippocamp": "CEVAP: 2013",
+    "kepler-90": "CEVAP: 8 gezegen",
+    "eris-period": "CEVAP: yaklaşık 558 yıl",
+    "haumea-rotation": "CEVAP: 3,9 saat",
+    "tau-mass": "CEVAP: 1776,86 MeV/c²",
+    "trappist-distance": "CEVAP: 40,66 ışık yılı",
+    "proxima-b-period": "CEVAP: 11,2 gün",
+    "phobos-period": "CEVAP: 7 saat 39 dakika",
+    "charon-discovery": "CEVAP: 1978",
 }
 
 
@@ -39,14 +58,34 @@ def test_every_question_has_a_pattern_that_takes_its_right_answer_and_not_a_wron
     for item in tasks["chat"] + tasks["research"]:
         assert cli.correct(RIGHT[item["id"]], item["expect"]), item["id"]
         assert not cli.correct("CEVAP: 42", item["expect"]), item["id"]
-    assert "{issue}" in tasks["code_prompt"]
-    assert all(s["packages"] and s["url"] for s in cli.code_specs(tasks))
+    specs = cli.code_specs(tasks)
+    assert all(s["packages"] and s["url"] and s["title"] for s in specs)
+    assert len({s["name"] for s in specs}) == len(specs)
+    sympy, pytest_task = specs[0], next(s for s in specs if s["id"].startswith("pytest-dev"))
+    assert cli.code_task(tasks, sympy, "ISSUE").startswith("Bu depo SymPy.")
+    assert "testing/<dosya>.py" in cli.code_task(tasks, pytest_task, "ISSUE")
+    assert cli.repo_of("pylint-dev__pylint-7080") == "pylint-dev/pylint"
+
+
+def test_test_results_are_found_by_their_whole_id_and_by_their_bare_name():
+    output = (
+        "PASSED testing/test_skipping.py::TestXFail::test_run[a b]\n"
+        "FAILED sympy/core/tests/test_basic.py::test_issue_1 - AssertionError: x\n"
+        "ERROR tests/test_cli.py::test_x\n"
+        "1 failed, 1 passed in 0.1s\n"
+    )
+    status = swe.results(output)
+    assert status["testing/test_skipping.py::TestXFail::test_run[a b]"] == "PASSED"
+    assert status["test_issue_1"] == "FAILED" and status["tests/test_cli.py::test_x"] == "ERROR"
+    assert "1" not in status
 
 
 def test_the_answer_is_the_last_answer_line_or_else_the_last_line():
     assert cli.final_answer("CEVAP: 5\nhmm, no.\nCEVAP: **7**.") == "7"
     assert cli.final_answer("Thinking...\n\n1905") == "1905"
     assert cli.final_answer("77 K\n\n> **Unverified:** Numbers not found in any tool output: 77") == "77 K"
+    forgot = "Kaynama noktası **77.36 K**'dir.\n\nKaynak: Wikipedia.\n\n> **Unverified:** 77.36"
+    assert cli.correct(forgot, "^77\\b") and not cli.correct("CEVAP: 42\n**77 K**", "^77\\b")
     assert not cli.correct("1905 değil, 1915", "^1905$")
 
 
@@ -55,7 +94,14 @@ def test_the_meter_counts_turns_tokens_and_cut_off_replies():
     meter("turn", tokens=100, seconds=2.5, finish="tool_calls", tool_calls=["search", "read_file"])
     meter("turn", tokens=50, seconds=1.0, finish="length", tool_calls=[])
     meter.event({"kind": "turn", "tokens": 10, "seconds": 0.5, "finish": "stop", "tool_calls": []})
-    assert meter.numbers() == {"turns": 3, "tokens": 160, "cut_off": 1, "tool_calls": 2, "model_seconds": 4.0}
+    assert meter.numbers() == {
+        "turns": 3,
+        "tokens": 160,
+        "cut_off": 1,
+        "tool_calls": 2,
+        "model_seconds": 4.0,
+        "judge_rejected": 0,
+    }
 
 
 @pytest.mark.anyio
@@ -128,11 +174,12 @@ def test_a_run_can_be_done_in_parts_with_the_same_label(tmp_path, monkeypatch):
     assert cli.main([*part, "--count", "3"]) == 0
     assert len(asked) == 3
     assert cli.main([*part[:-2], "--temperature", "0.9"]) == 0  # the run keeps the settings it started with
-    assert len(asked) == 10 and len(set(asked)) == 10
+    n = len(cli.load_tasks()["chat"])
+    assert len(asked) == n and len(set(asked)) == n
     assert cli.main(part) == 0  # nothing left
-    assert len(asked) == 10
+    assert len(asked) == n
     result = json.loads(cli.find_run("base").read_text(encoding="utf-8"))
-    assert len(result["suites"]["chat"]) == 10 and result["settings"]["temperature"] == 0.3
+    assert len(result["suites"]["chat"]) == n and result["settings"]["temperature"] == 0.3
     assert len(list((tmp_path / "bench" / "results").iterdir())) == 1
     with pytest.raises(SystemExit):  # another model cannot go on with it
         cli.main(["run", "--suites", "chat", "--label", "base", "--model", "other"])

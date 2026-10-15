@@ -29,7 +29,7 @@ from local_ai.bench import swe
 from local_ai.servers.common import workspace_root
 
 SUITES = ("code", "chat", "research")
-SETTINGS = ("speed", "max_turns", "minutes", "max_tokens", "temperature", "top_p", "research")
+SETTINGS = ("speed", "judge_rounds", "max_turns", "minutes", "max_tokens", "temperature", "top_p", "research")
 CHAT_THINKING_CHARS = 16_000  # as in the chat mode of the web UI
 
 
@@ -45,27 +45,50 @@ def short(instance_id: str) -> str:
     return instance_id.split("__")[-1]  # sympy__sympy-24102 -> sympy-24102
 
 
+def repo_of(instance_id: str) -> str:
+    owner, rest = instance_id.split("__", 1)  # pytest-dev__pytest-7432 -> pytest-dev/pytest
+    return f"{owner}/{rest.rsplit('-', 1)[0]}"
+
+
 def code_specs(tasks: dict, only: list[str] | None = None) -> list[dict]:
-    specs = [{**tasks["code_defaults"], **t, "name": short(t["id"])} for t in tasks["code"]]
+    """The coding tasks with the settings of their repository (a task's own settings win)."""
+    specs = [{**tasks["repos"][repo_of(t["id"])], **t, "name": short(t["id"])} for t in tasks["code"]]
     return [s for s in specs if not only or s["name"] in only or s["id"] in only]
+
+
+def code_task(tasks: dict, spec: dict, issue: str) -> str:
+    """What the agent is asked: the issue, with how to read the repository and which tests to give verify."""
+    return tasks["code_prompt"].format(name=spec["title"], reading=spec["reading"], tests=spec["tests"], issue=issue)
 
 
 # -- scoring answers ----------------------------------------------------------------------------------------------
 
 
-def final_answer(text: str) -> str:
-    """The short answer of a reply: what follows the last "CEVAP:" (else the last line), without formatting."""
-    found = re.findall(r"(?:CEVAP|ANSWER)\s*[:：]\s*(.+)", text, flags=re.I)
-    # the research agent may add a note on numbers no tool backed; it is not the answer
-    lines = [line for line in text.strip().splitlines() if line.strip() and "Unverified:" not in line]
-    answer = found[-1] if found else (lines[-1] if lines else "")
+def clean(answer: str) -> str:
     answer = re.sub(r"[*$]|\\\(|\\\)", "", answer).strip().rstrip(".")
     answer = re.sub(r"^(?:[≈~]|yaklaşık|approximately|about)\s*", "", answer, flags=re.I)
     return answer.strip()
 
 
+def answers(text: str) -> list[str]:
+    """The short answer of a reply, without formatting: what follows the last "CEVAP:". A reply that forgot that
+    line gives its bold parts (where a model puts its result) and its last line instead."""
+    found = re.findall(r"(?:CEVAP|ANSWER)\s*[:：]\s*(.+)", text, flags=re.I)
+    if found:
+        return [clean(found[-1])]
+    # the research agent may add a note on numbers no tool backed; it is not the answer
+    lines = [line for line in text.strip().splitlines() if line.strip() and "Unverified:" not in line]
+    bold = re.findall(r"\*\*(.+?)\*\*", "\n".join(lines))
+    return [clean(a) for a in [*bold, *lines[-1:]]]
+
+
+def final_answer(text: str) -> str:
+    found = answers(text)
+    return found[0] if found else ""
+
+
 def correct(text: str, pattern: str) -> bool:
-    return re.search(pattern, final_answer(text), flags=re.I) is not None
+    return any(re.search(pattern, a, flags=re.I) for a in answers(text))
 
 
 # -- running ------------------------------------------------------------------------------------------------------
@@ -80,6 +103,7 @@ class Meter:
     cut_off: int = 0
     tool_calls: int = 0
     model_seconds: float = 0.0
+    judge_rejected: int = 0  # times the judge sent a finished coding task back
     tools: dict[str, int] = field(default_factory=dict)
 
     def __call__(self, kind: str, **data) -> None:
@@ -92,6 +116,8 @@ class Meter:
                 self.tools[name] = self.tools.get(name, 0) + 1
         elif kind == "tool_call":
             self.tool_calls += 1
+        elif kind == "judge" and not data.get("solved"):
+            self.judge_rejected += 1
 
     def event(self, event: dict) -> None:  # the research agent passes one dict per event
         self(event["kind"], **{k: v for k, v in event.items() if k != "kind"})
@@ -103,6 +129,7 @@ class Meter:
             "cut_off": self.cut_off,
             "tool_calls": self.tool_calls or sum(self.tools.values()),
             "model_seconds": round(self.model_seconds, 1),
+            "judge_rejected": self.judge_rejected,
         }
 
 
@@ -125,10 +152,11 @@ async def run_code_task(spec: dict, tasks: dict, args, client, model: str, out: 
     issue = (task_dir / "issue.md").read_text(encoding="utf-8")
     meter = Meter()
     llm = LLM(client, model, max_tokens=args.max_tokens, temperature=args.temperature, top_p=args.top_p)
-    agent = CoderAgent(llm, project, Settings(speed=args.speed, max_turns=args.max_turns), emit=meter)
+    limits = Settings(speed=args.speed, max_turns=args.max_turns, judge_rounds=getattr(args, "judge_rounds", 0))
+    agent = CoderAgent(llm, project, limits, emit=meter)
     started, reason = time.monotonic(), ""
     try:
-        outcome = await asyncio.wait_for(agent.run(tasks["code_prompt"].format(issue=issue)), args.minutes * 60)
+        outcome = await asyncio.wait_for(agent.run(code_task(tasks, spec, issue)), args.minutes * 60)
         reason = outcome.reason
     except asyncio.TimeoutError:
         reason = f"stopped after {args.minutes} minutes"
@@ -332,6 +360,30 @@ def table(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def rescore(args) -> int:
+    """Score the saved chat and research answers of a run again, with the patterns and rules of now."""
+    found = find_run(args.label)
+    if not found:
+        say(f"No run with the label '{args.label}'.")
+        return 1
+    result = json.loads(found.read_text(encoding="utf-8"))
+    tasks = load_tasks()
+    changed = 0
+    for name in ("chat", "research"):
+        expect = {item["id"]: item["expect"] for item in tasks[name]}
+        for row in result["suites"].get(name, []):
+            if "text" not in row or row["id"] not in expect:
+                continue  # saved before answers were kept whole, or a question that was dropped
+            ok = correct(row["text"], expect[row["id"]])
+            if ok != row["ok"]:
+                changed += 1
+                say(f"{name}/{row['id']}: {'FAIL -> OK' if ok else 'OK -> FAIL'}")
+            row["ok"], row["answer"] = ok, final_answer(row["text"])[:200]
+    found.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    say(f"{changed} answers scored differently.\n\n" + table([result]))
+    return 0
+
+
 def show(args) -> int:
     files = sorted((bench_dir() / "results").glob("*/result.json"))
     if not files:
@@ -385,6 +437,7 @@ def main(argv: list[str]) -> int:
     r.add_argument("--model", help="default: the first loaded model")
     r.add_argument("--base-url")
     r.add_argument("--speed", choices=("normal", "fast", "quick"), default="normal", help="of the coding agent")
+    r.add_argument("--judge-rounds", type=int, default=2, help="times the judge may send a coding task back (0: off)")
     r.add_argument("--max-turns", type=int, default=80, help="per coding task")
     r.add_argument("--minutes", type=float, default=40, help="time limit per coding task")
     r.add_argument("--max-tokens", type=int, default=8192)
@@ -396,9 +449,13 @@ def main(argv: list[str]) -> int:
     w = sub.add_parser("show", help="compare the saved runs")
     w.add_argument("--last", type=int, default=10, help="how many of the newest runs")
     w.add_argument("--label", help="show one run with every task")
+    c = sub.add_parser("rescore", help="score the saved chat and research answers of a run again")
+    c.add_argument("--label", required=True)
     args = p.parse_args(argv)
     if args.command == "setup":
         return setup(args)
     if args.command == "show":
         return show(args)
+    if args.command == "rescore":
+        return rescore(args)
     return asyncio.run(run_all(args))

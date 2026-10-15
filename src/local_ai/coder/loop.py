@@ -12,6 +12,8 @@ The model only decides what to write next. The program decides when the work is 
   - several edits in a row without verify also make the program run it;
   - the task ends only when the state on disk is finished (verify reported ALL DONE) or a limit is hit; a plan
     that was finished before the run began belongs to an earlier task and does not count;
+  - before a task is called done a judge, in a conversation of its own, looks at the task, the diff and the output
+    of the task's own examples; when it finds the task not solved, the review opens again with its reasons;
   - a long conversation is compacted: the plan and the files are on disk, so old messages can go;
   - a message the user sends while the agent works (steer) is shown to the model before its next reply.
 """
@@ -26,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from local_ai.coder import files as fl
+from local_ai.coder import judge as jd
 from local_ai.coder import navigate as nav
 from local_ai.coder import prompts
 from local_ai.coder import skills as sk
@@ -65,6 +68,7 @@ class Settings:
     # normal: plan, verify every step, review. fast: no review and no project map. quick: a small mechanical task
     # (a rename): no plan, the model changes the files and answers, then the program runs the tests once.
     speed: str = "normal"
+    judge_rounds: int = 2  # times the judge may send a finished task back (normal speed only); 0 = no judge
 
 
 def describe_error(error: Exception) -> str:
@@ -104,6 +108,7 @@ class CoderAgent:
         self.steering: list[tuple[str, list[Path]]] = []
         self.looked: dict[tuple[str, str], int] = {}  # look-up -> the number of edits when it was made
         self.edits_made = 0
+        self.asked: list[str] = []  # the tasks of this conversation, for the judge
 
     # -- helpers ---------------------------------------------------------------
 
@@ -173,6 +178,18 @@ class CoderAgent:
         self.emit("auto_verify", output=result)
         self.emit_state()
         return result
+
+    async def judge(self, task: str) -> jd.Verdict | None:
+        """The judge's verdict on the finished task; None when it cannot judge (then the task is not held up)."""
+        self.emit("log", text="Judge: checking the change against the task and its examples")
+        try:
+            verdict = await jd.judge(self.llm, task, self.root)
+        except Exception as e:  # a failed check must not stop a finished task
+            self.emit("log", text=f"Judge could not check the change: {describe_error(e)}", level="warning")
+            return None
+        if verdict is not None:
+            self.emit("judge", solved=verdict.solved, reasons=verdict.reasons, examples=verdict.examples)
+        return verdict
 
     async def complete(self, messages: list[dict], tools: list[dict] | None, unstick: bool = False) -> Reply:
         """One model reply; its text and thinking go out as batched "token" events (the format of local-ai's UI)."""
@@ -320,8 +337,10 @@ class CoderAgent:
         else:
             self.messages = await self.opening(task, status, images)
         messages = self.messages
+        if not task.startswith("Continue the existing plan"):  # the UI's "go on" is not a task of its own
+            self.asked.append(task)
         specs = [t.spec() for t in self.tools.values()]
-        edits = nudges = 0
+        edits = nudges = judged = 0
         wrap_up = unstick = False
         cut_off = None  # the nudge after the last cut-off reply
 
@@ -422,6 +441,16 @@ class CoderAgent:
                 if state["repeats"] >= wf.REPEAT_STOP:
                     return Outcome(False, f"the same failure happened {state['repeats']} times in a row")
                 if st.finished(state) and not self.earlier_plan:
+                    rounds = self.settings.judge_rounds if self.settings.speed == "normal" else 0
+                    verdict = await self.judge("\n\n".join(self.asked)) if judged < rounds else None
+                    if verdict is not None and not verdict.solved:  # the review opens again, with the reasons
+                        judged += 1
+                        state["review"] = "open"
+                        st.save(self.root, state)
+                        self.emit_state()
+                        rejected = prompts.JUDGE_REJECTED.format(reasons=verdict.reasons, examples=verdict.examples)
+                        messages.append({"role": "user", "content": rejected})
+                        continue
                     messages.append({"role": "user", "content": prompts.SUMMARY})
                     wrap_up = True
 

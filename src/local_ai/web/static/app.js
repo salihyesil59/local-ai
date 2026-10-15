@@ -1514,6 +1514,10 @@ function renderEvent(e, ctx) {
       append(el("div", { class: "card" }, el("div", { class: "calls" }, d)));
       break;
     }
+    case "judge": // the check of a finished task against the task itself, in a conversation of its own
+      if (e.solved) append(el("div", { class: "log success" }, t("Judge: the change solves the task.")));
+      else append(el("div", { class: "card" }, el("h4", {}, t("Judge: not solved yet")), el("div", { class: "problems" }, e.reasons)));
+      break;
     case "compact":
       append(el("div", { class: "log" }, e.dropped
         ? t(e.manual ? "Context compacted on request: {n} old messages replaced by the plan, the file list{notes}." : "Context compacted: {n} old messages replaced by the plan, the file list{notes}.",

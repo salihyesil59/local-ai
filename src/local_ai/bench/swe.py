@@ -4,6 +4,7 @@ and score the agent's changes the way the benchmark does (its hidden tests on to
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,9 @@ ROWS_URL = (
     "&config=default&split=test&offset={offset}&length=100"
 )
 EXCLUDE = ".venv/\n.local-coder/\n__pycache__/\n.pytest_cache/\n"
+# PASS_TO_PASS tests that fail on this machine even with the reference fix (a path test written for Linux): the
+# setup writes them here and the scoring leaves them out
+IGNORED = "ignored.json"
 RESULT_WORDS = ("PASSED", "FAILED", "ERROR", "XFAIL", "XPASS", "SKIPPED")
 
 
@@ -69,7 +73,7 @@ def write_task(row: dict, folder: Path) -> None:
     (folder / "issue.md").write_text(row["problem_statement"], encoding="utf-8", newline="\n")
 
 
-def make_venv(project: Path, python: str, packages: list[str]) -> None:
+def make_venv(project: Path, python: str, packages: list[str], env: dict[str, str] | None = None) -> None:
     if shutil.which("uv"):
         commands = [
             ["uv", "venv", "-q", "--python", python, ".venv"],
@@ -81,7 +85,9 @@ def make_venv(project: Path, python: str, packages: list[str]) -> None:
             [str(python_of(project)), "-m", "pip", "install", "-q", *packages],
         ]
     for command in commands:
-        done = subprocess.run(command, cwd=project, capture_output=True, text=True, errors="replace")
+        done = subprocess.run(
+            command, cwd=project, capture_output=True, text=True, errors="replace", env={**os.environ, **(env or {})}
+        )
         if done.returncode != 0:
             raise SetupError(f"{' '.join(command[:3])} failed: {done.stderr.strip()[-500:]}")
 
@@ -103,23 +109,33 @@ def prepare(spec: dict, task_dir: Path, project: Path, rows_cache: Path) -> str:
     git(project, "switch", "-q", "-c", "agent-work")
     with open(project / ".git" / "info" / "exclude", "a", encoding="utf-8") as f:
         f.write(EXCLUDE)
-    make_venv(project, spec.get("python", "3.13"), spec["packages"])
+    env = dict(spec.get("env", {}))
+    if spec.get("scm_version"):  # setuptools-scm finds no tags in a shallow clone: give it the task's version
+        env["SETUPTOOLS_SCM_PRETEND_VERSION"] = f"{row['version']}.0"
+    make_venv(project, spec.get("python", "3.13"), spec["packages"], env)
 
-    before = evaluate(task_dir, project)
+    (task_dir / IGNORED).unlink(missing_ok=True)
     git(project, "apply", str(task_dir / "gold.patch"))
     after = evaluate(task_dir, project)
     reset(project)
-    if before.resolved or not after.resolved:
-        problem = "passes without a fix" if before.resolved else "fails with the reference fix"
-        raise SetupError(f"{spec['id']}: the benchmark's test {problem}. {after.output[-300:]}")
+    if not all(r == "PASSED" for r in after.fail_to_pass.values()):
+        raise SetupError(f"{spec['id']}: the benchmark's test fails with the reference fix. {after.output[-300:]}")
+    if len(after.broken) > len(json.loads((task_dir / "task.json").read_text(encoding="utf-8"))["PASS_TO_PASS"]) / 4:
+        raise SetupError(f"{spec['id']}: {len(after.broken)} other tests fail with the reference fix")
+    (task_dir / IGNORED).write_text(json.dumps(after.broken, indent=1), encoding="utf-8")
+    if evaluate(task_dir, project).resolved:
+        raise SetupError(f"{spec['id']}: the benchmark's test passes without a fix")
     files = git(project, "ls-files", "*.py").decode().splitlines()
-    return f"{len(files)} python files"
+    ignored = f", {len(after.broken)} tests that fail here left out" if after.broken else ""
+    return f"{len(files)} python files{ignored}"
 
 
 def reset(project: Path) -> None:
-    """Back to the task's commit: the agent's changes and its state folder are dropped, the environment kept."""
+    """Back to the task's commit: the agent's changes and its state folder are dropped, the environment kept.
+    Ignored files stay: the setup may have made some the project needs (pytest's generated _version.py)."""
     git(project, "checkout", "-q", "--", ".")
-    git(project, "clean", "-fdqx", "-e", ".venv")
+    git(project, "clean", "-fdq", "-e", ".venv")
+    shutil.rmtree(project / ".local-coder", ignore_errors=True)
 
 
 def evaluate(task_dir: Path, project: Path) -> Score:
@@ -128,6 +144,7 @@ def evaluate(task_dir: Path, project: Path) -> Score:
     task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
     test_patch = (task_dir / "test.patch").read_bytes()
     test_files = [line.split(" b/")[-1] for line in test_patch.decode().splitlines() if line.startswith("diff --git")]
+    tests = [f for f in test_files if f.endswith(".py")]  # the patch may bring data files too (a .toml)
     git(project, "add", "-A", "-N")  # new files count as changes
     changed = git(project, "diff", "--stat", task["base_commit"]).decode(errors="replace").strip()
     patch = git(project, "diff", "--binary", task["base_commit"], "--", ".", *[f":(exclude){f}" for f in test_files])
@@ -141,7 +158,7 @@ def evaluate(task_dir: Path, project: Path) -> Score:
                 git(tree, "apply", "--whitespace=nowarn", stdin=patch)
             git(tree, "apply", "--whitespace=nowarn", stdin=test_patch)
             run = subprocess.run(
-                [str(python_of(project)), "-m", "pytest", *test_files, "-q", "-p", "no:cacheprovider", "-rA"],
+                [str(python_of(project)), "-m", "pytest", *tests, "-q", "-p", "no:cacheprovider", "-rA"],
                 cwd=tree,
                 capture_output=True,
                 text=True,
@@ -150,13 +167,28 @@ def evaluate(task_dir: Path, project: Path) -> Score:
             )
         finally:
             git(project, "worktree", "remove", "--force", str(tree), check=False)
-    status = {}
-    for line in run.stdout.splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[0] in RESULT_WORDS:
-            status[parts[1].split("::")[-1]] = parts[0]
+    status = results(run.stdout)
     f2p = {t: status.get(t, "NOT RUN") for t in task["FAIL_TO_PASS"]}
-    broken = [t for t in task["PASS_TO_PASS"] if status.get(t) != "PASSED"]
+    ignored = (
+        set(json.loads((task_dir / IGNORED).read_text(encoding="utf-8"))) if (task_dir / IGNORED).exists() else set()
+    )
+    broken = [t for t in task["PASS_TO_PASS"] if status.get(t) != "PASSED" and t not in ignored]
     resolved = all(r == "PASSED" for r in f2p.values()) and not broken
     output = "" if status else (run.stdout[-2000:] + run.stderr[-1000:])
     return Score(resolved, f2p, broken, changed, output)
+
+
+def results(output: str) -> dict[str, str]:
+    """Test -> result from the summary of `pytest -rA`. A test is found by its whole id
+    (path::Class::test[param], as most tasks name it), by its id up to the first space (the benchmark's lists cut
+    an id with a space there) and by its bare name (as SymPy's tasks name it)."""
+    status = {}
+    for line in output.splitlines():
+        word, _, rest = line.partition(" ")
+        if word not in RESULT_WORDS or not rest:
+            continue
+        test = rest.split(" - ", 1)[0].strip()  # a failure ends with " - <message>"
+        status[test] = word
+        status.setdefault(test.split(" ")[0], word)
+        status.setdefault(test.split("::")[-1], word)
+    return status

@@ -232,12 +232,13 @@ On Linux use `.venv/bin/` instead of `.venv\Scripts\`.
 To measure a change (a prompt, a tool, a model, a load setting) instead of judging it by one run:
 
 ```powershell
-local-ai bench setup                                  # once, online: prepares 11 SWE-bench Lite tasks of SymPy
+local-ai bench setup                                  # once, online: prepares 18 SWE-bench Lite tasks (SymPy, pytest, Flask, Pylint)
 local-ai bench run --label "baseline"                 # coding, chat and research tasks; needs LM Studio
 local-ai bench run --suites chat,research --label x   # the fast part only (minutes instead of hours)
 local-ai bench run --label "baseline" --count 2       # in parts: the same label goes on where it stopped
 local-ai bench show                                   # the saved runs side by side
 local-ai bench show --label "baseline"                # one run, every task
+local-ai bench rescore --label "baseline"             # score saved chat and research answers again
 ```
 
 A run with a label can be done in parts: tasks that already have a result are skipped, the run keeps the model and

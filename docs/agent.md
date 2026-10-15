@@ -163,6 +163,17 @@ conversation before the next reply (the model writes notes, the plan stays; it a
 context gets long). The agent loads built-in coding skills (bug fix, new feature, refactor, from a paper, edge
 cases, CLI) and your own from `~/.local-coder/skills`.
 
+Before a task is called done, a **judge** checks it. The coder's own tests only check what the coder understood, so
+when it misread the task they agree with it. The judge does not share that view:
+
+- the program takes the code examples of the task (the fenced blocks of an issue, `>>>` and `In [1]:` sessions
+  included) and runs them on the changed project, in its environment;
+- a fresh conversation, which sees only the task, the git diff and those outputs, answers SOLVED or NOT SOLVED.
+
+When the answer is NOT SOLVED, the review opens again and the coder gets the reasons and the outputs. This happens
+at most twice; after that the task ends as usual. The judge runs in normal speed only. It needs a git repository
+(the diff), and when it cannot give a clear answer it does not hold the task up.
+
 Two boxes make a code run shorter:
 
 - **Quick**, for a small mechanical change (rename a variable everywhere, fix one line): no plan, no verify per

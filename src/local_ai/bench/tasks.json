@@ -1,7 +1,6 @@
 {
- "code_prompt": "Bu depo SymPy. Aşağıdaki GitHub issue'sunu çöz: hatayı kaynağında düzelt ve hatayı yeniden üreten bir test ekle.\n\nDepo çok büyük; dosyaları baştan sona okuma, önce search ile ilgili yeri bul, outline ile dosyanın yapısına bak, sonra yalnızca gereken satırları oku.\n\nplan çağrısında verify_command olarak değiştirdiğin alt paketin testlerini ver, örneğin: python -m pytest sympy/<paket> -q\n\n--- ISSUE ---\n{issue}",
+ "code_prompt": "Bu depo {name}. Aşağıdaki GitHub issue'sunu çöz: hatayı kaynağında düzelt ve hatayı yeniden üreten bir test ekle.\n\n{reading}\n\nplan çağrısında verify_command olarak {tests}\n\n--- ISSUE ---\n{issue}",
  "code": [
-  {"id": "sympy__sympy-24102", "note": "2 lines, finding the place is the work"},
   {"id": "sympy__sympy-21614", "note": "4 lines", "python": "3.11"},
   {"id": "sympy__sympy-21847", "note": "4 lines", "python": "3.11"},
   {"id": "sympy__sympy-22714", "note": "2 lines"},
@@ -9,14 +8,55 @@
   {"id": "sympy__sympy-24213", "note": "2 lines"},
   {"id": "sympy__sympy-24066", "note": "7 lines"},
   {"id": "sympy__sympy-24152", "note": "9 lines"},
+  {"id": "sympy__sympy-24909", "note": "10 lines"},
   {"id": "sympy__sympy-23117", "note": "15 lines"},
   {"id": "sympy__sympy-22840", "note": "6 lines, 95 tests must keep passing"},
-  {"id": "sympy__sympy-23191", "note": "24 lines, the hardest"}
+  {"id": "sympy__sympy-23191", "note": "24 lines, the hardest"},
+  {"id": "pytest-dev__pytest-7432", "note": "3 lines", "python": "3.9"},
+  {"id": "pytest-dev__pytest-8906", "note": "8 lines"},
+  {"id": "pytest-dev__pytest-9359", "note": "5 lines"},
+  {"id": "pytest-dev__pytest-11143", "note": "1 line", "python": "3.11"},
+  {"id": "pallets__flask-4992", "note": "11 lines"},
+  {"id": "pylint-dev__pylint-7080", "note": "1 line"},
+  {"id": "pylint-dev__pylint-7993", "note": "2 lines"}
  ],
- "code_defaults": {
-  "url": "https://github.com/sympy/sympy.git",
-  "packages": ["pytest<8", "pytest-timeout", "mpmath"],
-  "python": "3.13"
+ "dropped": {
+  "sympy__sympy-24102": "its hidden test expects Cos(1/2 * π) to read as a function call, a side effect of the reference fix; a correct fix of the issue fails it"
+ },
+ "repos": {
+  "sympy/sympy": {
+   "title": "SymPy",
+   "url": "https://github.com/sympy/sympy.git",
+   "packages": ["pytest<8", "pytest-timeout", "mpmath"],
+   "python": "3.13",
+   "reading": "Depo çok büyük; dosyaları baştan sona okuma, önce search ile ilgili yeri bul, outline ile dosyanın yapısına bak, sonra yalnızca gereken satırları oku.",
+   "tests": "değiştirdiğin alt paketin testlerini ver, örneğin: python -m pytest sympy/<paket> -q"
+  },
+  "pytest-dev/pytest": {
+   "title": "pytest",
+   "url": "https://github.com/pytest-dev/pytest.git",
+   "packages": ["-e", ".", "xmlschema", "pygments", "mock", "requests", "argcomplete"],
+   "python": "3.10",
+   "scm_version": true,
+   "reading": "Dosyaları baştan sona okuma; önce search ile ilgili yeri bul, outline ile dosyanın yapısına bak, sonra yalnızca gereken satırları oku.",
+   "tests": "değiştirdiğin kısmın test dosyasını ver, örneğin: python -m pytest testing/<dosya>.py -q"
+  },
+  "pallets/flask": {
+   "title": "Flask",
+   "url": "https://github.com/pallets/flask.git",
+   "packages": ["-e", ".", "pytest<8", "Werkzeug==2.3.7"],
+   "python": "3.11",
+   "reading": "Dosyaları baştan sona okuma; önce search ile ilgili yeri bul, outline ile dosyanın yapısına bak, sonra yalnızca gereken satırları oku.",
+   "tests": "değiştirdiğin kısmın test dosyasını ver, örneğin: python -m pytest tests/<dosya>.py -q"
+  },
+  "pylint-dev/pylint": {
+   "title": "Pylint",
+   "url": "https://github.com/pylint-dev/pylint.git",
+   "packages": [".", "pytest<8", "typing-extensions", "py"],
+   "python": "3.10",
+   "reading": "Dosyaları baştan sona okuma; önce search ile ilgili yeri bul, outline ile dosyanın yapısına bak, sonra yalnızca gereken satırları oku.",
+   "tests": "değiştirdiğin kısmın test dosyasını ver, örneğin: python -m pytest tests/<dosya>.py -q"
+  }
  },
  "answer_rule": "\n\nEn son satıra yalnızca şunu yaz: CEVAP: <kısa cevap>",
  "chat": [
@@ -29,7 +69,17 @@
   {"id": "weekday", "question": "Bugün çarşamba ise 100 gün sonra haftanın hangi günü olur?", "expect": "^cuma\\b|^friday\\b"},
   {"id": "dice", "question": "İki adil zar atılıyor. Toplamın 7 olma olasılığı nedir? Kesir olarak yaz.", "expect": "^1\\s*/\\s*6$|\\\\frac\\{1\\}\\{6\\}"},
   {"id": "light-time", "question": "Güneş ile Dünya arası 1,496 × 10^11 m, ışık hızı 3 × 10^8 m/s. Işık bu yolu kaç dakikada alır? En yakın tam sayıya yuvarla.", "expect": "^8\\b"},
-  {"id": "complexity", "question": "Sıralı bir dizide ikili aramanın (binary search) en kötü durum zaman karmaşıklığı nedir? Büyük-O ile yaz.", "expect": "O\\(\\s*\\\\?log"}
+  {"id": "complexity", "question": "Sıralı bir dizide ikili aramanın (binary search) en kötü durum zaman karmaşıklığı nedir? Büyük-O ile yaz.", "expect": "O\\(\\s*\\\\?log"},
+  {"id": "sevens", "question": "1'den 100'e kadar (100 dahil) tüm sayılar yazılınca 7 rakamı toplam kaç kez yazılır?", "expect": "^20\\b"},
+  {"id": "clock-angle", "question": "Saat tam 3:15'i gösterirken akrep ile yelkovan arasındaki küçük açı kaç derecedir?", "expect": "^7[.,]5\\b"},
+  {"id": "last-digits", "question": "2^100 sayısının son iki basamağı nedir?", "expect": "^76\\b"},
+  {"id": "birthday", "question": "23 kişilik bir grupta en az iki kişinin doğum gününün aynı olma olasılığı yüzde kaçtır? (365 gün, artık yıl yok) Tam sayıya yuvarla.", "expect": "^%?\\s*51\\b"},
+  {"id": "digit-sum", "question": "Rakamları toplamı 9 olan kaç tane dört basamaklı pozitif tam sayı vardır?", "expect": "^165\\b"},
+  {"id": "factorial-zeros", "question": "1000! sayısının sonunda kaç tane sıfır vardır?", "expect": "^249\\b"},
+  {"id": "mississippi", "question": "MISSISSIPPI kelimesinin harfleri kullanılarak kaç farklı dizilim yapılabilir?", "expect": "^34[.,]?650\\b"},
+  {"id": "average-speed", "question": "Bir araç 120 km'lik yolu gidişte 1,5 saatte, dönüşte 2 saatte alıyor. Gidiş-dönüşün ortalama hızı kaç km/sa'tir? Tam sayıya yuvarla.", "expect": "^69\\b"},
+  {"id": "stairs", "question": "Her adımda 1 ya da 2 basamak çıkılabiliyorsa 10 basamaklı bir merdiven kaç farklı şekilde çıkılabilir?", "expect": "^89\\b"},
+  {"id": "power-mod", "question": "17^2026 sayısının 5'e bölümünden kalan kaçtır?", "expect": "^4\\b"}
  ],
  "research": [
   {"id": "hydrogen-ionization", "question": "Hidrojen atomunun temel durumdan iyonlaşma enerjisi kaç eV'dir?", "expect": "13[.,]6"},
@@ -41,6 +91,15 @@
   {"id": "speed-of-sound", "question": "20 °C'deki kuru havada ses hızı yaklaşık kaç m/s'dir?", "expect": "^34[0-4]\\b"},
   {"id": "fine-structure", "question": "İnce yapı sabitinin tersi (1/α) yaklaşık kaçtır?", "expect": "^137\\b"},
   {"id": "planck", "question": "Planck sabitinin değeri J·s cinsinden nedir?", "expect": "6[.,]62"},
-  {"id": "sun-surface", "question": "Güneş'in yüzey (fotosfer) sıcaklığı yaklaşık kaç kelvindir?", "expect": "^5[.,]?[5-8][0-9]{2}\\b"}
+  {"id": "sun-surface", "question": "Güneş'in yüzey (fotosfer) sıcaklığı yaklaşık kaç kelvindir?", "expect": "^5[.,]?[5-8][0-9]{2}\\b"},
+  {"id": "hippocamp", "question": "Neptün'ün uydusu Hippocamp hangi yıl keşfedildi?", "expect": "^2013\\b"},
+  {"id": "kepler-90", "question": "Kepler-90 yıldız sisteminde bilinen kaç gezegen var?", "expect": "^(8|sekiz|eight)\\b"},
+  {"id": "eris-period", "question": "Cüce gezegen Eris'in Güneş etrafındaki yörünge süresi yaklaşık kaç yıldır?", "expect": "^55[6-9]\\b"},
+  {"id": "haumea-rotation", "question": "Cüce gezegen Haumea'nın dönme (kendi ekseni etrafında) süresi kaç saattir?", "expect": "^3[.,]9"},
+  {"id": "tau-mass", "question": "Tau leptonunun kütlesi kaç MeV/c²'dir?", "expect": "^1[.,]?77[67]"},
+  {"id": "trappist-distance", "question": "TRAPPIST-1 yıldızı Dünya'dan kaç ışık yılı uzaklıktadır?", "expect": "^(40|41)\\b|^40[.,]\\d"},
+  {"id": "proxima-b-period", "question": "Proxima Centauri b gezegeninin yörünge süresi kaç gündür?", "expect": "^11([.,]\\d+)?\\b"},
+  {"id": "phobos-period", "question": "Mars'ın uydusu Phobos, Mars etrafındaki bir turunu ne kadar sürede tamamlar?", "expect": "^7\\s*(saat|sa|h|hours?)?\\s*(ve\\s*)?39|^7[.,]6[56]?\\s*(saat|sa|h)"},
+  {"id": "charon-discovery", "question": "Plüton'un uydusu Charon hangi yıl keşfedildi?", "expect": "^1978\\b"}
  ]
 }

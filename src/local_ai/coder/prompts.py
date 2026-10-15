@@ -73,6 +73,13 @@ NEEDS_NEW_PLAN = (
     "There is no plan for this task yet (the plan of the earlier task is finished and put aside). Call plan for "
     "the user's request now, then implement it."
 )
+JUDGE_REJECTED = (
+    "verify passed, but an independent check of the task finds it NOT solved yet:\n{reasons}\n\n"
+    "The task's own examples, run on your code:\n{examples}\n\n"
+    "The review is open again. Check this against the task: find the cause in the source, fix it, add a test for "
+    "the case, then call verify with a note. If you are sure the check is wrong, show it with run_python and say "
+    "why in the verify note."
+)
 SUMMARY = "Verification reports ALL DONE. Reply now, without tools, with a short summary in Turkish of what changed."
 STEER = "The user sent this message while you were working. Follow it from now on:\n{message}"
 COMPACTED = (
