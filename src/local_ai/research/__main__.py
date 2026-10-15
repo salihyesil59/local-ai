@@ -53,6 +53,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--quick", action="store_true", help="Fast answer: one tool-calling loop on the question, no plan or report."
     )
+    p.add_argument(
+        "--no-sources", action="store_true", help="Quick answer: use the tools as needed, but sources are not required."
+    )
     p.add_argument("--parallel", type=int, help="Sub-questions researched at the same time (default: 1).")
     p.add_argument("-v", "--verbose", action="store_true", help="Show every tool call and finding.")
     args = p.parse_args(argv)
@@ -84,6 +87,7 @@ async def main(argv: list[str] | None = None) -> int:
     settings.critic = not (args.no_critic or args.fast)
     settings.gap_check = not (args.no_gap_check or args.fast)
     settings.learn = not (args.no_learn or args.fast)
+    settings.require_sources = not args.no_sources
 
     client = AsyncOpenAI(base_url=settings.base_url, api_key=settings.api_key)
     if not settings.model:

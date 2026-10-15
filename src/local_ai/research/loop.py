@@ -453,29 +453,51 @@ class ResearchAgent:
 
     async def quick(self, question: str) -> str:
         """A fast answer: one tool-calling loop on the whole question, without plan, notes, report or review.
-        Numbers that no tool output backs are still flagged."""
+        When sources are required (the default), an answer given without looking anything up, or with numbers
+        that no tool output shows, is sent back once to be checked with the tools, and numbers still without a
+        source are flagged."""
         await self.prepare(question)
         self.bridge.clear_cache()
         self.bridge.cacheable = {self.roles.get(r) for r in CACHEABLE_ROLES if self.roles.get(r)}
         self._phase("Quick answer")
         tools = [
-            t for t in self.bridge.openai_tools(self.settings.servers)
+            t
+            for t in self.bridge.openai_tools(self.settings.servers)
             if not t["function"]["name"].startswith(f"{self.nb}__")
         ]
         messages = [
             {
                 "role": "system",
-                "content": prompts.QUICK.format(tool_guide=self.roles.guide(), language_rules=prompts.LANGUAGE_RULES),
+                "content": prompts.QUICK.format(
+                    tool_guide=self.roles.guide(),
+                    language_rules=prompts.LANGUAGE_RULES,
+                    source_rules=prompts.SOURCE_RULES if self.settings.require_sources else prompts.NO_SOURCE_RULES,
+                ),
             },
             {
                 "role": "user",
                 "content": prompts.QUICK_TASK.format(question=question, memory=self.memory or "(nothing)"),
             },
         ]
-        answer, _ = await self._tool_loop(
+        answer, outputs = await self._tool_loop(
             messages, prompts.FINALIZE_QUICK, tools=tools, max_steps=self.settings.quick_steps
         )
-        numbers = unverified_numbers(answer, "\n".join([question, *self.evidence]))
+        sources = self.settings.require_sources
+        numbers = unverified_numbers(answer, "\n".join([question, *self.evidence])) if sources else []
+        if sources and answer and (numbers or not outputs):
+            what = (
+                prompts.CHECK_NUMBERS.format(numbers=", ".join(numbers)) if numbers else prompts.CHECK_NOTHING_LOOKED_UP
+            )
+            self._log(f"Checking the answer with the tools: {what}")
+            messages += [
+                {"role": "assistant", "content": answer},
+                {"role": "user", "content": prompts.QUICK_CHECK.format(what=what)},
+            ]
+            checked, _ = await self._tool_loop(
+                messages, prompts.FINALIZE_QUICK, tools=tools, max_steps=self.settings.quick_steps
+            )
+            answer = checked or answer
+            numbers = unverified_numbers(answer, "\n".join([question, *self.evidence]))
         if numbers:
             answer += "\n\n> **Unverified:** Numbers not found in any tool output: " + ", ".join(numbers)
         self.emit("answer", text=answer)

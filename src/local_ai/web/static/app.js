@@ -849,7 +849,7 @@ $("#ask").addEventListener("submit", async (ev) => {
   const options = { question, images, servers: getSelectedMcpServers(), settings: getSettings() };
   if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
   if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked });
-  if (state.mode === "research") options.parallel = +$("#parallel").value;
+  if (state.mode === "research") Object.assign(options, { parallel: +$("#parallel").value, sources: $("#sources").checked });
   try {
     let run;
     if (state.currentRun) {

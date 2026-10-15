@@ -65,11 +65,16 @@ Tools, in the order to try them:
 
 Rules:
 - Use only the few tool calls the question really needs (a definition or one calculation may need just one).
-- Every number must come from a tool output: compute with the Python tool instead of in your head.
-- Rely only on tool output. If the tools don't support a claim, say so.
 - Answer briefly: the direct answer first, then only the essential steps or formulas.
+{source_rules}"""
+
+SOURCE_RULES = """- Every number must come from a tool output: compute with the Python tool instead of in your head.
+- Rely only on tool output. If the tools don't support a claim, say so.
 - Name the source of each fact in parentheses, as the tool output shows it: file and page, Wikipedia
   article, arXiv id or documentation entry."""
+
+NO_SOURCE_RULES = """- Look things up when it helps (the user's library first), and compute with the Python tool rather than in your
+  head. You need not name sources."""
 
 QUICK_TASK = """\
 Question: {question}
@@ -77,6 +82,13 @@ Question: {question}
 From memory (earlier research and user preferences; re-check before relying on it):
 {memory}"""
 
+QUICK_CHECK = (
+    "{what} Check it now with the tools: search the library or Wikipedia, or compute with the Python tool. Then "
+    "answer again, briefly, with the source of each fact in parentheses. Keep what a tool confirms; correct what it "
+    "contradicts; for what no tool has, say that you could not check it."
+)
+CHECK_NUMBERS = "Your answer states numbers that no tool output shows: {numbers}."
+CHECK_NOTHING_LOOKED_UP = "You answered without looking anything up."
 FINALIZE_QUICK = "Stop calling tools now and answer the question briefly from what you found, with sources."
 
 UNIT_RULE = "- Run {check_units} on every formula you use or derive before relying on it.\n"

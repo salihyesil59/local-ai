@@ -34,7 +34,11 @@ local-ai --resume --project "kara-cisim-isimasinda-wien-yasasi-nasil-turetilir"
 - no plan, notes, project, report, review or learning;
 - memory is still recalled;
 - the notebook tools are hidden from the model;
-- numbers that no tool output backs are flagged at the end, as in reports.
+- with **Sources** on (the default; `--no-sources` turns it off): each fact names its source, an answer given
+  without any tool call or with numbers that no tool output shows is sent back once to be checked with the tools,
+  and numbers that still have no tool output behind them are flagged at the end, as in reports;
+- with **Sources** off: the model still uses the tools when they help (your library first) but need not cite them;
+  nothing is sent back or flagged.
 
 Use it for definitions, single calculations and short factual questions, and the full run for anything that needs
 several sources or a cited write-up. **Fast** keeps the full pipeline but skips review, gap check and learning.

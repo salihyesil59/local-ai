@@ -245,6 +245,10 @@ async def test_quick_answer(mcp_config):
                 reply(
                     "Işık hızı 299792458 m/s (Wikipedia: Speed of light); bir saatte 1079252848.8 km. Yaklaşık 42.5 kat."
                 ),
+                # sent back once for the number no tool shows; the model keeps it
+                reply(
+                    "Işık hızı 299792458 m/s (Wikipedia: Speed of light); bir saatte 1079252848.8 km. Yaklaşık 42.5 kat."
+                ),
             ]
         }
     )
@@ -258,9 +262,56 @@ async def test_quick_answer(mcp_config):
     tools = {t["function"]["name"] for t in client.requests["quick"][0]["tools"]}
     assert "library__search_library" in tools and not any(n.startswith("notebook__") for n in tools)
     assert answer.startswith("Işık hızı 299792458 m/s")
+    check = client.requests["quick"][3]["messages"][-1]["content"]
+    assert "no tool output shows: 42.5" in check and "1079252848.8" not in check
     assert "Unverified" in answer and "42.5" in answer.split("Unverified")[1]  # the made-up number is flagged
     assert "1079252848.8" not in answer.split("Unverified")[1]  # computed numbers pass
     assert [e for e in events if e["kind"] == "answer"] and "isik" not in projects  # no project, no report
+
+
+async def test_a_quick_answer_from_memory_is_checked_with_the_tools(mcp_config):
+    client = ScriptedClient(
+        {
+            "quick": [
+                reply("Sıvı azot 1 atm'de 77 K'de kaynar."),  # from memory, no tool call
+                reply(calls=[("compute__python", {"code": "print(273.15 - 196)"})]),
+                reply("Sıvı azot 1 atm'de 77.15 K'de kaynar (Python)."),
+            ]
+        }
+    )
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, AgentSettings(model="test"), on_event=lambda e: None)
+        answer = await agent.quick("Sıvı azot kaç kelvinde kaynar?")
+    assert not client.left()
+    sent = [m["content"] for m in client.requests["quick"][1]["messages"] if m["role"] == "user"]
+    assert sent[-1].startswith("Your answer states numbers that no tool output shows: 77")
+    assert answer.startswith("Sıvı azot 1 atm'de 77.15 K") and "Unverified" not in answer
+
+
+async def test_a_quick_answer_that_used_its_tools_is_not_sent_back(mcp_config):
+    client = ScriptedClient(
+        {
+            "quick": [
+                reply(calls=[("compute__python", {"code": "print(6 * 7)"})]),
+                reply("6 × 7 = 42 (Python)."),
+            ]
+        }
+    )
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, AgentSettings(model="test"), on_event=lambda e: None)
+        assert await agent.quick("6 kere 7?") == "6 × 7 = 42 (Python)."
+    assert not client.left() and len(client.requests["quick"]) == 2
+
+
+async def test_without_required_sources_a_quick_answer_is_neither_checked_nor_flagged(mcp_config):
+    client = ScriptedClient({"quick": [reply("Sıvı azot 1 atm'de yaklaşık 77 K'de kaynar.")]})
+    settings = AgentSettings(model="test", require_sources=False)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, on_event=lambda e: None)
+        answer = await agent.quick("Sıvı azot kaç kelvinde kaynar?")
+    assert answer == "Sıvı azot 1 atm'de yaklaşık 77 K'de kaynar."  # no second round, no Unverified note
+    system = client.requests["quick"][0]["messages"][0]["content"]
+    assert "need not name sources" in system and "Name the source of each fact" not in system
 
 
 class StreamingClient(ScriptedClient):

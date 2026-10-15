@@ -47,6 +47,8 @@ def clean_settings(raw) -> dict:
         if low <= value <= high:
             settings[key] = value
     return settings
+
+
 EARLIER_CHARS = 3000  # of the last answer shown to the agent with a follow-up message
 # The faster ways of a code run: what changes when the chat has not chosen otherwise in its settings.
 SPEEDS = {
@@ -56,9 +58,9 @@ SPEEDS = {
 CHAT_THINKING_CHARS = 16_000  # about 5000 tokens of thinking in a chat reply
 NOTEBOOK_TOOLS = ("library__search_library", "library__read_library")
 NOTEBOOK_NOTE = (
-    "\n\n[The user chose the notebook \"{name}\" for this message. Its files: {files}. search_library searches "
+    '\n\n[The user chose the notebook "{name}" for this message. Its files: {files}. search_library searches '
     "only these files (you need not pass scope); answer from them and say which file and page each part of the "
-    "answer comes from. Pass scope=\"\" only when the user asks to search beyond the notebook.]"
+    'answer comes from. Pass scope="" only when the user asks to search beyond the notebook.]'
 )
 IMAGES_ONLY = "Look at the attached image and help with what it shows."  # a message that is only images
 FOLLOW_UP = "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThe answer was:\n{answer}"
@@ -240,7 +242,9 @@ async def run_chat(
         max_thinking_chars=run.settings.get("max_thinking_chars", CHAT_THINKING_CHARS),
     )
     context = run.settings.get("context_chars", 300_000)
-    agent = ChatAgent(llm, emit=lambda kind, **data: run.push({"kind": kind, **data}), tools=tools, context_chars=context)
+    agent = ChatAgent(
+        llm, emit=lambda kind, **data: run.push({"kind": kind, **data}), tools=tools, context_chars=context
+    )
     if isinstance(run.agent, ChatAgent):
         agent.messages = run.agent.messages
     elif store:
@@ -278,6 +282,7 @@ async def run_research(
     settings.gap_check = settings.gap_check and not fast
     settings.learn = settings.learn and not fast
     settings.parallel = max(1, min(int(options.get("parallel") or settings.parallel), 8))
+    settings.require_sources = options.get("sources", True) is not False
     paths = options.get("image_paths") or []
     if paths:  # the research agent works with text: the model writes down what the images show
         on_event({"kind": "log", "text": f"Reading the {len(paths)} attached image(s)"})
