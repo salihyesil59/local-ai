@@ -246,6 +246,18 @@ settings it started with, and a part stopped with Ctrl+C loses only the task it 
 Coding tasks are scored with the benchmark's own hidden tests, chat and research questions by their short answer.
 Results, and the conversation of every coding task, go to `<workspace>/bench/results`.
 
+Every coding run, in the UI and in the bench, also leaves a trace: the conversation as the model saw it, with its
+thinking, how the run ended and the judge's word (`<workspace>/ui/runs/<id>.trace.jsonl`, and `*.trace.jsonl`
+beside the bench results). The good runs become training data for a fine-tune:
+
+```powershell
+local-ai traces export            # finished runs the judge and the tests accepted -> <workspace>/traces/samples.jsonl
+local-ai traces export --failed   # every run
+```
+
+One line per conversation (a compaction or a fresh start cuts a run into several): OpenAI-style `messages` with the
+thinking as `reasoning_content`, the `tools` the model had, and `meta` (task, model, outcome, source).
+
 ## Layout
 
 ```

@@ -6,6 +6,7 @@ local-ai ui [--port 8765]               local web interface
 local-ai export <project> [--format html|md|bib|tex|docx|pdf]
 local-ai data ...                       download/update ZIM and arXiv data (online)
 local-ai bench setup|run|show           measure the assistant on a fixed set of tasks
+local-ai traces export                  the good coding runs as training data (JSONL)
 """
 
 from __future__ import annotations
@@ -152,6 +153,10 @@ def cli() -> None:
             from local_ai.bench.cli import main as bench_main
 
             sys.exit(bench_main(argv[1:]))
+        if argv and argv[0] == "traces":
+            from local_ai.coder.trace import main as traces_main
+
+            sys.exit(traces_main(argv[1:]))
         sys.exit(asyncio.run(main(argv)))
     except KeyboardInterrupt:
         sys.exit(130)

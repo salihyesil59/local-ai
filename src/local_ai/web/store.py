@@ -4,6 +4,7 @@
                               folder, created}}}
 <workspace>/ui/runs/<id>.jsonl  the events of a run, one JSON object per line (live token output is not kept)
 <workspace>/ui/runs/<id>.chat.json  the conversation of a code chat with the model, to go on with it later
+<workspace>/ui/runs/<id>.trace.jsonl  its runs with the model's thinking, as training data (local-ai traces export)
 <workspace>/ui/images/<id>/   the images sent with the messages of a chat
 """
 
@@ -57,6 +58,7 @@ class Store:
         self.save()
         (self.dir / "runs" / f"{run_id}.jsonl").unlink(missing_ok=True)
         (self.dir / "runs" / f"{run_id}.chat.json").unlink(missing_ok=True)
+        self.trace_path(run_id).unlink(missing_ok=True)
         shutil.rmtree(self.dir / "images" / run_id, ignore_errors=True)
 
     # -- folders -----------------------------------------------------------------
@@ -117,6 +119,10 @@ class Store:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(conversation, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, path)
+
+    def trace_path(self, run_id: str) -> Path:
+        """The trace of a code chat: its runs with the model's thinking, for training (local-ai traces export)."""
+        return self.dir / "runs" / f"{run_id}.trace.jsonl"
 
     def load_messages(self, run_id: str) -> dict:
         path = self.dir / "runs" / f"{run_id}.chat.json"

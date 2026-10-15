@@ -35,6 +35,7 @@ from local_ai.coder import navigate as nav
 from local_ai.coder import prompts
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
+from local_ai.coder import trace as tr
 from local_ai.coder import verify as vf
 from local_ai.coder import workflow as wf
 from local_ai.coder.tools import EDIT_TOOLS, VERIFY_TIMEOUT, coder_tools
@@ -82,6 +83,17 @@ def describe_error(error: Exception) -> str:
     return f"{type(error).__name__}: {text[:200]}" if text else type(error).__name__
 
 
+def said(reply: Reply, content: str | None, calls: list[dict] | None = None) -> dict:
+    """The model's reply as it stays in the conversation. Its thinking is kept beside it for traces; the server does
+    not get it back (LLM.complete leaves it out)."""
+    message: dict = {"role": "assistant", "content": content}
+    if calls:
+        message["tool_calls"] = calls
+    if reply.reasoning:
+        message["reasoning"] = reply.reasoning
+    return message
+
+
 @dataclass
 class Outcome:
     finished: bool
@@ -97,8 +109,10 @@ class CoderAgent:
         settings: Settings | None = None,
         emit: Emit | None = None,
         extra_tools: dict[str, Tool] | None = None,
+        trace: Path | None = None,
     ):
         self.llm = llm
+        self.trace = trace  # a JSONL file each run appends its conversation to (thinking included), for training
         self.root = root
         self.settings = settings or Settings()
         self.emit = emit or (lambda kind, **data: None)
@@ -114,6 +128,8 @@ class CoderAgent:
         self.looked: dict[tuple[str, str], int] = {}  # look-up -> the number of edits when it was made
         self.edits_made = 0
         self.asked: list[str] = []  # the tasks of this conversation, for the judge
+        self.segments: list[list[dict]] = []  # the conversation before each compaction or fresh start of this run
+        self.verdict: bool | None = None  # the judge's last word on this run: solved or not; None = not asked
 
     # -- helpers ---------------------------------------------------------------
 
@@ -340,8 +356,11 @@ class CoderAgent:
         """Work on a task until it is done or a limit is hit. A later call goes on with the same conversation.
         images (a screenshot of an error, a sketch) come with the task; the model must be able to read images."""
         stopped, self.interrupted = self.interrupted, True
+        self.segments, self.verdict = [], None
         outcome = await self.work(task, stopped, images)
         self.interrupted = False  # not reached when the run is cancelled
+        if self.trace:
+            tr.record(self.trace, self, task, outcome)
         return outcome
 
     async def work(self, task: str, stopped: bool, images: list[Path] | None = None) -> Outcome:
@@ -378,6 +397,7 @@ class CoderAgent:
         for turn in range(1, self.settings.max_turns + 1):
             if self.compact_requested or size(messages) > self.settings.context_chars:
                 manual, self.compact_requested = self.compact_requested, False
+                self.segments.append(list(messages))
                 messages = self.messages = await self.compact(messages, manual)
             while self.steering and not wrap_up:  # in the wrap-up the model may not act on it
                 message, shown = self.steering.pop(0)
@@ -399,7 +419,7 @@ class CoderAgent:
 
             if wrap_up:  # a tool call in the summary is not run
                 text = strip_tool_calls(text)
-                messages.append({"role": "assistant", "content": text})  # the conversation may go on after it
+                messages.append(said(reply, text))  # the conversation may go on after it
                 return Outcome(True, "ALL DONE", text)
 
             if reply.finish_reason == "length":
@@ -426,6 +446,7 @@ class CoderAgent:
                 stuck += 1
                 limit = self.settings.restart_after
                 if limit and stuck >= limit and restarts < self.settings.max_restarts and not self.quick:
+                    self.segments.append(list(messages))
                     messages = self.messages = await self.restart(messages, stuck)
                     restarts += 1
                     stuck = nudges = 0
@@ -440,7 +461,7 @@ class CoderAgent:
                     {**c, "function": {**c["function"], "arguments": "{}"}} if self.bad_arguments(c) else c
                     for c in calls
                 ]
-                messages.append({"role": "assistant", "content": text or None, "tool_calls": kept})
+                messages.append(said(reply, text or None, kept))
                 for call in calls:
                     output = await self.call_tool(call)
                     name = call["function"]["name"]
@@ -454,7 +475,7 @@ class CoderAgent:
                     messages.append({"role": "user", "content": prompts.AUTO_VERIFY.format(edits=edits, result=result)})
                     edits = 0
             else:
-                messages.append({"role": "assistant", "content": text})
+                messages.append(said(reply, text))
                 if self.quick:  # its answer ends a quick task; the tests say whether it broke something
                     tests = await self.final_tests()
                     if tests.startswith("FAILED"):
@@ -481,6 +502,8 @@ class CoderAgent:
                 if st.finished(state) and not self.earlier_plan:
                     rounds = self.settings.judge_rounds if self.settings.speed == "normal" else 0
                     verdict = await self.judge("\n\n".join(self.asked)) if judged < rounds else None
+                    if verdict is not None:
+                        self.verdict = verdict.solved
                     if verdict is not None and not verdict.solved:  # the review opens again, with the reasons
                         judged += 1
                         state["review"] = "open"

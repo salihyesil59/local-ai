@@ -145,6 +145,7 @@ def say(text: str) -> None:
 async def run_code_task(spec: dict, tasks: dict, args, client, model: str, out: Path) -> dict:
     from local_ai.coder import state as coder_state
     from local_ai.coder.loop import CoderAgent, Settings
+    from local_ai.coder.trace import mark
     from local_ai.core.llm import LLM
 
     task_dir, project = bench_dir() / "tasks" / spec["name"], bench_dir() / "projects" / spec["name"]
@@ -157,7 +158,8 @@ async def run_code_task(spec: dict, tasks: dict, args, client, model: str, out: 
     meter = Meter()
     llm = LLM(client, model, max_tokens=args.max_tokens, temperature=args.temperature, top_p=args.top_p)
     limits = Settings(speed=args.speed, max_turns=args.max_turns, judge_rounds=getattr(args, "judge_rounds", 0))
-    agent = CoderAgent(llm, project, limits, emit=meter)
+    trace = out / f"{spec['name']}.trace.jsonl"
+    agent = CoderAgent(llm, project, limits, emit=meter, trace=trace)
     started, reason = time.monotonic(), ""
     try:
         outcome = await asyncio.wait_for(agent.run(code_task(tasks, spec, issue)), args.minutes * 60)
@@ -166,6 +168,8 @@ async def run_code_task(spec: dict, tasks: dict, args, client, model: str, out: 
         reason = f"stopped after {args.minutes} minutes"
     seconds = time.monotonic() - started
     score = await asyncio.to_thread(swe.evaluate, task_dir, project)
+    if trace.is_file():  # a run stopped by the time limit leaves no trace
+        mark(trace, score.resolved)
     (out / f"{spec['name']}.messages.json").write_text(json.dumps(agent.messages, ensure_ascii=False), encoding="utf-8")
     return {
         "id": spec["name"],

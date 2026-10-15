@@ -24,6 +24,7 @@ class Reply:
     finish_reason: str = ""  # "length" when max_tokens cut the reply off
     reasoning_chars: int = 0
     reasoning_tail: str = ""  # the end of the thinking, for a reply that was cut off before it acted
+    reasoning: str = ""  # all of the thinking, kept with the reply for traces (it is not sent back to the model)
     looping: bool = False  # cut off because the thinking repeated itself
     completion_tokens: int | None = None
     prompt_tokens: int | None = None
@@ -120,9 +121,15 @@ async def read_stream(
             reply.finish_reason = choice.finish_reason
     await close(stream)
     reply.content = "".join(content)
-    reply.reasoning_tail = "".join(thinking)[-THINKING_TAIL:]
+    reply.reasoning = "".join(thinking)
+    reply.reasoning_tail = reply.reasoning[-THINKING_TAIL:]
     reply.tool_calls = [{**c, "id": c["id"] or f"call_{i}"} for i, c in sorted(calls.items())]
     return reply
+
+
+def sent(message: dict) -> dict:
+    """A message as the server gets it: the thinking a message keeps for traces stays here."""
+    return {k: v for k, v in message.items() if k != "reasoning"} if "reasoning" in message else message
 
 
 class LLM:
@@ -162,7 +169,7 @@ class LLM:
             extra["repeat_penalty"] = UNSTICK_REPEAT_PENALTY
         kwargs = dict(
             model=self.model,
-            messages=messages,
+            messages=[sent(m) for m in messages],
             temperature=max(self.temperature, UNSTICK_TEMPERATURE) if unstick else self.temperature,
             top_p=self.top_p,
             max_tokens=max_tokens or self.max_tokens,

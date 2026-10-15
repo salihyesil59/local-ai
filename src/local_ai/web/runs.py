@@ -195,7 +195,12 @@ async def run_code(
         llm.max_thinking_chars = chosen["max_thinking_chars"]
     limits = Settings(speed=speed, **{k: chosen[k] for k in ("max_turns", "context_chars") if k in chosen})
     agent = CoderAgent(
-        llm, root, limits, emit=lambda kind, **data: run.push({"kind": kind, **data}), extra_tools=extra_tools
+        llm,
+        root,
+        limits,
+        emit=lambda kind, **data: run.push({"kind": kind, **data}),
+        extra_tools=extra_tools,
+        trace=store.trace_path(run.id) if store else None,
     )
     earlier = run.agent if isinstance(run.agent, CoderAgent) and run.agent.root == root else None
     if earlier:  # the same chat: its conversation goes on, with this message's model, limits and tools
