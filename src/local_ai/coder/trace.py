@@ -5,12 +5,14 @@ specs and the conversation as the model saw it, with the thinking of each reply.
 cuts a run into segments; each segment is a conversation of its own. The bench adds a line {"resolved": ...}
 after it has run the task's tests.
 
-local-ai traces export [--out FILE] [--failed]   the good runs as one JSONL file of chat samples
+local-ai traces export [--out FILE] [--failed] [--from DIR]   the good runs as one JSONL file of chat samples
+local-ai traces collect TASKS.jsonl --out DIR ...            many graded runs against a server (see collect.py)
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +50,7 @@ def record(path: Path, agent: CoderAgent, task: str, outcome: Outcome) -> None:
 
 def mark(path: Path, resolved: bool) -> None:
     """The bench's verdict on the runs above it in the file: the task's own tests passed or not."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"resolved": resolved}) + "\n")
 
@@ -55,8 +58,10 @@ def mark(path: Path, resolved: bool) -> None:
 # -- export -------------------------------------------------------------------------------------------------------
 
 
-def trace_files() -> list[Path]:
-    """The trace files of the UI's chats and of the bench's runs."""
+def trace_files(folder: Path | None = None) -> list[Path]:
+    """The trace files of a folder (a collection), or else those of the UI's chats and of the bench's runs."""
+    if folder is not None:
+        return sorted(folder.rglob("*.trace.jsonl"))
     root = workspace_root()
     return sorted((root / "ui" / "runs").glob("*.trace.jsonl")) + sorted((root / "bench").rglob("*.trace.jsonl"))
 
@@ -108,10 +113,10 @@ def without_prefixes(samples: list[dict]) -> list[dict]:
     return kept
 
 
-def export(out: Path, failed: bool = False) -> tuple[int, int, int]:
+def export(out: Path, failed: bool = False, folder: Path | None = None) -> tuple[int, int, int]:
     """Write the samples of the good runs (all runs with failed) to out; returns (samples, runs used, runs left)."""
     samples, used, left = [], 0, 0
-    for path in trace_files():
+    for path in trace_files(folder):
         for run in runs(path):
             if not (failed or good(run)):
                 left += 1
@@ -136,8 +141,14 @@ def main(argv: list[str] | None = None) -> int:
     e = sub.add_parser("export", help="Write the good runs as chat samples (JSONL).")
     e.add_argument("--out", type=Path, default=None, help="Output file (default: <workspace>/traces/samples.jsonl).")
     e.add_argument("--failed", action="store_true", help="Take every run, also those that did not succeed.")
+    e.add_argument("--from", dest="folder", type=Path, default=None, help="Traces of this folder (a collection).")
+    from local_ai.coder.collect import add_parser, collect
+
+    add_parser(sub)
     args = p.parse_args(argv)
+    if args.command == "collect":
+        return asyncio.run(collect(args))
     out = args.out or workspace_root() / "traces" / "samples.jsonl"
-    n, used, left = export(out, args.failed)
+    n, used, left = export(out, args.failed, args.folder)
     print(f"{n} samples from {used} runs ({left} runs left out) -> {out}")
     return 0

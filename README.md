@@ -253,7 +253,14 @@ beside the bench results). The good runs become training data for a fine-tune:
 ```powershell
 local-ai traces export            # finished runs the judge and the tests accepted -> <workspace>/traces/samples.jsonl
 local-ai traces export --failed   # every run
+local-ai traces collect tasks.jsonl --out DIR --base-url http://127.0.0.1:8000/v1 --concurrency 32
 ```
+
+`traces collect` makes such runs in bulk: the coding agent solves small tasks (files plus a grade command, one JSON
+line each; see `coder/collect.py`) against any OpenAI-compatible server, several at once, and grades every run with
+the task's own tests after restoring the protected files. It is resumable. On a laptop with LM Studio keep
+`--concurrency 1`; a vLLM server in the cloud takes dozens at once (the RFT notebooks use it for round-2 data).
+`traces export --from DIR/traces` turns the collection into samples.
 
 One line per conversation (a compaction or a fresh start cuts a run into several): OpenAI-style `messages` with the
 thinking as `reasoning_content`, the `tools` the model had, and `meta` (task, model, outcome, source).
