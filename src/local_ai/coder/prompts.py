@@ -87,6 +87,19 @@ COMPACTED = (
     "Files:\n{files}\n{notes}\nContinue with the current step; read a file again if you need its content."
 )
 NOTES = "\nYour notes on the dropped part of the conversation:\n{note}\n"
+RESTART_REQUEST = (
+    "Below is a coding session that got stuck: replies were cut off while thinking, or went in circles. It will be "
+    "dropped and the work starts again with a clean context. Write notes for the fresh start, at most 250 words, in "
+    "English: the files and functions that matter, what the problem is as far as it is known, what was tried and "
+    "why it did not work, and the most promising next step. Facts only; no tools.\n\n{transcript}"
+)
+RESTARTED = (
+    "You are starting again with a clean context: the earlier attempt kept getting stuck in long thinking that was "
+    "cut off. The files on disk keep every change made so far.\n\nPlan and progress:\n{status}\n\n"
+    "Your changes so far (git diff):\n{diff}\n{notes}\n"
+    "Work in small steps: look at one place, act with a tool call, check with run_python or verify. Do not try to "
+    "settle everything in your head before acting, and do not repeat what the notes say did not work."
+)
 COMPACT_SYSTEM = "You write progress notes for a coding agent whose conversation is about to be cut short."
 COMPACT_REQUEST = (
     "Below is the start of a coding session that will be dropped from the context. Write notes for yourself, at most "

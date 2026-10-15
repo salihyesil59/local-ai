@@ -101,6 +101,7 @@ def test_the_meter_counts_turns_tokens_and_cut_off_replies():
         "tool_calls": 2,
         "model_seconds": 4.0,
         "judge_rejected": 0,
+        "restarts": 0,
     }
 
 

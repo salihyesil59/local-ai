@@ -15,6 +15,8 @@ The model only decides what to write next. The program decides when the work is 
   - before a task is called done a judge, in a conversation of its own, looks at the task, the diff and the output
     of the task's own examples; when it finds the task not solved, the review opens again with its reasons;
   - a long conversation is compacted: the plan and the files are on disk, so old messages can go;
+  - a run that keeps getting stuck (replies cut off while thinking, or thinking in circles) starts again with a
+    clean context: the model's notes on the attempt, the plan and the diff so far, nothing of the stuck turns;
   - a message the user sends while the agent works (steer) is shown to the model before its next reply.
 """
 
@@ -50,6 +52,7 @@ MAP_TOOLS = ("repo_map", "outline", "search")  # the coder's own
 LOOKUPS = ("read_file", "list_files", *MAP_TOOLS)
 UNSTICK_AFTER = 3  # cut-off replies in a row after which the next one is sampled more freely
 TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
+RESTART_DIFF_CHARS = 8000  # of the changes so far, given with a fresh start
 
 
 @dataclass
@@ -69,6 +72,8 @@ class Settings:
     # (a rename): no plan, the model changes the files and answers, then the program runs the tests once.
     speed: str = "normal"
     judge_rounds: int = 2  # times the judge may send a finished task back (normal speed only); 0 = no judge
+    restart_after: int = 4  # stuck replies (cut off or in circles) before a fresh start; 0 = never
+    max_restarts: int = 2  # fresh starts in one run
 
 
 def describe_error(error: Exception) -> str:
@@ -269,6 +274,32 @@ class CoderAgent:
         self.emit("compact", dropped=start - 2, noted=bool(note), manual=manual)
         return [*messages[:2], {"role": "user", "content": summary}, *messages[start:]]
 
+    async def restart(self, messages: list[dict], stuck: int) -> list[dict]:
+        """A fresh start after a stuck stretch: the instructions and the task, then the plan, the diff so far and
+        the model's notes on the attempt. The turns where it got stuck are not kept: reading them again keeps it
+        stuck. The files on disk keep every change."""
+        self.looked.clear()
+        request = prompts.RESTART_REQUEST.format(transcript=self.transcript(messages[2:]))
+        notes = ""
+        try:
+            reply = await self.llm.complete(
+                [{"role": "system", "content": prompts.COMPACT_SYSTEM}, {"role": "user", "content": request}],
+                None,
+                max_tokens=self.settings.notes_tokens,
+            )
+            notes = "" if reply.finish_reason == "length" else strip_think(reply.content)
+        except Exception as e:  # a failed note must not stop the work: the plan and the diff remain
+            self.emit("log", text=f"Could not write notes for the fresh start: {describe_error(e)}")
+        state = st.load(self.root)
+        change = await asyncio.to_thread(jd.diff, self.root)
+        restarted = prompts.RESTARTED.format(
+            status=st.render(self.root, state) if state else "(no plan yet)",
+            diff=trim(change, RESTART_DIFF_CHARS) if change else "(no change yet, or the folder is not a git repository)",
+            notes=prompts.NOTES.format(note=notes) if notes else "",
+        )
+        self.emit("restart", stuck=stuck, noted=bool(notes), dropped=len(messages) - 2)
+        return [*messages[:2], {"role": "user", "content": restarted}]
+
     def emit_turn(self, turn: int, reply: Reply, context: int) -> None:
         """What a reply cost; context is the size of the conversation it was given, in characters."""
         self.emit(
@@ -340,7 +371,7 @@ class CoderAgent:
         if not task.startswith("Continue the existing plan"):  # the UI's "go on" is not a task of its own
             self.asked.append(task)
         specs = [t.spec() for t in self.tools.values()]
-        edits = nudges = judged = 0
+        edits = nudges = judged = stuck = restarts = 0
         wrap_up = unstick = False
         cut_off = None  # the nudge after the last cut-off reply
 
@@ -392,6 +423,13 @@ class CoderAgent:
                     messages.pop()
                 cut_off = {"role": "user", "content": nudge}
                 messages.append(cut_off)
+                stuck += 1
+                limit = self.settings.restart_after
+                if limit and stuck >= limit and restarts < self.settings.max_restarts and not self.quick:
+                    messages = self.messages = await self.restart(messages, stuck)
+                    restarts += 1
+                    stuck = nudges = 0
+                    unstick = False
                 continue
             unstick = False
 

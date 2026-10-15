@@ -509,7 +509,9 @@ async def test_pages_of_a_paper_are_kept_longer_than_other_tool_output(project):
 @pytest.mark.anyio
 async def test_the_fitting_skill_is_given_with_the_task(project):
     task = "Implement the algorithm of the paper arxiv.org/abs/1412.6980"
-    agent, client, events = make_agent(project, [say(calls=[plan_call()]), say("stop")], require_skill=True, max_nudges=0)
+    agent, client, events = make_agent(
+        project, [say(calls=[plan_call()]), say("stop")], require_skill=True, max_nudges=0
+    )
     await agent.run(task)
     first = client.requests[0]["messages"][1]["content"]
     assert first.startswith(task) and "The skill for this kind of task is from-paper" in first
@@ -561,12 +563,17 @@ def test_tool_calls_written_as_function_markup_are_parsed():
 
     content = (
         "I will look.\n<tool_call>\n<function=edit_file>\n<parameter=path>\ncosmo.py\n</parameter>\n"
-        "<parameter=old>\na\nb\n</parameter>\n<parameter=steps>[\"x\", \"y\"]</parameter>\n"
+        '<parameter=old>\na\nb\n</parameter>\n<parameter=steps>["x", "y"]</parameter>\n'
         "<parameter=start>3</parameter>\n</function>\n</tool_call>"
     )
     (found,) = parse_inline_tool_calls(content)
     assert found["function"]["name"] == "edit_file"
-    assert json.loads(found["function"]["arguments"]) == {"path": "cosmo.py", "old": "a\nb", "steps": ["x", "y"], "start": 3}
+    assert json.loads(found["function"]["arguments"]) == {
+        "path": "cosmo.py",
+        "old": "a\nb",
+        "steps": ["x", "y"],
+        "start": 3,
+    }
     assert strip_tool_calls(content) == "I will look."
 
 
@@ -601,7 +608,9 @@ async def test_the_same_look_up_twice_is_not_answered_again(project):
     await agent.run("task")
     results = [d["output"] for kind, d in events if kind == "tool_result" and d["name"] == "read_file"]
     assert results == ["x = 1", prompts.REPEATED, "x = 2"]
-    again, client, events = make_agent(project, [say(calls=[read, call("read_file", path="a.py", start=1, end=1)]), say("stop")])
+    again, client, events = make_agent(
+        project, [say(calls=[read, call("read_file", path="a.py", start=1, end=1)]), say("stop")]
+    )
     await again.run("task")  # other lines of the same file are another look-up
     assert prompts.REPEATED not in [d["output"] for kind, d in events if kind == "tool_result"]
 
@@ -637,7 +646,10 @@ async def test_a_stopped_run_goes_on_with_its_conversation(project):
     assert outcome.finished and outcome.summary == "Bitti." and not agent.interrupted
     resumed = client.requests[3]["messages"]
     assert resumed[1]["content"] == "Add things" and resumed[5]["content"].startswith("Wrote test_it.py")
-    assert resumed[6]["content"].startswith("(The user stopped your previous reply") and "Go on, and call verify" in resumed[6]["content"]
+    assert (
+        resumed[6]["content"].startswith("(The user stopped your previous reply")
+        and "Go on, and call verify" in resumed[6]["content"]
+    )
     assert "The plan is not finished" in resumed[6]["content"]
 
     # a stop in the middle of tool calls leaves no call without a result
@@ -647,8 +659,9 @@ async def test_a_stopped_run_goes_on_with_its_conversation(project):
         {"role": "tool", "tool_call_id": "a", "content": "done"},
     ]
     CoderAgent.repair(broken)
-    assert [m.get("tool_call_id") for m in broken] == [None, None, "a", "b"] and broken[3]["content"] == prompts.STOPPED_CALL
-
+    assert [m.get("tool_call_id") for m in broken] == [None, None, "a", "b"] and broken[3][
+        "content"
+    ] == prompts.STOPPED_CALL
 
 
 @pytest.mark.anyio
@@ -685,7 +698,10 @@ def test_only_thinking_that_repeats_itself_goes_in_circles():
 
 @pytest.mark.anyio
 async def test_a_long_stretch_of_cut_offs_is_sampled_more_freely(project):
-    script = [say(finish="length", thinking=f"Idea number {i}.") for i in range(3)] + [say(calls=[plan_call()]), say("x")]
+    script = [say(finish="length", thinking=f"Idea number {i}.") for i in range(3)] + [
+        say(calls=[plan_call()]),
+        say("x"),
+    ]
     agent, client, _ = make_agent(project, script, max_nudges=3)
     await agent.run("task")
     assert [r["temperature"] for r in client.requests[:5]] == [0.6, 0.6, 0.6, 0.9, 0.6]
@@ -694,7 +710,9 @@ async def test_a_long_stretch_of_cut_offs_is_sampled_more_freely(project):
 @pytest.mark.anyio
 async def test_a_quick_task_has_no_plan_and_ends_with_the_tests(project):
     (project / "calc.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
-    (project / "test_calc.py").write_text("from calc import total\n\n\ndef test_total():\n    assert total([1, 2]) == 3\n")
+    (project / "test_calc.py").write_text(
+        "from calc import total\n\n\ndef test_total():\n    assert total([1, 2]) == 3\n"
+    )
     agent, client, events = make_agent(
         project,
         [
@@ -728,3 +746,28 @@ async def test_a_fast_task_ends_with_its_last_step(project):
     outcome = await agent.run("Add things")
     assert outcome.finished and outcome.summary == "Bitti." and len(client.requests) == 3  # no review turn
     assert st.finished(st.load(project))
+
+
+@pytest.mark.anyio
+async def test_a_run_that_keeps_getting_stuck_starts_again_with_notes_and_a_clean_context(project):
+    stuck = [say(finish="length", thinking=f"Maybe it is case {i}.") for i in range(4)]
+    script = [say(calls=[plan_call()]), *stuck, say("The bug is in f(); the sign test was tried."), say("x")]
+    agent, client, events = make_agent(project, script, max_turns=6)
+    await agent.run("Fix the sign bug")
+    notes_request, fresh = client.requests[5], client.requests[6]
+    assert "tools" not in notes_request and "Maybe it is case 3." in notes_request["messages"][1]["content"]
+    sent = fresh["messages"]
+    assert len(sent) == 3 and sent[1]["content"] == client.requests[0]["messages"][1]["content"]  # the task stays
+    assert "starting again" in sent[2]["content"] and "The bug is in f()" in sent[2]["content"]
+    assert "Goal: g" in sent[2]["content"]  # the plan
+    assert not any("Maybe it is case" in str(m.get("content")) for m in sent)  # the stuck turns are gone
+    assert [e for kind, e in events if kind == "restart"] == [{"stuck": 4, "noted": True, "dropped": 3}]
+
+
+@pytest.mark.anyio
+async def test_no_fresh_start_when_it_is_switched_off(project):
+    script = [say(calls=[plan_call()]), *[say(finish="length") for _ in range(4)], say("x")]
+    agent, client, events = make_agent(project, script, max_turns=6, restart_after=0)
+    await agent.run("task")
+    assert not [kind for kind, _ in events if kind == "restart"]
+    assert all("tools" in r for r in client.requests)  # no notes request

@@ -104,6 +104,7 @@ class Meter:
     tool_calls: int = 0
     model_seconds: float = 0.0
     judge_rejected: int = 0  # times the judge sent a finished coding task back
+    restarts: int = 0  # fresh starts of a coding task that kept getting stuck
     tools: dict[str, int] = field(default_factory=dict)
 
     def __call__(self, kind: str, **data) -> None:
@@ -118,6 +119,8 @@ class Meter:
             self.tool_calls += 1
         elif kind == "judge" and not data.get("solved"):
             self.judge_rejected += 1
+        elif kind == "restart":
+            self.restarts += 1
 
     def event(self, event: dict) -> None:  # the research agent passes one dict per event
         self(event["kind"], **{k: v for k, v in event.items() if k != "kind"})
@@ -130,6 +133,7 @@ class Meter:
             "tool_calls": self.tool_calls or sum(self.tools.values()),
             "model_seconds": round(self.model_seconds, 1),
             "judge_rejected": self.judge_rejected,
+            "restarts": self.restarts,
         }
 
 

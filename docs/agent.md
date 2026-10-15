@@ -174,6 +174,12 @@ When the answer is NOT SOLVED, the review opens again and the coder gets the rea
 at most twice; after that the task ends as usual. The judge runs in normal speed only. It needs a git repository
 (the diff), and when it cannot give a clear answer it does not hold the task up.
 
+A run that keeps getting stuck starts again. After four replies that were cut off while thinking, or that went
+in circles, the model writes short notes on the attempt (the files that matter, what was tried, what to do next).
+The conversation is then replaced by the task, the plan, the diff so far and those notes. The stuck turns are left
+out, since reading them again keeps the model stuck, and the files on disk keep every change. This happens at most
+twice in a run.
+
 Two boxes make a code run shorter:
 
 - **Quick**, for a small mechanical change (rename a variable everywhere, fix one line): no plan, no verify per

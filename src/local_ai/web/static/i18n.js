@@ -114,6 +114,7 @@ const TR = {
   // timeline
   "Tool calls": "Araç çağrıları", "Thinking": "Düşünme", "Model output": "Model çıktısı", "more lines": "satır daha",
   "Recalled from memory": "Bellekten hatırlananlar", "Gaps found — researching more": "Eksikler bulundu — araştırma sürüyor",
+  "Stuck in long thinking {n} times: starting again with a clean context{notes}.": "Uzun düşünmede {n} kez takıldı: temiz bir bağlamla yeniden başlıyor{notes}.",
   "Judge: the change solves the task.": "Hakem: değişiklik görevi çözüyor.", "Judge: not solved yet": "Hakem: henüz çözülmedi",
   "Reviewer": "İnceleyen", "Automatic checks": "Otomatik kontroller", "Reviewer found no issues.": "İnceleyen sorun bulmadı.",
   "Checks passed.": "Kontroller geçti.", "Computations notebook: ": "Hesaplama defteri: ", "cached tool calls": "araç çağrısı önbellekten",

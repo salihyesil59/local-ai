@@ -1514,6 +1514,10 @@ function renderEvent(e, ctx) {
       append(el("div", { class: "card" }, el("div", { class: "calls" }, d)));
       break;
     }
+    case "restart": // stuck too often: the run starts again with a clean context
+      append(el("div", { class: "log warning" }, t("Stuck in long thinking {n} times: starting again with a clean context{notes}.",
+        { n: e.stuck, notes: e.noted ? t(" and the model's notes") : "" })));
+      break;
     case "judge": // the check of a finished task against the task itself, in a conversation of its own
       if (e.solved) append(el("div", { class: "log success" }, t("Judge: the change solves the task.")));
       else append(el("div", { class: "card" }, el("h4", {}, t("Judge: not solved yet")), el("div", { class: "problems" }, e.reasons)));
