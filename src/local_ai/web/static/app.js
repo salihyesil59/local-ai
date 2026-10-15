@@ -49,6 +49,8 @@ const ICONS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
   contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
 };
 
 function icon(name) {
@@ -81,7 +83,7 @@ function switchLanguage() {
   location.reload(); // every text of the page is written again
 }
 
-for (const tab of document.querySelectorAll(".tab[data-icon]")) tab.prepend(icon(tab.dataset.icon));
+for (const node of document.querySelectorAll("[data-icon]")) node.prepend(icon(node.dataset.icon));
 $("#cancel").append(icon("stop"));
 $("#theme").addEventListener("click", nextTheme);
 $("#lang").addEventListener("click", switchLanguage);
@@ -150,20 +152,75 @@ resizable($("#panel-resizer"), {
 if (+recall("sidebar")) setSidebar(+recall("sidebar"), false);
 if (+recall("panel")) setPanel(+recall("panel"), false);
 
+// -- the sidebar and the panel can be hidden (Ctrl+B, Ctrl+.); the choice is remembered in this browser --------
+// On a phone the sidebar is a drawer: open until a chat or a page is chosen, and not remembered.
+const phone = window.matchMedia("(max-width: 760px)");
+function toggleSidebar() {
+  if (phone.matches) document.documentElement.classList.toggle("side-open");
+  else remember("sidebar-hidden", document.documentElement.classList.toggle("no-sidebar") ? "1" : "");
+}
+const closeDrawer = () => document.documentElement.classList.remove("side-open");
+const sidebarHidden = () => (phone.matches ? !document.documentElement.classList.contains("side-open")
+  : document.documentElement.classList.contains("no-sidebar"));
+
+function setPanelOpen(open, save = true) {
+  document.documentElement.classList.toggle("no-panel", !open);
+  $("#panel-toggle").setAttribute("aria-pressed", String(open));
+  if (save) remember("panel-hidden", open ? "0" : "1");
+  if (open) schedulePanel();
+}
+const togglePanel = () => setPanelOpen(document.documentElement.classList.contains("no-panel"));
+
+document.addEventListener("click", (ev) => { if (phone.matches && !ev.target.closest(".sidebar, #show-sidebar, .menu, dialog")) closeDrawer(); });
+$("#hide-sidebar").addEventListener("click", toggleSidebar);
+$("#show-sidebar").addEventListener("click", toggleSidebar);
+$("#panel-toggle").addEventListener("click", togglePanel);
+
+// -- drawing once per frame: streamed text, the panel and the scrolling follow the events at the screen's pace ----
+// A job added while the jobs run still runs in the same frame. A browser may hold frames back (a hidden or
+// covered window): a timer runs the jobs then, at most 100 ms late.
+const frameJobs = new Set();
+let framePending = false;
+
+function later(job) {
+  frameJobs.add(job);
+  if (framePending) return;
+  framePending = true;
+  const frame = requestAnimationFrame(runFrameJobs);
+  const timer = setTimeout(runFrameJobs, 100);
+  later.cancel = () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+}
+
+function runFrameJobs() {
+  later.cancel();
+  for (const job of frameJobs) {
+    frameJobs.delete(job);
+    try { job(); } catch (e) { console.error(e); } // one broken job must not stop the others, or the next frames
+  }
+  framePending = false;
+}
+
 // -- status -----------------------------------------------------------------------
 async function loadStatus() {
   try {
     state.status = await api("/api/status");
     const s = state.status;
-    const box = $("#status");
-    box.classList.toggle("err", !!s.error);
-    box.textContent = s.error ? s.error : `${s.model || t("model: auto")} · ${s.servers.join(", ") || t("no servers")} · ${s.tools} ${t("tools")}`;
-    box.title = `Workspace: ${s.workspace}\nLM Studio: ${s.base_url}`;
+    showStatus(s.error ? "failed" : "done", s.error || `${s.model || t("model: auto")} · ${s.tools} ${t("tools")}`,
+      `${t("Servers")}: ${s.servers.join(", ") || t("no servers")}\nWorkspace: ${s.workspace}\nLM Studio: ${s.base_url}`);
     renderMcpSelectors();
+    schedulePanel();
   } catch (e) {
-    $("#status").textContent = t("server not reachable");
-    $("#status").classList.add("err");
+    showStatus("failed", t("server not reachable"), e.message);
   }
+}
+
+// The foot of the sidebar: a dot (green: ready, red: a problem) and one line; the details in its tooltip.
+function showStatus(dot, text, details) {
+  const box = $("#status");
+  box.classList.toggle("err", dot === "failed");
+  box.querySelector(".dot").className = `dot ${dot}`;
+  box.querySelector(".status-text").textContent = text;
+  box.title = `${text}\n${details}`;
 }
 
 // -- MCP servers for a message: a menu at the message box (the servers this message may use) --------
@@ -192,24 +249,16 @@ function switchRow(label, on, change, detail) {
 
 function renderMcpSelectors() {
   const offered = offeredServers(), chosen = chosenServers();
-  $("#tools-toggle").replaceChildren(icon("plug"), ` ${t("Tools")}`,
-    offered.length ? el("span", { class: "count" }, `${chosen.length}/${offered.length}`) : null);
   const counts = state.toolCounts || {};
   $("#tools-menu").replaceChildren(
-    el("div", { class: "menu-head" }, t("Servers this message may use")),
+    el("div", { class: "menu-head" }, t("Servers this message may use"), offered.length ? ` · ${chosen.length}/${offered.length}` : ""),
     ...(offered.length ? offered.map((s) => switchRow(s, chosen.includes(s), (on) => {
       const next = on ? [...chosenServers(), s] : chosenServers().filter((x) => x !== s);
       remember("mcp_servers_" + state.mode, JSON.stringify(next));
       renderMcpSelectors();
+      schedulePanel();
     }, counts[s] != null ? `${counts[s]} ${t("tools")}` : "")) : [el("p", { class: "muted" }, t("No servers are running."))]),
-    el("button", { class: "ghost small", type: "button", onclick: () => { toggleToolsMenu(false); goTo("tools"); } }, t("Manage servers…")));
-}
-
-function toggleToolsMenu(open) {
-  const menu = $("#tools-menu");
-  menu.hidden = open === undefined ? !menu.hidden : !open;
-  $("#tools-toggle").setAttribute("aria-expanded", String(!menu.hidden));
-  if (!menu.hidden) loadToolCounts();
+    el("button", { class: "ghost small", type: "button", onclick: () => { closePopovers(); goTo("tools"); } }, t("Manage servers…")));
 }
 
 async function loadToolCounts() {
@@ -219,8 +268,43 @@ async function loadToolCounts() {
   renderMcpSelectors();
 }
 
-$("#tools-toggle").addEventListener("click", () => toggleToolsMenu());
-document.addEventListener("click", (ev) => { if (!ev.target.closest("#tools-menu, #tools-toggle")) toggleToolsMenu(false); });
+// -- the menus above the message box: + (images, notebook, options, tools) and the model with its settings -----
+const POPOVERS = [["#plus-menu", "#plus"], ["#settings", "#settings-toggle"]];
+
+function togglePopover(menu, open) {
+  for (const [m, button] of POPOVERS) {
+    const show = m === menu && (open ?? $(m).hidden);
+    $(m).hidden = !show;
+    $(button).setAttribute("aria-expanded", String(show));
+  }
+  return !!menu && !$(menu).hidden;
+}
+const closePopovers = () => togglePopover(null, false);
+
+$("#plus").addEventListener("click", () => { if (togglePopover("#plus-menu")) loadToolCounts(); });
+document.addEventListener("click", (ev) => {
+  for (const [m, button] of POPOVERS) if (!$(m).hidden && !ev.target.closest(`${m}, ${button}`)) togglePopover(m, false);
+});
+
+// What the + menu has set, as small chips beside it: seen at a glance, removed with one click.
+function renderChips() {
+  const code = state.mode === "code", chat = state.mode === "chat";
+  const chip = (label, clear) => el("span", { class: "chip", title: label }, el("span", {}, label),
+    el("button", { type: "button", title: t("Remove"), "aria-label": `${t("Remove")}: ${label}`, onclick: clear }, icon("x")));
+  const off = (id) => () => { $(id).checked = !$(id).checked; optionsChanged(); };
+  $("#chips").replaceChildren(...[
+    !code && $("#notebook").value ? chip(`${t("Notebook")}: ${$("#notebook").value}`, () => setNotebook("")) : null,
+    !chat && $("#fast").checked ? chip(t("Fast"), off("#fast")) : null,
+    !chat && $("#quick").checked ? chip(t("Quick"), off("#quick")) : null,
+    state.mode === "research" && !$("#sources").checked ? chip(t("No sources"), off("#sources")) : null,
+  ].filter(Boolean));
+}
+
+function optionsChanged() {
+  renderChips();
+  schedulePanel();
+}
+for (const id of ["#fast", "#quick", "#sources"]) $(id).addEventListener("change", optionsChanged);
 
 // -- the Tools view: the MCP servers, with their tools; add, switch off, restart, remove ----------
 async function loadTools() {
@@ -290,27 +374,42 @@ function fileUrl(path) {
 }
 
 // -- navigation ---------------------------------------------------------------------
+// "new" is the chat (a new one or the open one); the others are pages chosen in the sidebar.
+const PAGE_TITLES = { projects: "Projects", project: "Projects", memory: "Memory", skills: "Skills", tools: "Tools", offline: "Offline" };
+
 function show(view) {
   state.view = view;
+  closeDrawer();
   for (const s of document.querySelectorAll(".view")) s.hidden = s.id !== `view-${view}`;
   for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t.dataset.view === view || (view === "project" && t.dataset.view === "projects"));
+  $("#panel-toggle").hidden = view !== "new";
+  renderTitle();
+  renderChats(); // the open chat is marked only while it is shown
 }
 
-document.querySelectorAll(".tab").forEach((tab) =>
-  tab.addEventListener("click", () => {
-    const v = tab.dataset.view;
-    if (v === "new") { show("new"); renderChats(); renderRunsSidebar(); }
-    if (v === "projects") {
-      renderProjectsSidebar();
-      if (state.project) openProject(state.project);
-      else { show("project"); $("#view-project").replaceChildren(el("p", { class: "muted" }, t("Pick a project on the left."))); }
-    }
-    if (v === "memory") { show("memory"); $("#side-list").replaceChildren(); loadMemory(); }
-    if (v === "skills") { show("skills"); $("#side-list").replaceChildren(); loadSkills(); }
-    if (v === "tools") { show("tools"); $("#side-list").replaceChildren(); loadTools(); }
-    if (v === "offline") { show("offline"); $("#side-list").replaceChildren(); loadOffline(); }
-  })
-);
+function openView(view) {
+  if (view === "new") show("new");
+  if (view === "projects") { show("projects"); loadProjects(); }
+  if (view === "memory") { show("memory"); loadMemory(); }
+  if (view === "skills") { show("skills"); loadSkills(); }
+  if (view === "tools") { show("tools"); loadTools(); }
+  if (view === "offline") { show("offline"); loadOffline(); }
+}
+const goTo = openView;
+
+document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => openView(tab.dataset.view)));
+
+// The top bar names what is shown; the title of a chat opens its menu (rename, pin, move, delete).
+function renderTitle() {
+  const button = $("#chat-title");
+  const run = state.view === "new" ? state.runs[state.currentRun] : null;
+  button.disabled = !run;
+  button.replaceChildren(run ? chatTitle(run) : t(PAGE_TITLES[state.view] || "New chat"), run ? icon("down") : "");
+}
+$("#chat-title").addEventListener("click", () => {
+  const run = state.runs[state.currentRun];
+  if (run) chatMenu($("#chat-title"), run);
+});
 
 // -- Offline: notebooks, library files and ZIM archives --------------------------------------------
 const megabytes = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB`
@@ -323,15 +422,15 @@ function renderNotebookChooser() {
   box.replaceChildren(el("option", { value: "" }, t("No notebook")),
     ...state.notebooks.map((n) => el("option", { value: n.name }, `${t("Notebook")}: ${n.name} (${n.files.length})`)));
   box.value = state.notebooks.some((n) => n.name === chosen) ? chosen : "";
-  box.classList.toggle("chosen", !!box.value);
+  optionsChanged();
 }
 function setNotebook(name) {
   if (name && !state.notebooks.some((n) => n.name === name)) state.notebooks.push({ name, files: [] }); // until the list loads
   renderNotebookChooser();
   $("#notebook").value = name;
-  $("#notebook").classList.toggle("chosen", !!name);
+  optionsChanged();
 }
-$("#notebook").addEventListener("change", () => $("#notebook").classList.toggle("chosen", !!$("#notebook").value));
+$("#notebook").addEventListener("change", optionsChanged);
 
 async function upload(files, folder) {
   for (const file of files) {
@@ -347,7 +446,7 @@ async function upload(files, folder) {
 }
 
 // A place files can be dropped onto (and chosen for) that uploads them into folder.
-function dropTarget(zone, folder, input) {
+function fileDropTarget(zone, folder, input) {
   zone.addEventListener("dragover", (ev) => { if ([...ev.dataTransfer.types].includes("Files")) { ev.preventDefault(); zone.classList.add("dropping"); } });
   zone.addEventListener("dragleave", () => zone.classList.remove("dropping"));
   zone.addEventListener("drop", (ev) => { ev.preventDefault(); zone.classList.remove("dropping"); upload([...ev.dataTransfer.files], folder()); });
@@ -383,7 +482,7 @@ function renderNotebooks(notebooks) {
         el("span", { class: "spacer" }), add, remove, input),
       n.files.length ? el("div", { class: "file-rows" }, n.files.map((f) => fileRow(f, f.path.split("/").slice(2).join("/"))))
         : el("p", { class: "muted note" }, t("Drop files here or use Add files.")));
-    dropTarget(card, () => `notebooks/${n.name}`, input);
+    fileDropTarget(card, () => `notebooks/${n.name}`, input);
     return card;
   }) : [el("p", { class: "muted" }, t("No notebooks yet."))]));
 }
@@ -442,7 +541,7 @@ $("#notebook-add").addEventListener("submit", async (ev) => {
 });
 
 $("#library-pick").addEventListener("click", () => $("#library-input").click());
-dropTarget($("#library-drop"), () => "", $("#library-input"));
+fileDropTarget($("#library-drop"), () => "", $("#library-input"));
 
 async function loadOffline() {
   try {
@@ -530,7 +629,7 @@ function toggleFolder(id) {
 }
 
 function closeMenu() { document.querySelectorAll(".menu").forEach((m) => m.remove()); }
-document.addEventListener("click", (ev) => { if (!ev.target.closest(".menu, .icon")) closeMenu(); });
+document.addEventListener("click", (ev) => { if (!ev.target.closest(".menu, .icon, #chat-title")) closeMenu(); });
 
 function showMenu(anchor, entries) {
   closeMenu();
@@ -547,8 +646,10 @@ async function guarded(fn) {
 
 const patchRun = (id, fields) => guarded(() => api(`/api/runs/${id}`, { method: "PATCH", body: JSON.stringify(fields) }));
 
+// The title is edited where it stands: in the sidebar, or in the top bar when the sidebar is hidden or filtered.
 function renameChat(r) {
-  const title = document.querySelector(`.side-row[data-run="${r.id}"] .t`);
+  const row = document.querySelector(`.side-row[data-run="${r.id}"] .t`);
+  const title = row && row.offsetParent ? row : state.currentRun === r.id ? $("#chat-title") : null;
   if (title) editInPlace(title, chatTitle(r), (text) => patchRun(r.id, { title: text }), t("Chat title (empty = automatic)"));
 }
 
@@ -588,7 +689,7 @@ function folderMenu(anchor, f) {
 
 // A new folder is named where it will stand, at the top of the list.
 function newFolder(then) {
-  if (state.view !== "new") show("new");
+  if (sidebarHidden()) toggleSidebar();
   renderChats();
   const slot = el("span");
   $("#chat-rows").prepend(slot);
@@ -616,7 +717,7 @@ function renderTarget() {
 }
 
 function chatRow(r) {
-  return el("div", { class: "side-row" + (state.currentRun === r.id ? " active" : ""), "data-run": r.id, draggable: "true",
+  return el("div", { class: "side-row" + (state.view === "new" && state.currentRun === r.id ? " active" : ""), "data-run": r.id, draggable: "true",
     ondragstart: (ev) => { ev.dataTransfer.setData("text/plain", r.id); ev.dataTransfer.effectAllowed = "move"; state.dragging = r.id; },
     ondragend: () => { state.dragging = null; } },
     el("button", { class: "side-item", onclick: () => attach(r.id), title: r.question },
@@ -645,16 +746,11 @@ async function renderRunsSidebar() {
   state.runs = Object.fromEntries(runs.map((r) => [r.id, r]));
   renderTarget();
   renderChats();
+  renderTitle();
 }
 
 function renderChats() {
-  if (state.view !== "new" || $("#side-list .inline-edit")) return; // another tab owns the sidebar, or a name is being typed
-  if (!$("#chat-rows")) {
-    $("#side-list").replaceChildren(
-      el("button", { class: "ghost new-chat", type: "button", onclick: newChat, title: "Alt+N" }, t("+ New chat")),
-      el("input", { id: "chat-search", type: "search", placeholder: t("Search chats  ( / )"), "aria-label": t("Search chats"), oninput: renderChats }),
-      el("div", { id: "chat-rows", class: "side-list" }));
-  }
+  if ($("#chat-rows .inline-edit")) return; // a name is being typed
   const { runList: runs, folders } = state;
   const query = $("#chat-search").value.trim().toLowerCase();
   const items = [dropTarget(el("div", { class: "side-head", title: t("Drop a chat here to take it out of its folder") }, el("span", { class: "muted" }, query ? t("Found") : t("Chats")),
@@ -682,6 +778,8 @@ function renderChats() {
   }
   $("#chat-rows").replaceChildren(...items);
 }
+$("#chat-search").addEventListener("input", renderChats);
+$("#new-chat").addEventListener("click", () => newChat());
 
 // A short sidebar title: the first line of the prompt, cut at a word, like a chat title.
 function shortTitle(text, max = 40) {
@@ -697,11 +795,13 @@ const knownMode = (mode) => (MODES.includes(mode) ? mode : "research");
 
 function setMode(mode) {
   state.mode = knownMode(mode);
-  document.querySelectorAll(".mode").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  document.querySelectorAll(".mode[data-mode]").forEach((b) => b.classList.toggle("active", b.dataset.mode === state.mode));
   renderMcpSelectors();
   updateComposer();
+  optionsChanged();
+  if ($("#timeline .welcome")) renderWelcome();
 }
-document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", () => { remember("mode", b.dataset.mode); setMode(b.dataset.mode); }));
+document.querySelectorAll(".mode[data-mode]").forEach((b) => b.addEventListener("click", () => { remember("mode", b.dataset.mode); setMode(b.dataset.mode); }));
 
 function updateComposer() {
   const code = state.mode === "code", chat = state.mode === "chat";
@@ -718,10 +818,10 @@ function updateComposer() {
   $("#run").replaceChildren(icon("up"));
   $("#run").title = `${action} (Ctrl+Enter)`;
   $("#run").setAttribute("aria-label", action);
-  $("#chat-title").textContent = run ? chatTitle(run) : "";
-  $("#fast-opt").title = code ? t("Plan and verify, but no review at the end and no project map; shorter thinking")
+  renderTitle();
+  $("#fast-opt small").textContent = code ? t("Plan and verify, but no review at the end and no project map; shorter thinking")
     : t("Skip review, gap check and learning");
-  $("#quick-opt").title = code ? t("A small mechanical change (a rename): no plan, the tests run once at the end")
+  $("#quick-opt small").textContent = code ? t("A small mechanical change (a rename): no plan, the tests run once at the end")
     : t("Quick answer: one tool loop, no plan or report");
   $("#run").disabled = state.running && !steer;
   $("#cancel").hidden = !state.running;
@@ -803,8 +903,7 @@ async function addImages(files) {
   renderAttachments();
 }
 
-$("#attach").replaceChildren(icon("image"));
-$("#attach").addEventListener("click", () => $("#attach-input").click());
+$("#attach").addEventListener("click", () => { closePopovers(); $("#attach-input").click(); });
 $("#attach-input").addEventListener("change", (ev) => { addImages([...ev.target.files]); ev.target.value = ""; });
 $("#question").addEventListener("paste", (ev) => {
   const files = [...(ev.clipboardData?.items || [])].filter((i) => i.kind === "file" && IMAGE_TYPES.test(i.type)).map((i) => i.getAsFile());
@@ -862,6 +961,7 @@ $("#ask").addEventListener("submit", async (ev) => {
       run = await api("/api/runs", { method: "POST", body: JSON.stringify({ ...body, chat_folder: state.targetFolder }) });
     }
     sent();
+    closePopovers();
     state.runs[run.id] = run;
     attach(run.id);
     renderRunsSidebar();
@@ -918,7 +1018,8 @@ function recalledSettings() {
 function renderSettingsButton() {
   const settings = getSettings();
   const changed = Object.keys(settings).filter((k) => k !== "model").length;
-  $("#settings-toggle").replaceChildren(icon("gear"), ` ${settings.model || state.defaultModel || t("model: auto")}${changed ? ` · ${changed} ${t("set")}` : ""}`);
+  $("#settings-toggle").replaceChildren(`${settings.model || state.defaultModel || t("model: auto")}${changed ? ` · ${changed} ${t("set")}` : ""}`, icon("down"));
+  schedulePanel();
 }
 
 async function loadModels() {
@@ -932,43 +1033,67 @@ async function loadModels() {
   renderSettingsButton();
 }
 
-$("#settings-toggle").addEventListener("click", () => {
-  const box = $("#settings");
-  box.hidden = !box.hidden;
-  $("#settings-toggle").setAttribute("aria-expanded", String(!box.hidden));
-  if (!box.hidden) loadModels();
-});
+$("#settings-toggle").addEventListener("click", () => { if (togglePopover("#settings")) loadModels(); });
+$("#folder").addEventListener("input", () => schedulePanel());
 $("#settings").addEventListener("change", () => { remember("settings", JSON.stringify(getSettings())); renderSettingsButton(); });
 $("#set-reset").addEventListener("click", () => { setSettings({}); remember("settings", "{}"); });
 
-// -- the meter of a code run: turns, speed, and how full the context is (it is compacted at 100%) ----
+// -- the meter of a run: turns, speed, and how full the context is (it is compacted at 100%) ---------------
+// The message box shows how full the context is; the panel shows the details.
+const contextFull = (e) => Math.min(100, Math.round((100 * e.context) / e.context_limit));
+const contextGauge = (full) => el("span", { class: "gauge" + (full >= 80 ? " high" : "") }, el("span", { style: `width:${full}%` }));
+const contextTitle = (e) => t("Context: {used}k of {limit}k characters", { used: Math.round(e.context / 1000), limit: Math.round(e.context_limit / 1000) }) +
+  (e.prompt_tokens ? ` (${e.prompt_tokens} ${t("tokens")})` : "") + t(". At 100% it is compacted: old messages are replaced by notes.");
+
 function renderMeter(e) {
+  state.meter = e;
+  schedulePanel();
   const meter = $("#meter");
-  const speed = e.tokens && e.seconds > 0.05 ? `${Math.round(e.tokens / e.seconds)} tok/s` : null;
-  const parts = [`${t("Turn")} ${e.turn}${e.max_turns ? `/${e.max_turns}` : ""}`, speed].filter(Boolean).join(" · ");
-  if (!e.context_limit) { meter.replaceChildren(parts); meter.hidden = false; return; }
-  const full = Math.min(100, Math.round((100 * e.context) / e.context_limit));
-  meter.replaceChildren(parts, ` · ${t("context")} `,
-    el("span", { class: "gauge" + (full >= 80 ? " high" : "") }, el("span", { style: `width:${full}%` })), ` ${full}%`);
-  meter.title = t("Context: {used}k of {limit}k characters", { used: Math.round(e.context / 1000), limit: Math.round(e.context_limit / 1000) }) +
-    (e.prompt_tokens ? ` (${e.prompt_tokens} ${t("tokens")})` : "") + t(". At 100% it is compacted: old messages are replaced by notes.");
-  meter.hidden = false;
+  meter.hidden = !e.context_limit;
+  if (!e.context_limit) return;
+  const full = contextFull(e);
+  meter.replaceChildren(`${t("context")} `, contextGauge(full), ` ${full}%`);
+  meter.title = contextTitle(e);
 }
 
 // -- a chat: its timeline and its progress panel --------------------------------------------------
-function newChat() {
-  show("new");
-  if (state.source) state.source.close();
-  state.currentRun = null;
+// The page of a new chat: what the chosen mode does, and a few questions to start with.
+const MODE_HINTS = {
+  chat: "Chat answers at once, with the tools you switch on in the + menu.",
+  research: "Research answers a question from your library, Wikipedia and arXiv, with sources.",
+  code: "Code writes, runs and tests a project in a folder of yours.",
+};
+const EXAMPLES = {
+  chat: ["Explain the difference between TCP and UDP in simple terms.", "Write a polite email that moves a meeting to Friday.",
+    "What is a Fourier transform used for?"],
+  research: ["Derive the ground state energy of the hydrogen atom.", "What limits the efficiency of silicon solar cells?",
+    "How does CRISPR-Cas9 cut DNA?"],
+  code: ["Add unit tests for the main module and make them pass.", "Find and fix the bug that makes the tests fail.",
+    "Write a command-line tool that renames photos by the date they were taken."],
+};
+
+function renderWelcome() {
+  const use = (text) => { $("#question").value = text; resizeQuestion(); $("#question").focus(); };
   $("#timeline").replaceChildren(el("div", { class: "welcome" }, el("h2", {}, t("What are we working on?")),
-    el("div", {}, t("Research answers a question from your library, Wikipedia and arXiv. Code writes and tests a project.")),
-    el("div", {}, t("Ctrl+Enter sends."))));
-  $("#side-panel").hidden = true;
+    el("div", {}, t(MODE_HINTS[state.mode])),
+    el("div", { class: "examples" }, EXAMPLES[state.mode].map((text) => el("button", { class: "example", type: "button", onclick: () => use(t(text)) }, t(text)))),
+    el("div", { class: "keys" }, t("Ctrl+Enter sends · Ctrl+K commands · Alt+N new chat"))));
+}
+
+function newChat() {
+  if (state.source) state.source.close();
+  state.source = null;
+  state.currentRun = null;
+  state.ctx = null;
+  state.meter = null;
+  show("new");
+  $("#timeline").replaceChildren(el("div", { class: "welcome" }));
   $("#meter").hidden = true;
   setSettings(recalledSettings());
   setMode(recall("mode"));
   setRunning(false);
   renderRunsSidebar();
+  schedulePanel();
   $("#question").focus();
 }
 
@@ -986,12 +1111,12 @@ function nextMessage(ctx, title) {
 }
 
 function attach(runId) {
-  show("new");
   if (state.source) state.source.close();
   state.currentRun = runId;
+  state.meter = null;
+  show("new");
   const run = state.runs[runId];
   $("#timeline").replaceChildren();
-  $("#side-panel").hidden = true;
   $("#meter").hidden = true;
   if (run) {
     setSettings(run.settings || {});
@@ -1001,17 +1126,28 @@ function attach(runId) {
   }
   const ctx = newContext(run ? run.question : "");
   ctx.mode = run ? knownMode(run.mode) : state.mode;
+  state.ctx = ctx;
+  schedulePanel();
   setRunning(true);
   const source = new EventSource(`/api/runs/${runId}/events`);
   state.source = source;
-  source.onmessage = (msg) => {
-    const event = JSON.parse(msg.data);
+  // The events are drawn together once per frame: a finished chat replays hundreds of them at once, and the page
+  // is measured (to follow the end of the timeline) once per frame instead of once per event.
+  const queue = [];
+  const drain = () => {
+    if (state.source !== source) return; // another chat was opened meanwhile
     const stick = atBottom();
-    renderEvent(event, ctx);
-    if (stick) scrollDown();
-    if (event.kind === "end") { source.close(); renderRunsSidebar().then(() => setRunning(false)); }
+    for (const event of queue.splice(0)) {
+      renderEvent(event, ctx);
+      if (event.kind === "end") { source.close(); renderRunsSidebar().then(() => setRunning(false)); }
+    }
+    if (stick) later(scrollDown); // after the streamed text of this frame is drawn
   };
-  source.onerror = () => { source.close(); setRunning(false); };
+  source.onmessage = (msg) => {
+    queue.push(JSON.parse(msg.data));
+    later(drain);
+  };
+  source.onerror = () => { source.close(); if (state.source === source) setRunning(false); };
 }
 
 // The timeline follows new output only while the user is at its end.
@@ -1060,10 +1196,23 @@ function card(ctx, key, title, badge) {
   return ctx.cards[key];
 }
 
+// The model's reply while it streams: its thinking (the newest lines in sight) and its text, drawn as Markdown
+// every 80 ms at most however fast the tokens come; only its unsettled end is drawn again (renderStream).
+const LIVE_DRAW_MS = 80;
+
+function drawSoon(box) {
+  if (box.timer) return;
+  box.timer = setTimeout(() => { box.timer = null; later(box.draw); }, LIVE_DRAW_MS);
+}
+
 function liveBox(ctx, key) {
   if (!ctx.live[key]) {
-    const box = el("div", { class: "live" }, el("div", { class: "live-thinking" }), el("div", { class: "live-text md" }));
+    const thinking = document.createTextNode("");
+    const text = el("div", { class: "live-text md" });
+    const box = el("div", { class: "live" }, el("div", { class: "live-thinking" }, thinking), text);
     box.text = ""; // the model's text so far, as Markdown
+    box.thinking = thinking;
+    box.draw = () => renderStream(text, box.text);
     (ctx.cards[key] || $("#timeline")).append(box);
     ctx.live[key] = box;
   }
@@ -1074,11 +1223,14 @@ function closeLive(ctx, key) {
   const box = ctx.live[key];
   if (!box) return;
   delete ctx.live[key];
+  clearTimeout(box.timer);
+  frameJobs.delete(box.draw);
+  if (ctx.mode !== "chat") renderRich(box.querySelector(".live-text"), box.text); // the whole text, drawn as one
   const parts = [];
-  const thinking = box.querySelector(".live-thinking").textContent;
+  const thinking = box.thinking.data;
   if (thinking.trim()) parts.push(el("details", { class: "call thinking" }, el("summary", {}, `${t("Thinking")} (${thinking.length} ${t("chars")})`), el("pre", {}, thinking)));
   // in a chat the answer follows as the message itself
-  if (box.text.trim() && ctx.mode !== "chat") parts.push(el("details", { class: "call" }, el("summary", {}, `${t("Model output")} (${box.text.length} ${t("chars")})`), box.querySelector(".live-text")));
+  if (box.text.trim() && ctx.mode !== "chat") parts.push(el("details", { class: "call output" }, el("summary", {}, `${t("Model output")} (${box.text.length} ${t("chars")})`), box.querySelector(".live-text")));
   box.replaceWith(...parts);
 }
 
@@ -1155,7 +1307,7 @@ function diffCall(e, a, ctx) {
     files.set(path, { added: file.added + added, removed: file.removed + removed });
     if (after != null) ctx.contents.set(path, after);
     else ctx.contents.delete(path); // edited a file this chat has not seen whole
-    renderPanel(ctx);
+    schedulePanel();
   };
   return d;
 }
@@ -1190,10 +1342,31 @@ function renderToolCall(e, ctx) {
   let d;
   if (a && (tool === "write_file" || tool === "edit_file")) d = diffCall(e, a, ctx);
   else if (tool === "verify") d = testCall(a && a.note ? a.note : "verify");
-  else d = el("details", { class: "call pending" }, el("summary", {}, `${e.name} ${e.arguments}`), el("pre", {}, prettyArgs(e.arguments)));
+  else d = el("details", { class: "call pending plain", "data-tool": tool }, el("summary", {}, `${e.name} ${e.arguments}`), el("pre", {}, prettyArgs(e.arguments)));
   if (a && tool === "add_source") d.source = a; // numbered by its result, for the progress panel
   ctx.calls[e.id + key] = d;
-  c.querySelector(".calls").append(d);
+  const calls = c.querySelector(".calls");
+  if (d.classList.contains("plain")) groupCall(calls, d);
+  else calls.append(d);
+}
+
+// Plain tool calls in a row (searches, reads) fold into one line; edits and verifications stay in sight.
+function groupCall(calls, d) {
+  const last = calls.lastElementChild;
+  if (last && last.classList.contains("group")) last.querySelector(".group-calls").append(d);
+  else if (last && last.classList.contains("plain")) {
+    const group = el("details", { class: "group" }, el("summary"), el("div", { class: "group-calls" }));
+    last.replaceWith(group);
+    group.querySelector(".group-calls").append(last, d);
+  } else { calls.append(d); return; }
+  renderGroup(d.parentElement.parentElement);
+}
+
+function renderGroup(group) {
+  const calls = [...group.querySelectorAll(".group-calls > .call")];
+  const names = [...new Set(calls.map((c) => c.dataset.tool))].join(", ");
+  group.classList.toggle("error", calls.some((c) => c.classList.contains("error")));
+  group.querySelector("summary").replaceChildren(el("span", {}, t("{n} tool calls", { n: calls.length })), el("span", { class: "names" }, names));
 }
 
 function renderToolResult(e, ctx) {
@@ -1201,7 +1374,9 @@ function renderToolResult(e, ctx) {
   if (!d) return;
   d.classList.remove("pending");
   if (e.error) d.classList.add("error");
-  if (d.classList.contains("test")) { testResult(d, e.output); round(ctx).verifies.push(verdict(e.output)); renderPanel(ctx); }
+  const group = d.closest(".group");
+  if (group && e.error) { renderGroup(group); group.open = true; }
+  if (d.classList.contains("test")) { testResult(d, e.output); round(ctx).verifies.push(verdict(e.output)); schedulePanel(); }
   else if (d.classList.contains("diff")) {
     d.append(el("div", { class: "call-note" }, e.output));
     if (e.error) d.open = true;
@@ -1210,7 +1385,7 @@ function renderToolResult(e, ctx) {
   }
   else d.append(el("pre", {}, e.output));
   const n = d.source && !e.error && /\[(\d+)\]/.exec(e.output);
-  if (n) { round(ctx).sources.set(+n[1], d.source); renderPanel(ctx); }
+  if (n) { round(ctx).sources.set(+n[1], d.source); schedulePanel(); }
 }
 
 // -- the files of a code project: a tree in the progress panel; a click shows the file ----------
@@ -1226,7 +1401,7 @@ function refreshFiles(ctx) {
   ctx.filesBusy = true;
   api(`/api/runs/${run.id}/files`).catch(() => null).then((tree) => {
     ctx.filesBusy = false;
-    if (tree && state.currentRun === run.id) { ctx.panel.tree = tree; renderPanel(ctx); }
+    if (tree && state.currentRun === run.id) { ctx.panel.tree = tree; schedulePanel(); }
     if (ctx.filesAgain) { ctx.filesAgain = false; refreshFiles(ctx); }
   });
 }
@@ -1364,7 +1539,58 @@ function roundSummary(r, number) {
       r.files.size ? counts(sum.added, sum.removed) : null));
 }
 
+// The panel is drawn at most once per frame, for the chat that is shown.
+function drawPanel() { renderPanel(state.ctx); }
+function schedulePanel() {
+  if (!document.documentElement.classList.contains("no-panel")) later(drawPanel);
+}
+
+// What the chat works with: mode, model, folder or notebook, the options and the tools; a click changes them.
+function environmentCard() {
+  const run = state.runs[state.currentRun];
+  const mode = state.mode, settings = getSettings();
+  const offered = offeredServers(), chosen = chosenServers();
+  const options = [mode !== "chat" && $("#fast").checked && t("Fast"), mode !== "chat" && $("#quick").checked && t("Quick")].filter(Boolean);
+  const folder = run ? run.project : $("#folder").value.trim(); // the last part of the path; all of it in the tooltip
+  const rows = [
+    [t("Mode"), t(mode === "chat" ? "Chat" : mode === "code" ? "Code" : "Research")],
+    [t("Model"), settings.model || state.defaultModel || t("model: auto")],
+    mode === "code" ? [t("Folder"), folder ? folder.split(/[\\/]/).filter(Boolean).pop() : "—", folder] : [t("Notebook"), $("#notebook").value || t("No notebook")],
+    mode === "research" ? [t("Sources"), $("#sources").checked ? t("required") : t("not required")] : null,
+    mode !== "chat" ? [t("Options"), options.join(", ") || "—"] : null,
+    [t("Tools"), offered.length ? `${chosen.length}/${offered.length} ${t("servers")}` : t("no servers")],
+  ].filter(Boolean);
+  const open = (id) => (ev) => { ev.stopPropagation(); togglePopover(id, true); if (id === "#settings") loadModels(); else loadToolCounts(); };
+  return el("section", { class: "pcard" },
+    el("h4", {}, t("Environment"), el("span", {},
+      el("button", { class: "ghost small", type: "button", title: t("Model and settings of this chat"), onclick: open("#settings") }, t("Settings")), " ",
+      el("button", { class: "ghost small", type: "button", title: t("Images, notebook, options and tools"), onclick: open("#plus-menu") }, t("Options")))),
+    el("dl", { class: "facts" }, rows.flatMap(([k, v, full]) => [el("dt", {}, k), el("dd", { title: full || v }, v)])));
+}
+
+// How far the current reply is: its turn, the speed of the model and how full the context is.
+function contextCard() {
+  const e = state.meter;
+  if (!e) return null;
+  const speed = e.tokens && e.seconds > 0.05 ? `${Math.round(e.tokens / e.seconds)} tok/s` : "—";
+  const full = e.context_limit ? contextFull(e) : null;
+  return el("section", { class: "pcard", title: e.context_limit ? contextTitle(e) : "" },
+    el("h4", {}, t("Context"), full != null ? el("span", {}, `${full}%`) : null),
+    full != null ? el("div", { class: "context-line" }, contextGauge(full)) : null,
+    el("dl", { class: "facts" },
+      el("dt", {}, t("Turn")), el("dd", {}, `${e.turn}${e.max_turns ? ` / ${e.max_turns}` : ""}`),
+      el("dt", {}, t("Speed")), el("dd", {}, speed),
+      e.context_limit ? [el("dt", {}, t("Used")), el("dd", {}, `${Math.round(e.context / 1000)}k / ${Math.round(e.context_limit / 1000)}k ${t("chars")}`)] : null));
+}
+
 function renderPanel(ctx) {
+  const parts = [environmentCard(), contextCard()].filter(Boolean);
+  if (ctx) parts.push(...progressParts(ctx));
+  $("#side-panel").replaceChildren(...parts);
+}
+
+// What the messages of the chat led to: the newest open, the earlier ones folded; the files of a code project.
+function progressParts(ctx) {
   const { rounds, tree, openRounds } = ctx.panel;
   const shown = rounds.map((r, i) => [r, i, roundParts(r)]).filter(([, , parts]) => parts.length);
   const parts = [];
@@ -1380,16 +1606,14 @@ function renderPanel(ctx) {
     }
   }
   if (tree && tree.files.length) parts.push(fileTree(ctx));
-  const panel = $("#side-panel");
-  panel.hidden = !parts.length;
-  panel.replaceChildren(...parts);
+  return parts;
 }
 
 function sub(ctx, index, fields) {
   const subs = round(ctx).subs;
   while (subs.length < index) subs.push({ question: `${t("Sub-question")} ${subs.length + 1}` });
   Object.assign(subs[index - 1], fields);
-  renderPanel(ctx);
+  schedulePanel();
 }
 
 // After the report the notebook's source list is the truth (numbers, quotes).
@@ -1398,7 +1622,7 @@ async function loadSources(ctx, project) {
   const p = await api(`/api/projects/${encodeURIComponent(project)}`).catch(() => null);
   if (!p) return;
   asked.sources = new Map(p.sources.map((s) => [s.n, s]));
-  renderPanel(ctx);
+  schedulePanel();
 }
 
 // -- events ---------------------------------------------------------------------------------------
@@ -1418,8 +1642,8 @@ function renderEvent(e, ctx) {
       break;
     case "token": {
       const box = liveBox(ctx, e.index ?? "main");
-      if (e.thinking) box.querySelector(".live-thinking").textContent += e.text;
-      else renderRich(box.querySelector(".live-text"), (box.text += e.text));
+      if (e.thinking) box.thinking.appendData(e.text);
+      else { box.text += e.text; drawSoon(box); }
       break;
     }
     case "stream_end":
@@ -1436,7 +1660,7 @@ function renderEvent(e, ctx) {
       break;
     case "plan":
       round(ctx).subs = e.sub_questions.map((s) => ({ ...s }));
-      renderPanel(ctx);
+      schedulePanel();
       append(el("div", { class: "card" }, el("h4", {}, t("Plan")),
         el("ol", {}, e.sub_questions.map((s) => el("li", {}, s.question, s.skill ? el("span", { class: "badge" }, s.skill) : null)))));
       break;
@@ -1460,7 +1684,7 @@ function renderEvent(e, ctx) {
     case "gaps":
       if (e.sub_questions.length) {
         round(ctx).subs.push(...e.sub_questions.map((q) => ({ question: q })));
-        renderPanel(ctx);
+        schedulePanel();
         append(el("div", { class: "card" }, el("h4", {}, t("Gaps found — researching more")), el("ul", {}, e.sub_questions.map((q) => el("li", {}, q)))));
       }
       break;
@@ -1502,7 +1726,7 @@ function renderEvent(e, ctx) {
     }
     case "state":
       round(ctx).plan = e;
-      renderPanel(ctx);
+      schedulePanel();
       if (!ctx.panel.tree) refreshFiles(ctx);
       break;
     case "auto_verify": {
@@ -1510,7 +1734,7 @@ function renderEvent(e, ctx) {
       d.classList.remove("pending");
       testResult(d, e.output);
       round(ctx).verifies.push(verdict(e.output));
-      renderPanel(ctx);
+      schedulePanel();
       append(el("div", { class: "card" }, el("div", { class: "calls" }, d)));
       break;
     }
@@ -1559,26 +1783,25 @@ function exportBar(project, extra = []) {
 }
 
 // -- projects -------------------------------------------------------------------------
-async function renderProjectsSidebar() {
+async function loadProjects() {
   const projects = await api("/api/projects").catch(() => []);
-  $("#side-list").replaceChildren(
+  $("#project-list").replaceChildren(
     ...(projects.length ? projects.map((p) =>
-      el("button", { class: "side-item" + (state.project === p.name ? " active" : ""), onclick: () => openProject(p.name) },
-        el("span", { class: "t", title: p.question || p.name }, shortTitle(p.question || p.name)), el("small", {}, p.has_report ? p.name : `${p.name} · ${t("no report yet")}`))) : [el("p", { class: "muted" }, t("No projects yet."))])
+      el("button", { class: "project-item", type: "button", onclick: () => openProject(p.name) },
+        el("strong", { title: p.question || p.name }, p.question || p.name), el("small", {}, p.has_report ? p.name : `${p.name} · ${t("no report yet")}`))) : [el("p", { class: "muted" }, t("No projects yet."))])
   );
 }
 
 async function openProject(name) {
-  state.project = name;
   show("project");
-  renderProjectsSidebar();
   const view = $("#view-project");
   view.replaceChildren(el("p", { class: "muted" }, t("Loading…")));
   const p = await api(`/api/projects/${encodeURIComponent(name)}`);
   const extras = [];
   if (p.notebook) extras.push(el("a", { class: "ghost", href: `/files/${encodeURIComponent(p.name)}/computations.ipynb`, download: "" }, t("Notebook (.ipynb)")));
   extras.push(el("button", { class: "ghost", onclick: () => resume(p.name) }, t("Resume")));
-  const parts = [el("h2", {}, p.plan.question || p.name)];
+  const parts = [el("button", { class: "ghost small back", type: "button", onclick: () => openView("projects") }, `← ${t("All projects")}`),
+    el("h2", {}, p.plan.question || p.name)];
   if (p.report_html) parts.push(el("article", { class: "report", "data-project": p.name }, exportBar(p.name, extras), el("div", { html: p.report_html })));
   else parts.push(el("div", { class: "toolbar" }, ...extras));
   if (p.sources.length) {
@@ -1687,17 +1910,26 @@ document.addEventListener("click", (ev) => {
   else if (cite.pinned && !ev.target.closest(".cite-card")) closeCite();
 });
 
-// -- the command palette (Ctrl+K) and the keyboard shortcuts ------------------------------------
-const goTo = (view) => document.querySelector(`.tab[data-view="${view}"]`).click();
+// -- the Copy button of a code block --------------------------------------------------------------
+document.addEventListener("click", async (ev) => {
+  const button = ev.target.closest && ev.target.closest("pre > .copy");
+  if (!button) return;
+  const text = [...button.parentElement.childNodes].filter((n) => n !== button).map((n) => n.textContent).join("");
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = t("Copied");
+    setTimeout(() => { button.textContent = t("Copy"); }, 1200);
+  } catch (e) { fail(e); }
+});
 
+// -- the command palette (Ctrl+K) and the keyboard shortcuts ------------------------------------
 function toggleSettings() {
   show("new");
   $("#settings-toggle").click();
 }
 
 function focusSearch() {
-  goTo("new");
-  renderChats();
+  if (sidebarHidden()) toggleSidebar();
   $("#chat-search").focus();
 }
 
@@ -1709,17 +1941,20 @@ function commands() {
     { label: t("New chat in Code mode"), action: () => { newChat(); remember("mode", "code"); setMode("code"); } },
     { label: t("Model and settings of this chat"), hint: "Ctrl+,", action: toggleSettings },
     { label: t("Search chats"), hint: "/", action: focusSearch },
-    { label: t("New folder"), action: () => { goTo("new"); newFolder(); } },
+    { label: t("New folder"), action: () => newFolder() },
+    { label: t("Show or hide the sidebar"), hint: "Ctrl+B", action: toggleSidebar },
+    { label: t("Show or hide the panel"), hint: "Ctrl+.", action: () => { show("new"); togglePanel(); } },
     state.running && { label: t("Cancel the run"), action: () => $("#cancel").click() },
     !$("#compact").hidden && { label: t("Compact the conversation"), action: () => $("#compact").click() },
     run && { label: run.pinned ? t("Unpin this chat") : t("Pin this chat"), action: () => patchRun(run.id, { pinned: !run.pinned }) },
-    run && { label: t("Rename this chat"), action: () => { goTo("new"); $("#chat-search").value = ""; renderChats(); renameChat(run); } },
+    run && { label: t("Rename this chat"), action: () => { show("new"); $("#chat-search").value = ""; renderChats(); renameChat(run); } },
     { label: t("Switch the theme"), action: nextTheme },
     { label: t(LANG === "tr" ? "Switch the language to English" : "Switch the language to Turkish"), action: switchLanguage },
     { label: t("Go to Projects"), action: () => goTo("projects") },
     { label: t("Go to Memory"), action: () => goTo("memory") },
     { label: t("Go to Skills"), action: () => goTo("skills") },
     { label: t("Go to Tools (MCP servers)"), action: () => goTo("tools") },
+    { label: t("Go to Offline"), action: () => goTo("offline") },
     ...state.runList.map((r) => ({ label: chatTitle(r), hint: `${t(knownMode(r.mode))} · ${t(r.status)}`, action: () => attach(r.id) })),
   ].filter(Boolean);
 }
@@ -1768,9 +2003,11 @@ document.addEventListener("keydown", (ev) => {
   const mod = ev.ctrlKey || ev.metaKey;
   if (mod && ev.key.toLowerCase() === "k") { ev.preventDefault(); openPalette(); }
   else if (mod && ev.key === ",") { ev.preventDefault(); toggleSettings(); }
+  else if (mod && ev.key.toLowerCase() === "b") { ev.preventDefault(); toggleSidebar(); }
+  else if (mod && ev.key === ".") { ev.preventDefault(); show("new"); togglePanel(); }
   else if (ev.altKey && ev.key.toLowerCase() === "n") { ev.preventDefault(); newChat(); }
   else if (ev.key === "/" && !typing && !mod && !ev.altKey) { ev.preventDefault(); focusSearch(); }
-  else if (ev.key === "Escape") { closeMenu(); closeCite(); }
+  else if (ev.key === "Escape") { closeMenu(); closeCite(); closePopovers(); }
 });
 
 $("#palette").addEventListener("click", openPalette);
@@ -1780,8 +2017,11 @@ $("#folder").value = recall("folder");
 state.targetFolder = recall("target") || null;
 translatePage(document.body);
 applyTheme(currentTheme());
+// the panel starts open where there is room for it, unless the user closed it
+setPanelOpen(recall("panel-hidden") ? recall("panel-hidden") !== "1" : window.innerWidth > 1100, false);
 loadStatus();
-setInterval(loadStatus, 15000);
+setInterval(() => { if (!document.hidden) loadStatus(); }, 15000); // a page in the background does not ask
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadStatus(); });
 loadModels();
 loadOffline(); // the notebooks for the chooser of the message box
 newChat();

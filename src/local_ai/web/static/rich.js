@@ -136,17 +136,41 @@ function markdownToHtml(text) {
 
 // -- LaTeX ----------------------------------------------------------------------------------------
 // <span class="math"> holds the formula as written, with its delimiters; KaTeX draws it in place.
+// A streamed reply is drawn again and again: each formula is laid out by KaTeX once and then taken from here.
+const mathCache = new Map();
+
 function renderMath(root) {
   if (!window.katex) return;
   for (const node of root.querySelectorAll("span.math:not(.drawn)")) {
     const source = node.textContent;
-    const display = source.startsWith("$$") || source.startsWith("\\[");
-    const tex = source.replace(/^(\$\$|\$|\\\[|\\\()/, "").replace(/(\$\$|\$|\\\]|\\\))$/, "");
-    try {
-      window.katex.render(tex, node, { displayMode: display, throwOnError: false });
+    let html = mathCache.get(source);
+    if (html === undefined) {
+      const display = source.startsWith("$$") || source.startsWith("\\[");
+      const tex = source.replace(/^(\$\$|\$|\\\[|\\\()/, "").replace(/(\$\$|\$|\\\]|\\\))$/, "");
+      try {
+        html = window.katex.renderToString(tex, { displayMode: display, throwOnError: false });
+      } catch {
+        html = null; // not LaTeX after all: the text stays as written
+      }
+      if (mathCache.size > 2000) mathCache.clear();
+      mathCache.set(source, html);
+    }
+    if (html !== null) {
+      node.innerHTML = html; // KaTeX's own markup, built from the formula
       node.title = source;
-    } catch {} // not LaTeX after all: the text stays as written
+    }
     node.classList.add("drawn");
+  }
+}
+
+// A Copy button on every code block (the page copies the block's text when it is pressed).
+function addCopyButtons(root) {
+  for (const pre of root.querySelectorAll("pre:not(:has(> .copy))")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "copy";
+    button.textContent = typeof t === "function" ? t("Copy") : "Copy";
+    pre.append(button);
   }
 }
 
@@ -158,10 +182,54 @@ function enhance(root) {
     code.classList.add("coloured");
   }
   renderMath(root);
+  addCopyButtons(root);
 }
 
-// Markdown text (streamed model output) into a node.
+// Markdown text (model output) into a node.
 function renderRich(node, text) {
   node.innerHTML = markdownToHtml(text);
   renderMath(node);
+  addCopyButtons(node);
+}
+
+// Markdown that is still streaming, drawn again as it grows. The text up to its last blank line outside a code
+// block does not change any more: it is drawn once and kept, and only what follows is drawn again. A long reply
+// with many formulas costs as much per draw as its last paragraph.
+function renderStream(node, text) {
+  let s = node.stream;
+  if (!s || !text.startsWith(s.stable)) {
+    node.replaceChildren();
+    s = node.stream = { stable: "", tail: [] };
+  }
+  const cut = stableEnd(text, s.stable.length);
+  for (const n of s.tail) n.remove();
+  if (cut > s.stable.length) {
+    node.append(fragment(text.slice(s.stable.length, cut)));
+    s.stable = text.slice(0, cut);
+  }
+  const tail = fragment(text.slice(cut));
+  s.tail = [...tail.childNodes];
+  node.append(tail);
+}
+
+function fragment(markdown) {
+  const template = document.createElement("template");
+  template.innerHTML = markdownToHtml(markdown);
+  renderMath(template.content);
+  addCopyButtons(template.content);
+  return template.content;
+}
+
+// Where the settled part of streamed Markdown ends: after its last blank line that is not inside a code block.
+function stableEnd(text, from) {
+  let end = from, open = null;
+  for (let at = from, next; at < text.length; at = next + 1) {
+    next = text.indexOf("\n", at);
+    if (next < 0) break; // the last line is still being written
+    const line = text.slice(at, next);
+    if (open) { if (line.trim() === open) open = null; } // closed as blocks() closes it
+    else if (FENCE.test(line)) open = FENCE.exec(line)[1];
+    else if (!line.trim()) end = next + 1;
+  }
+  return end;
 }

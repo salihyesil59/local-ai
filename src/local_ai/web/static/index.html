@@ -4,46 +4,59 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local AI</title>
-  <script>try { var theme = localStorage.getItem("theme"); if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme; } catch (e) {}</script>
+  <script>try { var theme = localStorage.getItem("theme"); if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme; if (localStorage.getItem("sidebar-hidden") === "1") document.documentElement.classList.add("no-sidebar"); } catch (e) {}</script>
   <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
-      <span>Local AI</span>
-    </div>
-    <div id="chat-title" class="chat-title"></div>
-    <button id="palette" class="ghost small" type="button" title="Commands and chats">Commands <kbd>Ctrl K</kbd></button>
-    <button id="lang" class="ghost small" type="button"></button>
-    <button id="theme" class="ghost small" type="button"></button>
-    <div id="status" class="status" title="">connecting…</div>
-  </header>
-
   <div class="layout">
-    <div id="resizer" class="resizer" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <nav class="sidebar" aria-label="Sections">
+      <div class="side-top">
+        <div class="brand">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+          <span>Local AI</span>
+        </div>
+        <button id="hide-sidebar" class="icon" type="button" title="Hide the sidebar (Ctrl+B)" aria-label="Hide the sidebar" data-icon="sidebar"></button>
+      </div>
+      <button id="new-chat" class="new-chat" type="button" title="Alt+N" data-icon="plus"><span>New chat</span><kbd>Alt N</kbd></button>
       <div class="tabs" role="tablist">
-        <button class="tab active" data-view="new" data-icon="chat" role="tab">Chats</button>
         <button class="tab" data-view="projects" data-icon="book" role="tab">Projects</button>
         <button class="tab" data-view="memory" data-icon="layers" role="tab">Memory</button>
         <button class="tab" data-view="skills" data-icon="star" role="tab">Skills</button>
         <button class="tab" data-view="tools" data-icon="plug" role="tab">Tools</button>
         <button class="tab" data-view="offline" data-icon="folder" role="tab">Offline</button>
       </div>
-      <div id="side-list" class="side-list"></div>
+      <div class="side-head-row">
+        <input id="chat-search" type="search" placeholder="Search chats  ( / )" aria-label="Search chats">
+      </div>
+      <div id="chat-rows" class="side-list"></div>
+      <div class="side-foot">
+        <div id="status" class="status" title=""><span class="dot running"></span><span class="status-text">connecting…</span></div>
+        <button id="lang" class="icon" type="button"></button>
+        <button id="theme" class="icon" type="button"></button>
+      </div>
     </nav>
+    <div id="resizer" class="resizer" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize; double-click to reset"></div>
 
     <main>
+      <header class="topbar">
+        <button id="show-sidebar" class="icon" type="button" title="Show the sidebar (Ctrl+B)" aria-label="Show the sidebar" data-icon="sidebar"></button>
+        <button id="chat-title" class="chat-title" type="button" title="Rename, pin, move, delete" disabled></button>
+        <span class="spacer"></span>
+        <button id="palette" class="ghost small" type="button" title="Commands and chats">Commands <kbd>Ctrl K</kbd></button>
+        <button id="panel-toggle" class="icon" type="button" title="Show or hide the panel (Ctrl+.)" aria-label="Show or hide the panel" aria-pressed="true" data-icon="panel"></button>
+      </header>
+
+      <div class="views">
       <section id="view-new" class="view chat">
         <div class="chat-main">
           <div id="timeline" class="timeline"></div>
           <form id="ask" class="ask">
             <div id="target" class="target muted new-only" hidden></div>
             <div id="chat-info" class="chat-info muted" hidden></div>
-            <div id="settings" class="settings" hidden>
-              <label>Model
+            <div id="settings" class="settings popover" hidden>
+              <div class="menu-head">Model and settings of this chat</div>
+              <label class="wide">Model
                 <select id="set-model"><option value="">Default</option></select>
               </label>
               <label title="Higher is more varied, lower more exact">Temperature
@@ -67,47 +80,65 @@
               <label class="research-only">Parallel
                 <select id="parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
               </label>
-              <label class="research-only new-only">Project name
+              <label class="research-only new-only wide">Project name
                 <input id="project" placeholder="Project name (optional)">
               </label>
-              <button id="set-reset" class="ghost small" type="button">Defaults</button>
-              <span class="muted note">Empty = default. Saved with this chat.</span>
+              <div class="row wide">
+                <button id="set-reset" class="ghost small" type="button">Defaults</button>
+                <span class="muted note">Empty = default. Saved with this chat.</span>
+              </div>
             </div>
-            <div id="tools-menu" class="tools-menu" hidden></div>
+            <div id="plus-menu" class="popover plus-menu" hidden>
+              <button id="attach" class="menu-item" type="button" title="Attach images (or paste / drop them)" data-icon="image"><span>Attach images</span></button>
+              <label class="menu-item not-code" data-icon="book"><span>Notebook</span>
+                <select id="notebook" title="A notebook: this message searches only its files" aria-label="Notebook"></select>
+              </label>
+              <div class="menu-head agent-only">Options</div>
+              <label id="fast-opt" class="switch-row agent-only"><span class="switch-text"><span>Fast</span><small class="muted"></small></span>
+                <span class="switch"><input type="checkbox" id="fast" role="switch"><span class="knob"></span></span></label>
+              <label id="quick-opt" class="switch-row agent-only"><span class="switch-text"><span>Quick</span><small class="muted"></small></span>
+                <span class="switch"><input type="checkbox" id="quick" role="switch"><span class="knob"></span></span></label>
+              <label id="sources-opt" class="switch-row research-only"><span class="switch-text"><span>Sources</span><small class="muted">A quick answer names its sources and is checked with the tools; off: it may use your library but need not cite it</small></span>
+                <span class="switch"><input type="checkbox" id="sources" role="switch" checked><span class="knob"></span></span></label>
+              <div id="tools-menu" class="tools-list"></div>
+            </div>
             <div class="ask-row code-only new-only folder-row" hidden>
               <input id="folder" placeholder="Project folder, absolute path (e.g. C:\Users\you\Github\test\app)">
               <button id="browse" class="ghost" type="button">Browse…</button>
             </div>
             <div id="attachments" class="attachments" hidden></div>
             <input id="attach-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+            <div id="chips" class="chips"></div>
             <textarea id="question" rows="1" placeholder="Ask a research question — any language." required></textarea>
             <div class="ask-bar">
-              <button id="attach" class="pill icon-only" type="button" title="Attach images (or paste / drop them)" aria-label="Attach images"></button>
-              <button id="tools-toggle" class="pill" type="button" title="The MCP servers this message may use" aria-expanded="false"></button>
+              <button id="plus" class="round plain" type="button" title="Images, notebook, options and tools" aria-label="Images, notebook, options and tools" aria-expanded="false" data-icon="plus"></button>
               <div class="modes new-only" role="tablist" aria-label="Mode">
                 <button type="button" class="mode" data-mode="chat" role="tab">Chat</button>
                 <button type="button" class="mode active" data-mode="research" role="tab">Research</button>
                 <button type="button" class="mode" data-mode="code" role="tab">Code</button>
               </div>
-              <select id="notebook" class="pill not-code" title="A notebook: this message searches only its files" aria-label="Notebook"></select>
-              <label id="fast-opt" class="opt agent-only"><input type="checkbox" id="fast"> <span>Fast</span></label>
-              <label id="quick-opt" class="opt agent-only"><input type="checkbox" id="quick"> <span>Quick</span></label>
-              <label id="sources-opt" class="opt research-only" title="A quick answer names its sources and is checked with the tools; off: it may use your library but need not cite it"><input type="checkbox" id="sources" checked> <span>Sources</span></label>
               <span class="spacer"></span>
               <span id="meter" class="meter" hidden></span>
               <button id="compact" class="pill" type="button" title="Shorten the conversation before the next reply: the model writes notes, the plan stays" hidden>Compact</button>
-              <button id="settings-toggle" class="pill" type="button" title="Model and settings of this chat" aria-expanded="false"></button>
+              <button id="settings-toggle" class="pill model-pill" type="button" title="Model and settings of this chat (Ctrl+,)" aria-expanded="false"></button>
               <button id="cancel" class="round stop" type="button" title="Stop" hidden></button>
               <button id="run" class="round send" type="submit"></button>
             </div>
           </form>
         </div>
-        <aside id="side-panel" class="side-panel" aria-label="Progress" hidden></aside>
         <div id="panel-resizer" class="resizer panel-resizer" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize; double-click to reset"></div>
+        <aside id="side-panel" class="side-panel" aria-label="Panel"></aside>
       </section>
 
+      <section id="view-projects" class="view page" hidden>
+        <h2>Projects</h2>
+        <p class="muted">Every research keeps its plan, findings, sources and report in a project.</p>
+        <div id="project-list" class="project-list"></div>
+      </section>
       <section id="view-project" class="view page" hidden></section>
       <section id="view-memory" class="view page" hidden>
+        <h2>Memory</h2>
+        <p class="muted">Facts, lessons and preferences the agents learned; they are recalled when they fit a question.</p>
         <form id="memory-search" class="row">
           <input id="memory-q" placeholder="Search memory (facts, lessons, preferences)">
           <button class="ghost" type="submit">Search</button>
@@ -115,6 +146,7 @@
         <ul id="memory-list" class="memory-list"></ul>
       </section>
       <section id="view-skills" class="view page" hidden>
+        <h2>Skills</h2>
         <div id="skills-list" class="cards"></div>
         <p class="muted">Add your own skills as Markdown files in <code>&lt;workspace&gt;/skills/</code>.</p>
       </section>
@@ -182,6 +214,7 @@
           <div id="zim-job"></div>
         </div>
       </section>
+      </div>
     </main>
   </div>
   <div id="toasts" class="toasts" aria-live="polite"></div>

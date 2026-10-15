@@ -67,6 +67,9 @@ def test_status_and_index(client):
     assert "html" in s["formats"]
     page = client.get("/")
     assert page.status_code == 200 and "Local AI" in page.text and page.headers["cache-control"] == "no-cache"
+    # the frame: chats in the sidebar, the + menu and the model at the message box, the panel on the right
+    for part in ('id="chat-rows"', 'id="plus-menu"', 'id="settings-toggle"', 'id="side-panel"', 'id="panel-toggle"'):
+        assert part in page.text
     script = client.get("/static/app.js")
     assert script.status_code == 200 and script.headers["cache-control"] == "no-cache"  # a new version is used at once
 

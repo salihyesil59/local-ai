@@ -85,48 +85,61 @@ paper of up to ~60 pages is read in full; this needs a context length of 65536 o
 local-ai ui            # opens http://127.0.0.1:8765 (local only)
 ```
 
-Ask a question and watch everything as it happens: the plan, every tool call (expandable), findings, reviewer
-issues and checks. The report appears with citation tooltips and export buttons (HTML, MD, BibTeX, TeX, DOCX,
-PDF). The sidebar lists:
+Ask a question and watch everything as it happens: the plan, every tool call (plain calls in a row fold into one
+line, edits and verifications stay in sight), findings, reviewer issues and checks. The report appears with
+citation tooltips and export buttons (HTML, MD, BibTeX, TeX, DOCX, PDF). Code blocks have a **Copy** button.
 
-- past projects: report, sources with quotes, findings, computations notebook, resume;
-- long-term memory, with search and forget;
-- skills.
+The page has three parts:
+
+- the **sidebar** on the left: **New chat**, the pages (Projects: report, sources with quotes, findings,
+  computations notebook, resume; Memory, with search and forget; Skills; Tools; Offline), and below them the chats
+  with their folders and a search. Its foot shows whether LM Studio answers, the model and the number of tools,
+  and switches the language and the theme. **Ctrl+B** hides it; on a phone it is a drawer opened from the top bar;
+- the **chat** in the middle, with the message box at its foot. The title in the top bar opens the menu of the chat
+  (rename, pin, move to a folder, delete);
+- the **panel** on the right (**Ctrl+.** or the button of the top bar shows or hides it): what the chat works with
+  (mode, model, folder or notebook, Sources, options, tools), how full the context is with the turn and the speed,
+  and the progress: the plan and verifications of a code chat, the sub-questions and sources of a research, the
+  history of the messages and the project files.
 
 The message box has three modes: **Chat**, **Research** and **Code**. Chat is a plain conversation with the model,
 like the chat of LM Studio: no plan, no agent loop and no tools of its own, follow-up messages in the same chat, and
-images. It offers no MCP server until you switch one on in the Tools menu of the message box (remembered for chats);
+images. It offers no MCP server until you switch one on in the **+** menu of the message box (remembered for chats);
 then the model may call its tools. The settings of a chat are the model, temperature and max tokens; a reply thinks
 as long as max tokens allows, and a conversation longer than the context limit drops its oldest messages.
 
-Images go with a message through the image button of the message box, or pasted (Ctrl+V) or dropped onto it: up
+Images go with a message through **Attach images** in the **+** menu, or pasted (Ctrl+V) or dropped onto the box: up
 to six PNG, JPEG, WebP or GIF images, large ones scaled down to 1600 px. A code chat gives them to the model with the
 message (a screenshot of an error, a sketch of a layout); a research chat first has the model write down what they
 show (text exactly, plots and tables described) and researches with that. The model needs vision: in LM Studio load
 it with its `mmproj` file. The images are kept with the chat in `<workspace>/ui/images/`.
 
 Model output is shown as it is written: Markdown, coloured code and LaTeX formulas (`$..$`, `$$..$$`, `\(..\)`,
-`\[..\]`). The **⚙** button of the message box opens the settings of the chat: the model (from those LM Studio
-has), temperature, max tokens, max turns, the context limit and the thinking limit (code) or max steps
+`\[..\]`). The model button at the right of the message box opens the settings of the chat: the model (from those
+LM Studio has), temperature, max tokens, max turns, the context limit and the thinking limit (code) or max steps
 (research). A code reply that only thinks is stopped at the thinking limit, and at once when the thinking repeats
 itself; the model is then told to act. Empty fields use the defaults; the
-settings are saved with the chat and remembered for the next new one. During a code run the box also shows the
-turn, the speed in tokens per second and how full the context is; at 100% it is compacted, and **Compact** does it
-earlier. The context limit is 300 000 characters (about 90k tokens), which needs a context length of 131072 in
+settings are saved with the chat and remembered for the next new one. During a run the box shows how full the
+context is, and the panel the turn and the speed in tokens per second; at 100% it is compacted, and **Compact** does
+it earlier. The context limit is 300 000 characters (about 90k tokens), which needs a context length of 131072 in
 LM Studio; with a smaller context length set a smaller limit, about 2 characters per token of it.
 
 In a report, pointing at a citation `[n]` shows its source with the registered quote; a click keeps the card
 open and shows the passage of the tool output the quote was taken from.
 
-The top bar switches the language of the page (English / Turkish; what the agents write stays in their own
-language) and the theme (system, light, dark).
+The **+** menu of the message box holds everything else a message can take: images, the notebook, the options of
+the mode (Fast, Quick, Sources) and the MCP servers it may use. What is set shows as chips above the text, each
+removed with one click.
+
+The foot of the sidebar switches the language of the page (English / Turkish; what the agents write stays in their
+own language) and the theme (system, light, dark).
 
 ### Offline: notebooks, library and ZIM archives
 
 The **Offline** view of the sidebar manages what the agents read without the internet:
 
 - **Notebooks**: a notebook is a handful of files for one topic, kept in `notebooks/<name>/` of the library. Choose
-  it with the notebook chooser of the message box (Chat and Research): `search_library` then looks only into its
+  it in the **+** menu of the message box (Chat and Research): `search_library` then looks only into its
   files (they are indexed the moment it searches, so a file added a minute ago is found), and the model is told to
   answer from them and name file and page. Asked to look further ("search the whole library"), it passes
   `scope=""`. Less to search, less to read: the answer comes faster than from the whole library.
@@ -141,7 +154,7 @@ same files.
 
 ### Tools: MCP servers
 
-The **Tools** button of the message box chooses the MCP servers a message may use (a switch per server,
+The **+** menu of the message box chooses the MCP servers a message may use (a switch per server,
 remembered per mode). The **Tools** view lists every server of the mcp.json the UI was started with: whether it
 runs, its tools, the reason when it did not start. There you can switch a server off, restart it, remove it, or
 add one you wrote or downloaded: give a name and the command that starts it (or its URL, for a server reached
@@ -152,7 +165,8 @@ rights: add only what you trust. The notebook server cannot be removed, the rese
 cannot be changed while a run is under way.
 
 Keyboard: **Ctrl+K** opens the command palette (commands and chats by name), **Ctrl+Enter** sends, **Alt+N**
-starts a new chat, **Ctrl+,** opens the settings, **/** searches the chats, **Esc** closes what is open.
+starts a new chat, **Ctrl+,** opens the settings, **Ctrl+B** hides the sidebar, **Ctrl+.** the panel, **/** searches
+the chats, **Esc** closes what is open.
 
 It works offline, with no CDN: the page's only third-party code is [KaTeX](https://katex.org) (MIT), bundled in
 `web/static/vendor/katex`.
