@@ -283,7 +283,8 @@ async def run_research(
 ) -> None:
     """Research mode: a quick answer, a full research run or the rest of an interrupted one."""
     fast = bool(options.get("fast"))
-    settings.critic = settings.critic and not fast
+    settings.critic = settings.critic and not fast and options.get("critic", True) is not False
+    settings.long_report = bool(options.get("long_report"))
     settings.gap_check = settings.gap_check and not fast
     settings.learn = settings.learn and not fast
     settings.parallel = max(1, min(int(options.get("parallel") or settings.parallel), 8))

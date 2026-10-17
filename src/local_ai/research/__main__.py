@@ -48,6 +48,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--report-tokens", type=int, help="Tokens for writing the report, thinking included (default: 16384)."
     )
     p.add_argument("--no-critic", action="store_true", help="Skip the reviewer pass on the draft.")
+    p.add_argument(
+        "--long-report", action="store_true", help="Write the report section by section (much longer, slower)."
+    )
     p.add_argument("--no-gap-check", action="store_true", help="Don't add sub-questions for gaps found after research.")
     p.add_argument("--no-learn", action="store_true", help="Don't save facts/lessons to long-term memory.")
     p.add_argument("--fast", action="store_true", help="Same as --no-critic --no-gap-check --no-learn.")
@@ -89,6 +92,7 @@ async def main(argv: list[str] | None = None) -> int:
     settings.gap_check = not (args.no_gap_check or args.fast)
     settings.learn = not (args.no_learn or args.fast)
     settings.require_sources = not args.no_sources
+    settings.long_report = args.long_report
 
     client = AsyncOpenAI(base_url=settings.base_url, api_key=settings.api_key)
     if not settings.model:

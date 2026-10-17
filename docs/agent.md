@@ -23,8 +23,21 @@ local-ai --resume --project "kara-cisim-isimasinda-wien-yasasi-nasil-turetilir"
 | `--servers` | all | e.g. `library,compute,notebook` |
 | `--project` / `--resume` | | continue an interrupted run from its notes |
 | `--parallel` | 1 | sub-questions researched at the same time (enable parallel requests in LM Studio) |
-| `--no-critic`, `--no-gap-check`, `--no-learn`, `--fast` | all on | skip phases for speed |
+| `--no-critic`, `--no-gap-check`, `--no-learn`, `--fast` | all on | skip phases for speed (**Reviewer** switch in the web UI) |
+| `--long-report` | off | write the report section by section (see below; **Long report** in the web UI) |
 | `--quick` | off | fast answer instead of a report (see below) |
+
+## Long reports
+
+With `--long-report` the planner asks for 5-8 sub-questions, and the report is not written in one reply:
+
+- an outline first: a short answer, 3-8 sections in depth, limitations (and an appendix for code), each section
+  with the sub-questions it is written from;
+- then every section in its own reply, with the whole `--report-tokens` budget and only its findings;
+- the checks and the reviewer go section by section; a section with problems is rewritten alone, so the rest of the
+  report keeps its length.
+
+It takes one model reply per section more (two with the reviewer on), one after the other.
 
 ## Quick answers
 

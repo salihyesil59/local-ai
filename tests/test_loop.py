@@ -19,6 +19,8 @@ PHASES = {
     "You are an offline research agent working": "research",
     "You review the progress": "gap",
     "You write the final report": "write",
+    "You plan the sections": "outline",
+    "You write ONE section": "section",
     "You are a strict reviewer": "critic",
     "You are the verification step": "verify",
     "You extract durable knowledge": "learn",
@@ -234,6 +236,58 @@ async def test_parallel_research_cache_and_events(mcp_config):
     report = next(e for e in events if e["kind"] == "report")
     assert report["cache_hits"] == 1  # the identical wikipedia search ran once
     assert {e["index"] for e in events if e["kind"] == "tool_call"} == {1, 2}
+
+
+async def test_a_long_report_is_written_and_verified_section_by_section(mcp_config):
+    source = (
+        "notebook__add_source",
+        {"project": "long", "source_id": "Speed of light", "title": "Speed of light", "origin": "wikipedia",
+         "quote": "c = 299792458 m/s"},
+    )
+    client = ScriptedClient(
+        {
+            "plan": [reply('{"language": "tr", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
+            "research": [
+                reply(calls=[("library__search_library", {"query": "speed of light"})]),
+                reply(calls=[source]),
+                reply("- c = 299792458 m/s [1]"),
+                reply("- B: nothing more"),
+            ],
+            "outline": [
+                reply(
+                    '{"sections": [{"title": "Kısa cevap", "covers": "the answer", "sub_questions": [1, 2]},'
+                    ' {"title": "Işık hızı", "covers": "the value of c", "sub_questions": [1]},'
+                    ' {"title": "Sınırlar", "covers": "limits", "sub_questions": [9]}]}'
+                )
+            ],
+            "section": [
+                reply("## Kısa cevap\n\nIşık hızı 299792458 m/s'dir [1]."),
+                reply("Değer 299792458 m/s [1]; yaklaşık 42.5 kat."),  # no heading, a number no tool shows
+                reply("## Sınırlar\n\nBir ortamda daha yavaştır."),
+            ],
+            "critic": [reply('{"issues": []}'), reply('{"issues": []}'), reply('{"issues": []}')],
+            "verify": [reply("Değer 299792458 m/s [1].")],  # only the second section is rewritten
+        }
+    )
+    settings = AgentSettings(model="test", gap_check=False, learn=False, long_report=True)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, console=Console(quiet=True))
+        report = await agent.run("Işık hızı?", project="long")
+
+    assert not client.left(), f"unused replies: {client.left()}"
+    assert "5-8 sub-questions" in client.requests["plan"][0]["messages"][1]["content"]
+    sections = [r["messages"][1]["content"] for r in client.requests["section"]]
+    assert "- B: nothing more" in sections[0] and "- B: nothing more" not in sections[1]
+    assert "- B: nothing more" in sections[2]  # an unknown sub-question number: all findings
+    assert "Section 2: Işık hızı" in sections[1] and "3. Sınırlar: limits" in sections[1]
+    assert all(r["max_tokens"] == settings.report_tokens for r in client.requests["section"])
+    critic = client.requests["critic"][1]["messages"][1]["content"]
+    assert "one section of a longer report" in critic and "Işık hızı" in critic
+    problems = client.requests["verify"][0]["messages"][1]["content"]
+    assert "42.5" in problems and "Draft section" in problems and "Kısa cevap" not in problems
+    body = report.split("## References")[0]
+    assert body.index("## Kısa cevap") < body.index("## Işık hızı") < body.index("## Sınırlar")
+    assert "42.5" not in report and "Unverified" not in report
 
 
 async def test_quick_answer(mcp_config):

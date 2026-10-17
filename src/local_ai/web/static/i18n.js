@@ -159,7 +159,12 @@ const TR = {
   "Speed": "Hız", "Used": "Kullanılan", "required": "zorunlu", "not required": "zorunlu değil",
   "Images, notebook, options and tools": "Görseller, defter, seçenekler ve araçlar",
   "Model and settings of this chat (Ctrl+,)": "Bu sohbetin modeli ve ayarları (Ctrl+,)",
-  "No sources": "Kaynaksız", "{n} tool calls": "{n} araç çağrısı", "Copy": "Kopyala", "Copied": "Kopyalandı",
+  "No sources": "Kaynaksız", "Long report": "Uzun rapor", "Reviewer": "Hakem", "No reviewer": "Hakemsiz",
+  "An outline, then each section written and checked on its own: a much longer report, but slower":
+    "Önce bir taslak, sonra her bölüm ayrı yazılır ve kontrol edilir: çok daha uzun bir rapor, ama daha yavaş",
+  "A reviewer reads the report against the findings and sends real problems back to be fixed":
+    "Hakem raporu bulgularla karşılaştırır ve gerçek sorunları düzeltilmek üzere geri gönderir",
+"{n} tool calls": "{n} araç çağrısı", "Copy": "Kopyala", "Copied": "Kopyalandı",
   "All projects": "Tüm projeler",
   "Every research keeps its plan, findings, sources and report in a project.": "Her araştırma planını, bulgularını, kaynaklarını ve raporunu bir projede saklar.",
   "Facts, lessons and preferences the agents learned; they are recalled when they fit a question.": "Ajanların öğrendiği bilgiler, dersler ve tercihler; bir soruya uyduklarında hatırlanırlar.",

@@ -156,6 +156,63 @@ Registered sources:
 Findings:
 {findings}"""
 
+LONG_PLAN = "\n\nThe user wants a long, detailed report: plan 5-8 sub-questions that cover the topic in depth."
+
+OUTLINE = """\
+You plan the sections of a long, detailed report of an offline research agent. The report is written one
+section at a time, each from the findings of the sub-questions you assign to it.
+- The first section is a short direct answer to the question (assign all sub-questions to it).
+- Then 3-8 sections that explain the topic in depth, in a logical order; together they must carry over every
+  relevant detail of the findings. A sub-question may feed more than one section.
+- Then a section "Open questions / limitations". If the findings contain code that produced key numbers, end
+  with an appendix section for it.
+Write the titles in the language of the question.
+Reply with JSON only:
+{"sections": [{"title": "...", "covers": "what this section explains", "sub_questions": [1, 2]}]}"""
+
+OUTLINE_TASK = """\
+Question: {question}
+
+Findings by sub-question:
+{findings}"""
+
+SECTION_WRITER = f"""\
+You write ONE section of a long report of an offline research agent; the other sections are written separately.
+Use ONLY the findings below. Cite with the [n] numbers exactly as given; do not invent sources.
+Every number must come from the findings (source text or Python output). Do not add a References section.
+
+{LANGUAGE_RULES}
+
+Start with the heading `## <section title>`, and write only this section: do not repeat what the other sections
+cover (see the outline). Make it as long and detailed as the findings allow: explain every relevant definition,
+method, assumption, derivation, formula (LaTeX), number, result and caveat in full paragraphs, with subsections
+(###) where they help. Do not summarize or shorten to save space. Plan briefly, then write.
+If the findings mention `[figure saved: <path>]` and the figure belongs here, include it as
+`![short caption](<path>)`."""
+
+SECTION_TASK = """\
+Question: {question}
+
+Outline of the report (you write section {index}):
+{outline}
+
+Section {index}: {title}
+It covers: {covers}
+
+User preferences:
+{preferences}
+
+Registered sources:
+{sources}
+
+Findings:
+{findings}"""
+
+SECTION_NOTE = (
+    '\n\n(The draft is one section of a longer report: "{title}". It covers: {covers}. Other parts of the question '
+    "are answered in other sections; judge only what this section covers.)"
+)
+
 CRITIC = """\
 You are a strict reviewer of a research report written by an offline agent. Compare the draft with the
 findings it is based on and list real problems only:
@@ -176,16 +233,16 @@ Draft:
 {draft}"""
 
 VERIFIER = """\
-You are the verification step of an offline research agent. The draft report below has problems
+You are the verification step of an offline research agent. The draft {what} below has problems
 found by automatic checks and a reviewer. Fix them using tools:
 - Untraceable number: recompute it with {python} or find it in a source. If it cannot be verified,
   remove it or mark it as an estimate.
 - Invalid citation or unverifiable quote: re-read the source and fix the citation, or remove the claim.
 - Reviewer issues: fix the reasoning, add the missing caveat, check units{units_hint}.
 Sources are listed with {list_sources} (project "{project}").
-When done, reply with the full corrected report in Markdown and nothing else (no References section).
+When done, reply with the full corrected {what} in Markdown and nothing else (no References section).
 Change only what the problems require: keep every other section, detail and formula of the draft as it is.
-Do not shorten or summarize the report.
+Do not shorten or summarize the {what}.
 
 {language_rules}"""
 
@@ -193,7 +250,7 @@ VERIFY_TASK = """\
 Problems found:
 {problems}
 
-Draft report:
+Draft {what}:
 {draft}"""
 
 LEARN = """\

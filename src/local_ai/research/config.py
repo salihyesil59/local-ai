@@ -27,6 +27,8 @@ class AgentSettings:
     verify_rounds: int = 1
     notebook_server: str = "notebook"
     critic: bool = True  # reviewer pass on the draft
+    long_report: bool = False  # an outline, then each section written (and verified) in its own completion
+    max_sections: int = 10
     gap_check: bool = True  # add sub-questions for gaps after research
     learn: bool = True  # save verified facts/lessons to long-term memory
     max_gap_questions: int = 2

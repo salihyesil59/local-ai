@@ -80,13 +80,17 @@ def unverified_numbers(draft: str, evidence: str, rel_tol: float = 5e-3) -> list
     return missing
 
 
-def unknown_citations(draft: str, source_count: int) -> list[int]:
+def cited_numbers(draft: str) -> set[int]:
     body = REFERENCES_RE.sub("", draft)
     cited = set()
     for marker in CITATION_RE.findall(body):
         for n in re.findall(r"\d+", marker):
             cited.add(int(n))
-    return sorted(n for n in cited if n < 1 or n > source_count)
+    return cited
+
+
+def unknown_citations(draft: str, source_count: int) -> list[int]:
+    return sorted(n for n in cited_numbers(draft) if n < 1 or n > source_count)
 
 
 # -- quote checking -------------------------------------------------------------

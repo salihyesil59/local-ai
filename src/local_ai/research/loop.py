@@ -25,7 +25,7 @@ from local_ai.core.text import extract_json, parse_inline_tool_calls, strip_thin
 from local_ai.servers.common import write_notebook
 
 from . import prompts
-from .checks import unknown_citations, unverified_numbers, unverified_quotes
+from .checks import cited_numbers, unknown_citations, unverified_numbers, unverified_quotes
 from .config import AgentSettings
 from .render import ConsoleRenderer
 from .tools import ToolRoles
@@ -233,7 +233,8 @@ class ResearchAgent:
             prompts.PLANNER,
             prompts.PLAN_TASK.format(
                 question=question, skills=self.skills or "(none)", memory=self.memory or "(nothing yet)"
-            ),
+            )
+            + (prompts.LONG_PLAN if self.settings.long_report else ""),
         )
         language, subs = "", []
         try:
@@ -361,6 +362,61 @@ class ResearchAgent:
         )
         return strip_think(message.content)
 
+    async def outline(self, question: str, subs: list[SubQuestion]) -> list[dict]:
+        """The sections of a long report: title, what it covers and the sub-questions (1-based) it is written from."""
+        numbered = "\n\n".join(f"## {i}. {s.question}\n{s.findings}" for i, s in enumerate(subs, 1))
+        data = await self._ask_json(prompts.OUTLINE, prompts.OUTLINE_TASK.format(question=question, findings=numbered))
+        sections = []
+        for s in (data or {}).get("sections", []) if isinstance(data, dict) else []:
+            if not isinstance(s, dict) or not str(s.get("title") or "").strip():
+                continue
+            picked = [n for n in s.get("sub_questions") or [] if isinstance(n, int) and 1 <= n <= len(subs)]
+            sections.append(
+                {
+                    "title": str(s["title"]).strip(),
+                    "covers": str(s.get("covers") or ""),
+                    "subs": picked or list(range(1, len(subs) + 1)),
+                }
+            )
+        if not sections:  # no usable outline: one section per sub-question
+            sections = [
+                {"title": s.question.removeprefix("[gap] "), "covers": s.question, "subs": [i]}
+                for i, s in enumerate(subs, 1)
+            ]
+        return sections[: self.settings.max_sections]
+
+    async def write_sections(self, question: str, subs: list[SubQuestion], sources: str) -> tuple[list[dict], list[str]]:
+        """A long report: an outline, then every section in its own completion (one after the other), so each
+        section has the whole token budget for itself."""
+        self._phase("Outline")
+        sections = await self.outline(question, subs)
+        outline = "\n".join(f"{i}. {s['title']}: {s['covers']}" for i, s in enumerate(sections, 1))
+        self._log(f"Outline of the report:\n{outline}")
+        texts = []
+        for i, section in enumerate(sections, 1):
+            self._phase(f"Write section {i}/{len(sections)}: {section['title']}")
+            task = prompts.SECTION_TASK.format(
+                question=question,
+                outline=outline,
+                index=i,
+                title=section["title"],
+                covers=section["covers"],
+                preferences=self.preferences or "(none)",
+                sources=sources,
+                findings=self._findings([subs[n - 1] for n in section["subs"]]),
+            )
+            message = await self._complete(
+                [{"role": "system", "content": prompts.SECTION_WRITER}, {"role": "user", "content": task}],
+                max_tokens=self.settings.report_tokens,
+            )
+            texts.append(self._headed(strip_think(message.content or ""), section["title"]))
+        return sections, texts
+
+    @staticmethod
+    def _headed(text: str, title: str) -> str:
+        text = text.strip()
+        return text if text.startswith("#") else f"## {title}\n\n{text}"
+
     async def critique(self, question: str, subs: list[SubQuestion], draft: str) -> list[str]:
         data = await self._ask_json(
             prompts.CRITIC, prompts.CRITIC_TASK.format(question=question, findings=self._findings(subs), draft=draft)
@@ -374,7 +430,8 @@ class ResearchAgent:
     async def _sources(self, project: str) -> list[dict]:
         return json.loads(await self._notebook("list_sources", project=project, format="json"))
 
-    def check(self, draft: str, sources: list[dict]) -> list[str]:
+    def check(self, draft: str, sources: list[dict], cited_only: bool = False) -> list[str]:
+        """Problems of a draft; cited_only (a section of a long report): only the quotes of the sources it cites."""
         evidence = "\n".join(self.evidence)
         problems = []
         numbers = unverified_numbers(draft, evidence)
@@ -383,6 +440,9 @@ class ResearchAgent:
         citations = unknown_citations(draft, len(sources))
         if citations:
             problems.append("Citations that match no registered source: " + ", ".join(f"[{n}]" for n in citations))
+        if cited_only:
+            cited = cited_numbers(draft)
+            sources = [s for s in sources if s["n"] in cited]
         quotes = unverified_quotes(sources, evidence)
         if quotes:
             problems.append("Registered quotes not found in any tool output (possibly invented): " + "; ".join(quotes))
@@ -394,18 +454,43 @@ class ResearchAgent:
             self._phase("Review")
             reviewer = await self.critique(question, subs, draft)
             self.emit("problems", source="reviewer", items=reviewer)
+        draft = await self._fix(project, draft, reviewer)
+        return await self._flag_remaining(project, draft)
+
+    async def verify_sections(
+        self, project: str, question: str, subs: list[SubQuestion], sections: list[dict], texts: list[str]
+    ) -> str:
+        """Review and fix a long report section by section: a section with problems is rewritten alone, so the
+        rest keeps its length."""
+        texts = list(texts)
+        for i, (section, text) in enumerate(zip(sections, texts, strict=True)):
+            label = f"section {i + 1}/{len(sections)}"
+            reviewer = []
+            if self.settings.critic:
+                self._phase(f"Review {label}")
+                note = prompts.SECTION_NOTE.format(title=section["title"], covers=section["covers"])
+                reviewer = await self.critique(question + note, [subs[n - 1] for n in section["subs"]], text)
+                self.emit("problems", source="reviewer", items=reviewer)
+            fixed = await self._fix(project, text, reviewer, what="section", label=f" {label}")
+            texts[i] = self._headed(fixed, section["title"])
+        return await self._flag_remaining(project, "\n\n".join(texts))
+
+    async def _fix(self, project: str, draft: str, reviewer: list[str], what: str = "report", label: str = "") -> str:
+        """Send the draft (a report or one section) back with its problems until the checks pass."""
         for round_ in range(self.settings.verify_rounds):
-            problems = self.check(draft, await self._sources(project)) + (reviewer if round_ == 0 else [])
+            problems = self.check(draft, await self._sources(project), cited_only=what == "section")
+            problems += reviewer if round_ == 0 else []
             if not problems:
-                self._log("Verification passed.", "success")
+                self._log(f"Verification{label} passed.", "success")
                 return draft
-            self._phase(f"Verify (round {round_ + 1})")
+            self._phase(f"Verify{label} (round {round_ + 1})")
             self.emit("problems", source="checks", items=[p for p in problems if p not in reviewer])
             check_units = self.roles.get("check_units")
             messages = [
                 {
                     "role": "system",
                     "content": prompts.VERIFIER.format(
+                        what=what,
                         python=self.roles.get("python") or "a calculation tool",
                         units_hint=f" with {check_units}" if check_units else "",
                         list_sources=f"{self.nb}__list_sources",
@@ -413,13 +498,19 @@ class ResearchAgent:
                         language_rules=prompts.LANGUAGE_RULES,
                     ),
                 },
-                {"role": "user", "content": prompts.VERIFY_TASK.format(problems="\n".join(problems), draft=draft)},
+                {
+                    "role": "user",
+                    "content": prompts.VERIFY_TASK.format(what=what, problems="\n".join(problems), draft=draft),
+                },
             ]
             revised, _ = await self._tool_loop(
-                messages, "Reply now with the full corrected report only.", max_tokens=self.settings.report_tokens
+                messages, f"Reply now with the full corrected {what} only.", max_tokens=self.settings.report_tokens
             )
             if revised:
                 draft = revised
+        return draft
+
+    async def _flag_remaining(self, project: str, draft: str) -> str:
         remaining = self.check(draft, await self._sources(project))
         if remaining:
             draft += "\n\n> **Unverified:** " + " ".join(remaining)
@@ -542,8 +633,12 @@ class ResearchAgent:
                 await self.research(project, question, subs, start=start)
 
         sources = await self._notebook("list_sources", project=project)
-        draft = await self.write(question, subs, sources)
-        report = await self.verify(project, question, subs, draft)
+        if self.settings.long_report:
+            sections, texts = await self.write_sections(question, subs, sources)
+            report = await self.verify_sections(project, question, subs, sections, texts)
+        else:
+            draft = await self.write(question, subs, sources)
+            report = await self.verify(project, question, subs, draft)
         saved = await self._notebook("save_report", project=project, markdown=report)
         project_dir = Path(saved.rsplit(" to ", 1)[-1]).parent
         await self.export_computations(project, project_dir)
