@@ -298,7 +298,7 @@ function renderChips() {
     !chat && $("#quick").checked ? chip(t("Quick"), off("#quick")) : null,
     state.mode === "research" && !$("#sources").checked ? chip(t("No sources"), off("#sources")) : null,
     state.mode === "research" && $("#long-report").checked ? chip(t("Long report"), off("#long-report")) : null,
-    state.mode === "research" && !$("#critic").checked ? chip(t("No reviewer"), off("#critic")) : null,
+    !chat && !$("#critic").checked ? chip(t("No reviewer"), off("#critic")) : null,
   ].filter(Boolean));
 }
 
@@ -825,6 +825,8 @@ function updateComposer() {
     : t("Skip review, gap check and learning");
   $("#quick-opt small").textContent = code ? t("A small mechanical change (a rename): no plan, the tests run once at the end")
     : t("Quick answer: one tool loop, no plan or report");
+  $("#critic-opt small").textContent = code ? t("A judge checks a finished task against the request and may send it back (normal speed only)")
+    : t("A reviewer reads the report against the findings and sends real problems back to be fixed");
   $("#run").disabled = state.running && !steer;
   $("#cancel").hidden = !state.running;
   if (!state.running) $("#compact").hidden = true; // shown by the first "turn" event, which only code runs send
@@ -949,9 +951,9 @@ $("#ask").addEventListener("submit", async (ev) => {
   }
   const options = { question, images, servers: getSelectedMcpServers(), settings: getSettings() };
   if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
-  if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked });
+  if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, critic: $("#critic").checked });
   if (state.mode === "research") Object.assign(options, { parallel: +$("#parallel").value, sources: $("#sources").checked,
-    long_report: $("#long-report").checked, critic: $("#critic").checked });
+    long_report: $("#long-report").checked });
   try {
     let run;
     if (state.currentRun) {
@@ -1555,7 +1557,7 @@ function environmentCard() {
   const offered = offeredServers(), chosen = chosenServers();
   const options = [mode !== "chat" && $("#fast").checked && t("Fast"), mode !== "chat" && $("#quick").checked && t("Quick"),
     mode === "research" && $("#long-report").checked && t("Long report"),
-    mode === "research" && !$("#critic").checked && t("No reviewer")].filter(Boolean);
+    mode !== "chat" && !$("#critic").checked && t("No reviewer")].filter(Boolean);
   const folder = run ? run.project : $("#folder").value.trim(); // the last part of the path; all of it in the tooltip
   const rows = [
     [t("Mode"), t(mode === "chat" ? "Chat" : mode === "code" ? "Code" : "Research")],

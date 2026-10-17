@@ -194,6 +194,9 @@ async def run_code(
     if "max_thinking_chars" in chosen:
         llm.max_thinking_chars = chosen["max_thinking_chars"]
     limits = Settings(speed=speed, **{k: chosen[k] for k in ("max_turns", "context_chars") if k in chosen})
+    if options.get("critic") is False:
+        limits.judge_rounds = 0
+        run.push({"kind": "log", "text": "Judge off"})
     agent = CoderAgent(
         llm,
         root,

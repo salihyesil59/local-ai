@@ -10,6 +10,7 @@ pytest.importorskip("httpx")
 from starlette.testclient import TestClient  # noqa: E402
 
 from local_ai.research.config import AgentSettings  # noqa: E402
+from local_ai.web import runs  # noqa: E402
 from local_ai.web.app import create_app  # noqa: E402
 from test_web import read_events  # noqa: E402
 
@@ -89,6 +90,24 @@ def test_code_mode_runs_the_agent_and_streams_its_events(tmp_path, monkeypatch):
     assert next(e for e in events if e["kind"] == "outcome")["finished"] is True
     assert "Hazır." in next(e for e in events if e["kind"] == "answer")["html"]
     assert (folder / "test_add.py").is_file()
+
+
+def test_the_reviewer_switch_turns_the_judge_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCAL_CODER_HOME", str(tmp_path / "home"))
+    seen = []
+    real = runs.CoderAgent
+
+    def agent(*args, **kwargs):
+        seen.append(args[2].judge_rounds)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(runs, "CoderAgent", agent)
+    with make_client([("I will not use tools.", [])] * 8) as client:
+        for critic in (True, False):
+            body = {"mode": "code", "question": "x", "folder": str(tmp_path / "p"), "critic": critic}
+            run = client.post("/api/runs", json=body).json()
+            read_events(client, run["id"])
+    assert seen == [2, 0]
 
 
 def test_code_mode_reports_a_stopped_run(tmp_path, monkeypatch):

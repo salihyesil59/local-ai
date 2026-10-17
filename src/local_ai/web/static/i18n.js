@@ -164,6 +164,8 @@ const TR = {
     "Önce bir taslak, sonra her bölüm ayrı yazılır ve kontrol edilir: çok daha uzun bir rapor, ama daha yavaş",
   "A reviewer reads the report against the findings and sends real problems back to be fixed":
     "Hakem raporu bulgularla karşılaştırır ve gerçek sorunları düzeltilmek üzere geri gönderir",
+  "A judge checks a finished task against the request and may send it back (normal speed only)":
+    "Hakem biten işi istekle karşılaştırır ve gerekirse geri gönderir (yalnızca normal hızda)",
 "{n} tool calls": "{n} araç çağrısı", "Copy": "Kopyala", "Copied": "Kopyalandı",
   "All projects": "Tüm projeler",
   "Every research keeps its plan, findings, sources and report in a project.": "Her araştırma planını, bulgularını, kaynaklarını ve raporunu bir projede saklar.",
