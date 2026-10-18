@@ -92,6 +92,7 @@ class ResearchAgent:
         self.evidence: list[str] = []  # raw tool outputs; numbers and quotes are checked against these
         self.chapters: dict[int, str] = {}  # document mode: sub-question number -> its chapter
         self.language = ""  # of the question, from the plan
+        self.draft = ""  # the answer from the model's own knowledge, which the research checks and revises
         self.registered = 0  # sources registered in this run
         self.nb = settings.notebook_server
         if not bridge.has(f"{self.nb}__write_note"):
@@ -200,7 +201,12 @@ class ResearchAgent:
         """Let the model call tools until it answers in plain text (or hits the step limit).
 
         Returns (answer, raw outputs of the successful tool calls)."""
-        tools = self.bridge.openai_tools(self.settings.servers) if tools is None else tools
+        if tools is None:  # making a PDF or Word file is for chats; a research has its own document
+            tools = [
+                t
+                for t in self.bridge.openai_tools(self.settings.servers)
+                if not t["function"]["name"].endswith(("__make_pdf", "__make_docx"))
+            ]
         outputs: list[str] = []
         readers = {self.roles.get(r) for r in READ_ROLES} - {None}
         has_read = False  # a source is registered only after a tool read a part of one (not from a search hit)
@@ -243,7 +249,8 @@ class ResearchAgent:
 
         messages.append({"role": "user", "content": finalize_prompt})
         message = await self._complete(messages, index=index, max_tokens=max_tokens)
-        return strip_think(message.content), outputs
+        # offered no tools, a model may still write a call as text: that is not an answer
+        return strip_tool_calls(strip_think(message.content)), outputs
 
     def _cites_unread(self, name: str, args: str, has_read: bool) -> bool:
         """True for a source registered before anything was read (a computation may be registered at once)."""
@@ -294,12 +301,37 @@ class ResearchAgent:
             self.emit("clarify", questions=asked)
         return asked
 
+    async def write_draft(self, question: str) -> str:
+        """The answer from what the model knows, at once (as a chat would give it); the research then checks it."""
+        self._phase("Draft")
+        message = await self._complete(
+            [
+                {"role": "system", "content": prompts.DRAFTER},
+                {
+                    "role": "user",
+                    "content": prompts.DRAFT_TASK.format(
+                        question=question,
+                        preferences=self.preferences or "(none)",
+                        memory=self.memory or "(nothing)",
+                    ),
+                },
+            ],
+            max_tokens=self.settings.report_tokens,
+        )
+        draft = strip_think(message.content)
+        self.emit("draft", text=draft or "(empty)")
+        return draft
+
     async def plan(self, question: str) -> tuple[str, list[SubQuestion]]:
+        """The checks of the draft: claims, formulas and numbers to confirm from sources or a calculation."""
         self._phase("Plan")
         data = await self._ask_json(
             prompts.PLANNER,
             prompts.PLAN_TASK.format(
-                question=question, skills=self.skills or "(none)", memory=self.memory or "(nothing yet)"
+                question=question,
+                draft=self.draft or "(no draft)",
+                skills=self.skills or "(none)",
+                memory=self.memory or "(nothing yet)",
             )
             + (prompts.LONG_PLAN if self.settings.long_report or self.settings.document else ""),
         )
@@ -471,17 +503,20 @@ class ResearchAgent:
                         question=question,
                         preferences=self.preferences or "(none)",
                         sources=sources,
+                        draft=self.draft or "(no draft)",
                         findings=self._findings(subs),
                     ),
                 },
             ],
             max_tokens=self.settings.report_tokens,
         )
-        draft = strip_think(message.content)
-        if not draft.strip():  # a report must never be empty: what was found stands in for it
-            self._log("The report came back empty; the findings stand in for it.", "warning")
-            draft = "\n\n".join(f"## {title_of(s.question)}\n\n{s.findings}" for s in subs if s.findings)
-        return draft
+        report = strip_think(message.content)
+        if not report.strip():  # a report must never be empty: the draft and what was found stand in for it
+            self._log("The report came back empty; the draft and the findings stand in for it.", "warning")
+            report = "\n\n".join(
+                [self.draft, *(f"## {title_of(s.question)}\n\n{s.findings}" for s in subs if s.findings)]
+            ).strip()
+        return report
 
     def _or_findings(self, text: str, title: str, subs: list[SubQuestion]) -> str:
         """A written section, or (when only its heading came back) the findings it was to be written from."""
@@ -493,7 +528,8 @@ class ResearchAgent:
     async def outline(self, question: str, subs: list[SubQuestion]) -> list[dict]:
         """The sections of a long report: title, what it covers and the sub-questions (1-based) it is written from."""
         numbered = "\n\n".join(f"## {i}. {s.question}\n{s.findings}" for i, s in enumerate(subs, 1))
-        data = await self._ask_json(prompts.OUTLINE, prompts.OUTLINE_TASK.format(question=question, findings=numbered))
+        task = prompts.OUTLINE_TASK.format(question=question, draft=self.draft or "(no draft)", findings=numbered)
+        data = await self._ask_json(prompts.OUTLINE, task)
         sections = []
         for s in (data or {}).get("sections", []) if isinstance(data, dict) else []:
             if not isinstance(s, dict) or not str(s.get("title") or "").strip():
@@ -530,7 +566,8 @@ class ResearchAgent:
     async def _write_section(
         self, question: str, outline: str, index: int, section: dict, subs: list[SubQuestion], sources: str
     ) -> str:
-        """One section (or chapter) in its own completion, from the findings of its sub-questions only."""
+        """One section in its own completion, from the findings of its sub-questions and the draft."""
+        draft = f"\n\n## Draft answer (from memory)\n{self.draft}" if self.draft else ""
         task = prompts.SECTION_TASK.format(
             question=question,
             outline=outline,
@@ -539,7 +576,7 @@ class ResearchAgent:
             covers=section["covers"],
             preferences=self.preferences or "(none)",
             sources=sources,
-            findings=self._findings(subs),
+            findings=self._findings(subs) + draft,
         )
         message = await self._complete(
             [{"role": "system", "content": prompts.SECTION_WRITER}, {"role": "user", "content": task}],
@@ -548,18 +585,14 @@ class ResearchAgent:
         return self._or_findings(self._headed(strip_think(message.content or ""), section["title"]), section["title"], subs)
 
     async def chapter(self, project: str, question: str, subs: list[SubQuestion], i: int) -> None:
-        """Document mode: the chapter of sub-question i, written (and checked) as soon as its findings are in, and
-        kept as the note chapter-NN."""
+        """Document mode: the chapter of check i, its findings as soon as they are in (already detailed and cited:
+        no model reply is spent on it), kept as the note chapter-NN."""
         sub = subs[i - 1]
-        section = {"title": f"{i}. {title_of(sub.question)}", "covers": sub.question}
-        outline = "\n".join(f"{j}. {title_of(s.question)}" for j, s in enumerate(subs, 1))
-        self._phase(f"Write chapter {i}/{len(subs)}")
-        sources = await self._notebook("list_sources", project=project)
-        text = await self._write_section(question, outline, i, section, [sub], sources)
-        text = await self._review_section(project, question, [sub], section, text, f"chapter {i}/{len(subs)}")
+        title = f"{i}. {title_of(sub.question)}"
+        text = f"## {title}\n\n{document.shift_headings(sub.findings or '(nothing found)', top=3)}"
         self.chapters[i] = text
         await self._notebook("write_note", project=project, title=f"chapter-{i:02d}", content=text)
-        self.emit("chapter", index=i, title=section["title"])
+        self.emit("chapter", index=i, title=title)
 
     @staticmethod
     def _headed(text: str, title: str) -> str:
@@ -767,6 +800,7 @@ class ResearchAgent:
                 asked = await self.clarify(question)
                 if asked:  # the user answers with the next message, which is then researched
                     return ""
+            self.draft = await self.write_draft(question)
             language, subs = await self.plan(question)
             project = project or question
         self.language = language
@@ -779,6 +813,8 @@ class ResearchAgent:
             await self.bridge.call(reset, {})
         if not resume:
             await self._save_state(project, question, language, subs)
+            if self.draft:
+                await self._notebook("write_note", project=project, title="draft", content=self.draft)
         self.emit("project", name=project)  # from here on the run can be resumed: its plan is saved
         if self.settings.review_plan and not resume:  # the user changes the plan and starts the research
             self.emit("plan_review", project=project, sub_questions=[s.question for s in subs])
@@ -875,4 +911,6 @@ class ResearchAgent:
                 self.evidence.append(await self._notebook("read_note", project=project, title=f"evidence-{i:02d}"))
             if f"chapter-{i:02d}" in notes:
                 self.chapters[i] = await self._notebook("read_note", project=project, title=f"chapter-{i:02d}")
+        if "draft" in notes:
+            self.draft = await self._notebook("read_note", project=project, title="draft")
         return state["question"], state.get("language", ""), subs

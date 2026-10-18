@@ -15,6 +15,7 @@ from test_loop import StreamingClient, reply  # noqa: E402
 
 def script():
     return {
+        "draft": [reply("A draft from memory.")],
         "plan": [reply('{"language": "en", "sub_questions": [{"question": "What is c?", "needs_python": true}]}')],
         "research": [
             reply(calls=[("library__search_library", {"query": "speed of light"})]),
@@ -191,6 +192,18 @@ def test_mcp_servers_are_listed_added_disabled_and_removed(mcp_config):
     with TestClient(create_app([], AgentSettings(model="test"), client=StreamingClient({}))) as client:
         assert client.get("/api/mcp").json()["editable"] is False  # started without a file to change
         assert client.post("/api/mcp", json={"name": "x", "command": "y"}).status_code == 400
+
+
+def test_a_research_with_chosen_servers_is_offered_add_source(mcp_config):
+    # the page sends only the optional servers it offers; the notebook (add_source) is never among them
+    model = StreamingClient(script())
+    settings = AgentSettings(model="test", critic=False, gap_check=False)
+    with TestClient(create_app(load_mcp_config(mcp_config), settings, client=model)) as c:
+        body = {"question": "What is the speed of light?", "project": "light", "servers": ["library", "compute"]}
+        events = read_events(c, c.post("/api/runs", json=body).json()["id"])
+    offered = {t["function"]["name"] for t in model.requests["research"][0]["tools"]}
+    assert "notebook__add_source" in offered and "library__search_library" in offered
+    assert "[1] Speed of light" in next(e for e in events if e["kind"] == "report")["text"]
 
 
 def test_a_planned_research_can_be_changed_before_it_starts(client, tmp_path):

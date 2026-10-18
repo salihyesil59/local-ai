@@ -200,7 +200,7 @@ def pdf_engine() -> str | None:
     return None
 
 
-def _pandoc(src: Path, out: Path, fmt: str, resources: Path, extra: list[str]) -> None:
+def run_pandoc(src: Path, out: Path, fmt: str, resources: Path, extra: list[str]) -> None:
     """Run pandoc on a Markdown file; ExportError (with what to install) when it cannot."""
     pandoc = shutil.which("pandoc")
     if not pandoc:
@@ -235,7 +235,7 @@ def export_document(project_dir: Path, fmt: str) -> Path:
     out_dir = project_dir / "exports"
     out_dir.mkdir(exist_ok=True)
     out = out_dir / f"document.{fmt}"
-    _pandoc(src, out, fmt, project_dir, ["--toc", "--from", "markdown-citations"])
+    run_pandoc(src, out, fmt, project_dir, ["--toc", "--from", "markdown-citations"])
     return out
 
 
@@ -263,5 +263,5 @@ def export(project_dir: Path, fmt: str, title: str | None = None) -> Path:
     bib_path.write_text(bib, encoding="utf-8")
     src = out_dir / "report.pandoc.md"
     src.write_text(f'---\ntitle: "{title}"\n---\n\n' + _pandoc_markdown(markdown, keys), encoding="utf-8")
-    _pandoc(src, out, fmt, project_dir, ["--citeproc", "--bibliography", str(bib_path)])
+    run_pandoc(src, out, fmt, project_dir, ["--citeproc", "--bibliography", str(bib_path)])
     return out

@@ -27,6 +27,7 @@ local-ai-docs = "local_ai.servers.docs.server:main"
 local-ai-library = "local_ai.servers.library.server:main"
 local-ai-compute = "local_ai.servers.compute.server:main"
 local-ai-notebook = "local_ai.servers.notebook.server:main"
+local-ai-documents = "local_ai.servers.documents.server:main"
 local-coder = "local_ai.coder.__main__:main"
 
 [build-system]

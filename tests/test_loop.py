@@ -21,6 +21,7 @@ PHASES = {
     "You write the final report": "write",
     "You plan the sections": "outline",
     "You reflect on one step": "reflect",
+    "You draft the answer": "draft",
     "You prepare the work": "clarify",
     "You write ONE section": "section",
     "You are a strict reviewer": "critic",
@@ -81,6 +82,7 @@ REPORT = "Işık hızı 299792458 m/s'dir [1]. Bir saatte 1079252848.8 km yol al
 
 def full_script():
     return {
+        "draft": [reply("A draft from memory.")],
         "plan": [
             reply(
                 '<think>plan it</think>{"language": "tr", "sub_questions": [{"question": "Işık hızı nedir?", '
@@ -201,7 +203,9 @@ async def test_memory_feeds_next_run_and_resume_keeps_evidence(mcp_config):
         assert "1079252848.8" in report
 
         # A new question gets the remembered fact in its plan prompt.
-        planner = ScriptedClient({"plan": [reply("not json")], "research": [reply("- nothing")]})
+        planner = ScriptedClient(
+            {"draft": [reply("A draft.")], "plan": [reply("not json")], "research": [reply("- nothing")]}
+        )
         agent = ResearchAgent(
             planner,
             bridge,
@@ -218,6 +222,7 @@ async def test_parallel_research_cache_and_events(mcp_config):
     search = ("library__search_library", {"query": "speed of light"})
     client = ScriptedClient(
         {
+            "draft": [reply("A draft from memory.")],
             "plan": [plan],
             # each is asked once to register a source for what it found, and answers again
             "research:1": [reply(calls=[search]), reply("- A done"), reply("- A done")],
@@ -250,6 +255,7 @@ async def test_a_long_report_is_written_and_verified_section_by_section(mcp_conf
     )
     client = ScriptedClient(
         {
+            "draft": [reply("A draft from memory.")],
             "plan": [reply('{"language": "tr", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
             "research": [
                 reply(calls=[("library__search_library", {"query": "speed of light"})]),
@@ -280,7 +286,7 @@ async def test_a_long_report_is_written_and_verified_section_by_section(mcp_conf
         report = await agent.run("Işık hızı?", project="long")
 
     assert not client.left(), f"unused replies: {client.left()}"
-    assert "5-8 sub-questions" in client.requests["plan"][0]["messages"][1]["content"]
+    assert "4-8 checks" in client.requests["plan"][0]["messages"][1]["content"]
     sections = [r["messages"][1]["content"] for r in client.requests["section"]]
     assert "- B: nothing more" in sections[0] and "- B: nothing more" not in sections[1]
     assert "- B: nothing more" in sections[2]  # an unknown sub-question number: all findings
@@ -315,6 +321,7 @@ async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_th
     )
     client = ScriptedClient(
         {
+            "draft": [reply("A draft from memory.")],
             "plan": [reply('{"language": "tr", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
             "research": [
                 reply(calls=[("library__search_library", {"query": "speed of light"})]),
@@ -323,9 +330,8 @@ async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_th
                 reply("- c = 299792458 m/s [1]"),
                 reply("- B: nothing more"),
             ],
-            "section": [reply("## 1. A?\n\nIşık hızı 299792458 m/s [1]."), reply("B hakkında bilgi yok.")],
             "write": [reply("# Sentez\n\nIşık hızı 299792458 m/s [1].")],
-            "critic": [reply('{"issues": []}')] * 3,
+            "critic": [reply('{"issues": []}')],
         }
     )
     events = []
@@ -340,14 +346,12 @@ async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_th
         found, written = ([i for i, k in enumerate(kinds) if k == kind] for kind in ("findings", "chapter"))
         assert found[0] < written[0] < found[1] < written[1] < kinds.index("document") < kinds.index("report")
         assert [e["title"] for e in events if e["kind"] == "chapter"] == ["1. A?", "2. B?"]
-        chapters = [r["messages"][1]["content"] for r in client.requests["section"]]
-        assert "- c = 299792458" in chapters[0] and "- B: nothing more" not in chapters[0]
-        assert "- B: nothing more" in chapters[1] and "Section 2: 2. B?" in chapters[1]
+        assert "section" not in client.requests  # a chapter is its findings: no model reply spent on it
         [done] = [e for e in events if e["kind"] == "document"]
         assert set(done) >= {"md", "docx"} and "pdf" not in done
         text = (tmp_path / "workspace" / "doc" / "document.md").read_text(encoding="utf-8")
-        order = ["# Bölüm I", "## 1. A?", "## 2. B?", "B hakkında bilgi yok.", "# Bölüm II", "## Sentez", "# Kaynakça",
-                 "[1] *Speed of light*"]
+        order = ["# Bölüm I", "## 1. A?", "- c = 299792458 m/s [1]", "## 2. B?", "- B: nothing more", "# Bölüm II",
+                 "## Sentez", "# Kaynakça", "[1] *Speed of light*"]
         positions = [text.index(s) for s in order]
         assert positions == sorted(positions)
 
@@ -442,6 +446,7 @@ async def test_short_thinking_stops_at_its_limit_and_asks_for_the_reply(mcp_conf
 async def test_deepening_follows_what_a_step_opened_one_level_down(mcp_config, tmp_path):
     client = ScriptedClient(
         {
+            "draft": [reply("A draft from memory.")],
             "plan": [reply('{"language": "en", "sub_questions": [{"question": "Vary the action?"}]}')],
             "research": [reply("- δS needs δ√-g [1]"), reply("- δ√-g = -½√-g g_μν δg^μν"), reply("- δR_μν: Palatini")],
             "reflect": [
@@ -486,6 +491,7 @@ async def test_clarifying_questions_and_a_plan_to_approve(mcp_config):
         planning = ScriptedClient(
             {
                 "clarify": [reply('{"questions": []}')],
+                "draft": [reply("A draft from memory.")],
                 "plan": [reply('{"language": "en", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
             }
         )
@@ -512,6 +518,7 @@ async def test_a_source_is_registered_only_after_reading_it(mcp_config):
 
     client = ScriptedClient(
         {
+            "draft": [reply("A draft from memory.")],
             "plan": [reply('{"language": "en", "sub_questions": [{"question": "c?"}]}')],
             "research": [
                 reply(calls=[("compute__python", {"code": "print(299792458 / 1000)"})]),
@@ -581,25 +588,84 @@ async def test_an_empty_report_or_section_is_replaced_by_the_findings(mcp_config
 
     monkeypatch.setattr(loop, "export_document", lambda project_dir, fmt: project_dir / "document.md")
     monkeypatch.setattr(loop, "pdf_engine", lambda: None)
+    def script(**more):
+        return {
+            "draft": [reply("The draft from memory: δ√-g = ½√-g g^μν δg_μν.")],
+            "plan": [reply('{"language": "en", "sub_questions": [{"question": "Vary √-g?"}]}')],
+            "research": [reply("- # Checked\n- δ√-g = -½√-g g_μν δg^μν")],
+            **more,
+        }
+
+    settings = AgentSettings(model="test", gap_check=False, critic=False, learn=False, document=True)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        events = []
+        agent = ResearchAgent(ScriptedClient(script(write=[reply("")])), bridge, settings, on_event=events.append)
+        report = await agent.run("Derive", project="empty")  # nothing came back from the writer
+        body = report.split("## References")[0]
+        assert "The draft from memory" in body and "δ√-g = -½√-g g_μν δg^μν" in body
+        chapter = (tmp_path / "workspace" / "empty" / "notes" / "chapter-01.md").read_text(encoding="utf-8")
+        assert chapter.startswith("## 1. Vary √-g?") and "δ√-g = -½√-g" in chapter  # the chapter is the findings
+        assert any("draft and the findings stand in" in e["text"] for e in events if e["kind"] == "log")
+
+        events = []
+        long = AgentSettings(model="test", gap_check=False, critic=False, learn=False, long_report=True)
+        outline = reply('{"sections": [{"title": "Variation", "covers": "δ√-g", "sub_questions": [1]}]}')
+        client = ScriptedClient(script(outline=[outline], section=[reply("## Variation")]))  # only its heading
+        agent = ResearchAgent(client, bridge, long, on_event=events.append)
+        report = await agent.run("Derive", project="empty-section")
+        assert "## Variation" in report and "δ√-g = -½√-g g_μν δg^μν" in report
+        assert "Draft answer (from memory)" in client.requests["section"][0]["messages"][1]["content"]
+        assert any("came back empty" in e["text"] for e in events if e["kind"] == "log")
+
+
+async def test_a_call_written_as_text_at_the_step_limit_is_no_answer(mcp_config):
     client = ScriptedClient(
         {
-            "plan": [reply('{"language": "en", "sub_questions": [{"question": "Vary √-g?"}]}')],
-            "research": [reply("- δ√-g = -½√-g g_μν δg^μν")],
-            "section": [reply("## 1. Vary √-g?")],  # only its heading came back
-            "write": [reply("")],  # nothing came back
+            "research": [
+                reply(calls=[("library__search_library", {"query": "speed of light"})]),
+                reply("<tool_call>\n<function=notebook__add_source>\n<parameter=title>\nX\n</parameter>\n</function>"
+                      "\n</tool_call>\n- c = 299792458 m/s"),  # fmt: skip
+            ]
+        }
+    )
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, AgentSettings(model="test"), console=Console(quiet=True))
+        messages = [{"role": "system", "content": "You are an offline research agent working"}, {"role": "user", "content": "c?"}]
+        answer, _ = await agent._tool_loop(messages, "Finish.", max_steps=1)
+    assert answer == "- c = 299792458 m/s"
+
+
+async def test_a_research_drafts_the_answer_then_checks_and_revises_it(mcp_config, tmp_path):
+    draft = "## Cevap\n\nIşık hızı yaklaşık 3e8 m/s'dir (emin değilim: tam değer)."
+    client = ScriptedClient(
+        {
+            "draft": [reply(draft)],
+            "plan": [reply('{"language": "tr", "sub_questions": [{"question": "c tam olarak kaç m/s?"}]}')],
+            "research": [reply("- c = 299792458 m/s (tam, tanım gereği)")],
+            "write": [reply("## Cevap\n\nIşık hızının değeri tanım gereği tamdır.")],
         }
     )
     events = []
-    settings = AgentSettings(model="test", gap_check=False, critic=False, learn=False, document=True)
+    settings = AgentSettings(model="test", gap_check=False, critic=False, learn=False)
     async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
         agent = ResearchAgent(client, bridge, settings, on_event=events.append)
-        report = await agent.run("Derive", project="empty")
+        await agent.run("Işık hızı nedir?", project="draft")
 
-    assert "δ√-g = -½√-g g_μν δg^μν" in report.split("## References")[0]
-    chapter = (tmp_path / "workspace" / "empty" / "notes" / "chapter-01.md").read_text(encoding="utf-8")
-    assert chapter.startswith("## 1. Vary √-g?") and "δ√-g = -½√-g" in chapter
-    warnings = [e["text"] for e in events if e["kind"] == "log" and e.get("level") == "warning"]
-    assert any("came back empty" in w for w in warnings) and any("findings stand in" in w for w in warnings)
+        kinds = [e["kind"] for e in events]
+        assert kinds.index("draft") < kinds.index("plan") < kinds.index("findings") < kinds.index("report")
+        assert next(e for e in events if e["kind"] == "draft")["text"] == draft  # shown at once, as a chat would
+        assert client.requests["draft"][0]["max_tokens"] == settings.report_tokens and "tools" not in client.requests["draft"][0]
+        assert draft in client.requests["plan"][0]["messages"][1]["content"]  # the checks are of the draft
+        written = client.requests["write"][0]["messages"][1]["content"]
+        assert draft in written and "c = 299792458 m/s" in written  # the report revises the draft with the findings
+        note = (tmp_path / "workspace" / "draft" / "notes" / "draft.md").read_text(encoding="utf-8")
+        assert draft in note
+
+        # resumed: the draft is read back for the report, not written again
+        again = ScriptedClient({"write": [reply("## Cevap\n\nYine.")]})
+        agent = ResearchAgent(again, bridge, settings, console=Console(quiet=True))
+        await agent.run(project="draft", resume=True)
+        assert "draft" not in again.requests and draft in again.requests["write"][0]["messages"][1]["content"]
 
 
 async def test_quick_answer(mcp_config):
@@ -737,6 +803,7 @@ async def test_skill_limits_apply_to_its_sub_question(mcp_config):
     (library / "paper.txt").write_text("alpha " * 500 + "omega 299792458 " * 200, encoding="utf-8")  # 6200 characters
     client = ScriptedClient(
         {
+            "draft": [reply("A draft from memory.")],
             "plan": [reply('{"language": "tr", "sub_questions": [{"question": "Özet", "skill": "paper-summary"}]}')],
             "research": [
                 reply(calls=[("library__read_library", {"source": "paper.txt", "page": 1, "pages": 3})]),

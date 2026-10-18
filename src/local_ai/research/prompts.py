@@ -7,14 +7,35 @@ Language:
   terms AND with English translations of the key terms, then merge what you find.
 - Keep technical terms, formulas and paper titles in their original form."""
 
+DRAFTER = f"""\
+You draft the answer of an offline research agent from what you know, before anything is looked up.
+Answer the question completely, as well as you can: the full explanation, derivation or argument, with formulas in
+LaTeX and numbers with units, in clear sections. Do not cite sources and do not hedge every sentence: the draft is
+checked against sources and calculations next, and corrected where it is wrong. Where you are unsure of something,
+say so in one short note at that place, so it gets checked.
+
+{LANGUAGE_RULES}"""
+
+DRAFT_TASK = """\
+Question: {question}
+
+User preferences:
+{preferences}
+
+From memory (earlier research; re-check before relying on it):
+{memory}"""
+
 PLANNER = f"""\
-You are the planning step of an offline research agent.
-Break the user's question into 2-6 focused sub-questions that together answer it.
-For each sub-question give search terms in the original language and in English.
-Mark sub-questions that need a calculation, unit conversion or numeric check with "needs_python": true.
-If one of the available skills fits a sub-question, put its name in "skill" (else "").
-If a skill covers the whole question (e.g. summarizing one named paper), plan a single sub-question with it.
-Use what is already known from memory to avoid redundant work, but plan to re-check facts you will cite.
+You are the planning step of an offline research agent. A draft answer, written from the model's own knowledge,
+is given below; it is not checked yet. Choose 2-6 checks that make it trustworthy, each a focused sub-question:
+- the key claims, formulas, derivation steps and numbers that need a source or a calculation;
+- what the draft marked as unsure, and any part of the question it does not answer well.
+Do not plan checks for what is obvious or not needed for the answer. Write each check so it can be researched alone
+(name the claim or formula it checks).
+For each give search terms in the original language and in English.
+Mark checks that need a calculation, unit conversion, symbolic or numeric check with "needs_python": true.
+If one of the available skills fits a check, put its name in "skill" (else "").
+If a skill covers the whole question (e.g. summarizing one named paper), plan a single check with it.
 
 {LANGUAGE_RULES}
 
@@ -26,6 +47,9 @@ Reply with JSON only, no prose:
 
 PLAN_TASK = """\
 Question: {question}
+
+Draft answer (to be checked):
+{draft}
 
 Available skills:
 {skills}
@@ -106,6 +130,10 @@ Main question: {question}
 Sub-question {index}/{total}: {sub_question}
 Suggested search terms: {terms}
 {python_hint}
+This checks a part of a draft answer written from memory. Confirm it from sources (read, register, cite) or with a
+calculation, and say clearly what is confirmed, what must be corrected (give the correct form) and what could not be
+verified.
+
 Known from memory (re-check before citing):
 {memory}
 
@@ -131,18 +159,19 @@ Findings:
 {findings}"""
 
 WRITER = f"""\
-You write the final report of an offline research agent.
-Use ONLY the findings below. Cite with the [n] numbers exactly as given; do not invent sources.
-Every number must come from the findings (source text or Python output). Do not add a References
-section; it is generated automatically.
+You write the final report of an offline research agent: the draft answer below, written from memory, revised with
+the findings of its checks.
+- Keep the draft's complete explanation, derivation and structure; do not shorten it.
+- Correct what the findings contradict, and add what they add.
+- Cite every claim the findings support with their [n] numbers exactly as given; do not invent sources.
+- A claim of the draft that no finding supports stays only if it is standard and you mark it briefly as not
+  checked; drop what the findings show to be wrong.
+- Do not add a References section; it is generated automatically.
 
 {LANGUAGE_RULES}
 
-Structure: a short direct answer first, then sections with the supporting details, then
-"Open questions / limitations". Put any code that produced key numbers in an appendix.
-Be thorough: the report is the only thing the user reads. Carry over every relevant detail from the
-findings (methods, assumptions, formulas, numbers, results, caveats) and explain it in full
-paragraphs rather than repeating the bullet points. Do not shorten to save space. Plan briefly, then write.
+Structure: a short direct answer first, then the sections of the explanation, then "Open questions / limitations".
+Put any code that produced key numbers in an appendix. Explain in full paragraphs, with formulas in LaTeX.
 If the findings mention `[figure saved: <path>]`, include the figure where it is discussed as
 `![short caption](<path>)`."""
 
@@ -155,7 +184,10 @@ User preferences:
 Registered sources:
 {sources}
 
-Findings:
+Draft answer (from memory, to revise):
+{draft}
+
+Findings of the checks:
 {findings}"""
 
 ANSWER_NOW = """\
@@ -190,7 +222,7 @@ Plan:
 Findings of step {index} ({sub_question}):
 {findings}"""
 
-LONG_PLAN = "\n\nThe user wants a long, detailed report: plan 5-8 sub-questions that cover the topic in depth."
+LONG_PLAN = "\n\nThe user wants a long, detailed report: plan 4-8 checks that cover the draft in depth."
 
 OUTLINE = """\
 You plan the sections of a long, detailed report of an offline research agent. The report is written one
@@ -207,12 +239,16 @@ Reply with JSON only:
 OUTLINE_TASK = """\
 Question: {question}
 
+Draft answer (from memory; its sections may guide the outline):
+{draft}
+
 Findings by sub-question:
 {findings}"""
 
 SECTION_WRITER = f"""\
 You write ONE section of a long report of an offline research agent; the other sections are written separately.
-Use ONLY the findings below. Cite with the [n] numbers exactly as given; do not invent sources.
+Use the findings below, and the draft answer (from memory) where they confirm it or it is standard; correct the
+draft where the findings contradict it. Cite with the [n] numbers exactly as given; do not invent sources.
 Every number must come from the findings (source text or Python output). Do not add a References section.
 
 {LANGUAGE_RULES}

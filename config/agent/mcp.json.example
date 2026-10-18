@@ -22,6 +22,12 @@
         "LOCAL_AI_EMBED_BACKEND": "none"
       }
     },
+    "documents": {
+      "command": "C:\\Users\\salih\\Github\\ai\\local-ai\\.venv\\Scripts\\local-ai-documents.exe",
+      "env": {
+        "LOCAL_AI_WORKSPACE": "C:\\Users\\salih\\local-ai-workspace"
+      }
+    },
     "web": {
       "command": "C:\\Users\\salih\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\uvx.exe",
       "args": [

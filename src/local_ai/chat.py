@@ -16,6 +16,10 @@ SYSTEM = (
     "You are a helpful assistant. Answer in the language of the user's message. Write formulas in LaTeX ($..$ "
     "inline, $$..$$ on their own line) and code in fenced blocks."
 )
+DOCUMENTS = (
+    " When the user asks for the answer as a PDF or Word file, write the full content in Markdown and pass it to "
+    "make_pdf or make_docx; then say in one line that the file is ready (the chat shows a download link)."
+)
 MAX_TOOL_ROUNDS = 8  # replies with tool calls in a row; the reply after them is given no tools
 MAX_TOOL_CHARS = 8000  # of one tool result kept in the conversation
 CUT_OFF = "\n\n*(The reply was cut off at the token limit: raise Max tokens in the settings.)*"
@@ -58,7 +62,8 @@ class ChatAgent:
     async def reply(self, text: str, images: list[Path] | None = None) -> str:
         """Answer one message of the user; returns the answer (also kept in the conversation)."""
         if not self.messages:
-            self.messages.append({"role": "system", "content": SYSTEM})
+            documents = any(name.endswith(("__make_pdf", "__make_docx")) for name in self.tools)
+            self.messages.append({"role": "system", "content": SYSTEM + (DOCUMENTS if documents else "")})
         self.messages.append({"role": "user", "content": with_images(text, images)})
         specs = [t.spec() for t in self.tools.values()] or None
         nudge = None  # the request to answer at once, after a reply that only thought

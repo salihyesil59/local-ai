@@ -245,6 +245,8 @@ async def run_chat(
     tools = bridge.as_tools(selected - {"coder", settings.notebook_server}) if bridge and selected else {}
     # a chat with a notebook, or with a large attached file (put into the library), searches and reads the library,
     # whatever else is switched on
+    if bridge:  # a chat can always make a PDF or Word file of an answer, when the user asks for one
+        tools.update(bridge.as_tools({"documents"}))
     if bridge and (options.get("notebook") or options.get("attachment_library")):
         tools.update({n: t for n, t in bridge.as_tools({"library"}).items() if n in NOTEBOOK_TOOLS})
     if tools:
@@ -310,6 +312,9 @@ async def run_research(
     settings.gap_check = settings.gap_check and not fast
     settings.learn = settings.learn and not fast
     settings.parallel = max(1, min(int(options.get("parallel") or settings.parallel), 8))
+    # the page offers only the optional servers: the notebook (sources, notes, report) is always the research's own
+    if settings.servers is not None and settings.notebook_server not in settings.servers:
+        settings.servers = [*settings.servers, settings.notebook_server]
     settings.require_sources = options.get("sources", True) is not False
     paths = options.get("image_paths") or []
     if paths:  # the research agent works with text: the model writes down what the images show

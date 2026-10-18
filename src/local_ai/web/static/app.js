@@ -1425,6 +1425,12 @@ function renderToolResult(e, ctx) {
   else d.append(el("pre", {}, e.output));
   const n = d.source && !e.error && /\[(\d+)\]/.exec(e.output);
   if (n) { round(ctx).sources.set(+n[1], d.source); schedulePanel(); }
+  const saved = !e.error && /^Saved (PDF|DOCX): (.+)$/m.exec(e.output); // a file the documents server made
+  if (saved) {
+    const path = saved[2].trim(), url = fileUrl(path);
+    append(el("div", { class: "log success" }, t("File ready: "),
+      url ? el("a", { href: url, download: "" }, path.split(/[\\/]/).pop()) : path));
+  }
 }
 
 // -- the files of a code project: a tree in the progress panel; a click shows the file ----------
@@ -1745,6 +1751,10 @@ function renderEvent(e, ctx) {
       append(el("div", { class: "log" }, t("Computations notebook: "), url ? el("a", { href: url, download: "" }, e.path) : e.path));
       break;
     }
+    case "draft": // the answer from what the model knows, before the research checks it
+      append(el("details", { class: "card draft", open: true }, el("summary", {}, t("Draft answer (not verified yet)")),
+        el("div", { html: e.html || "" })));
+      break;
     case "clarify": // questions before the research: the answer is the next message
       append(el("div", { class: "card clarify" }, el("h4", {}, t("Before researching")),
         el("ol", {}, e.questions.map((q) => el("li", {}, q))),

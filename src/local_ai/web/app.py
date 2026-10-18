@@ -285,7 +285,7 @@ def create_app(
 
     def decorate(event: dict) -> dict:
         """Add rendered HTML to events whose text is Markdown."""
-        if event["kind"] in ("findings", "answer"):
+        if event["kind"] in ("findings", "answer", "draft"):
             event = {**event, "html": render_markdown(event["text"])}
         elif event["kind"] == "report":
             try:

@@ -11,6 +11,7 @@ const TR = {
   "Attach images (or paste / drop them)": "Görsel ekle (ya da yapıştır / sürükle bırak)", "Attach images": "Görsel ekle",
   "Attached image": "Eklenen görsel", "Only PNG, JPEG, WebP or GIF images can be attached.": "Yalnızca PNG, JPEG, WebP ya da GIF görseller eklenebilir.",
   "At most 6 images per message.": "Bir mesajda en çok 6 görsel olabilir.",
+  "File ready: ": "Dosya hazır: ", "Draft answer (not verified yet)": "Taslak cevap (henüz doğrulanmadı)",
   "Short thinking": "Kısa düşünme", "Depth": "Derinlik", "Off": "Kapalı", "Plan review": "Plan onayı",
   "Deepening: after each step the findings are reflected on and what they opened is followed":
     "Derinleştirme: her adımdan sonra bulgular üzerine düşünülür ve açtıkları yeni sorular izlenir",

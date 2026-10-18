@@ -6,6 +6,18 @@ Studio's `mcp.json`, or `--mcp-config path`. It needs the `notebook` server. Sta
 LM Studio's server first (Developer tab → **Start Server**). The examples assume the environment is activated
 (`.venv\Scripts\Activate.ps1`, on Linux `source .venv/bin/activate`).
 
+A research drafts first, then checks:
+
+1. **Draft**: the model answers from what it knows, at once (as a chat would); the draft is shown right away.
+2. **Plan**: 2-6 checks of the draft: the key claims, formulas, derivation steps and numbers that need a source or
+   a calculation, what the draft marked as unsure, and what it does not answer well.
+3. **Research**: each check is researched with the tools (read, register, cite, compute): confirmed, corrected or
+   not verifiable.
+4. **Report**: the draft revised with the findings: kept complete, corrected where a check contradicts it, every
+   checked claim cited; then the usual checks of numbers, citations and quotes (and the reviewer).
+
+So a question the model already knows well costs a few checks, not a whole research from nothing.
+
 ```powershell
 local-ai "What limits the efficiency of perovskite solar cells?" -v --out report.md
 local-ai "Kara cisim ışımasında Wien yasası nasıl türetilir?" -v
@@ -52,8 +64,8 @@ It takes one model reply per section more (two with the reviewer on), one after 
 
 With `--document` (**Document** in the web UI) the run also builds a document as it goes:
 
-- right after each sub-question is researched, its findings are written up as a chapter of their own (checked like a
-  section of a long report, reviewer included) and kept as the note `chapter-NN`, so a resumed run keeps them;
+- right after each check is researched, its findings (detailed and cited already) become a chapter of their own,
+  kept as the note `chapter-NN`, so a resumed run keeps them;
 - at the end the report becomes the synthesis, and the registered sources follow on a page of their own, numbered as
   the `[n]` in the text;
 - `<project>/document.md`, then `exports/document.docx` with a table of contents, and `document.pdf` when a LaTeX
@@ -144,6 +156,11 @@ like the chat of LM Studio: no plan, no agent loop and no tools of its own, foll
 images. It offers no MCP server until you switch one on in the **+** menu of the message box (remembered for chats);
 then the model may call its tools. The settings of a chat are the model, temperature and max tokens; a reply thinks
 as long as max tokens allows, and a conversation longer than the context limit drops its oldest messages.
+
+A chat can always make a PDF or Word file of an answer: ask for it ("bunu PDF olarak ver"). The `documents` MCP
+server (`local-ai-documents`, or `python -m local_ai.servers.documents.server`) offers `make_pdf` and `make_docx`:
+the model writes the content in Markdown (formulas in LaTeX become Word equations), the file goes to
+`<workspace>/outputs/`, and the chat shows a download link. It needs pandoc, and for PDF a LaTeX engine.
 
 Files go with a message in every mode the same way (**Attach files**, paste or drop): up to ten PDF, Word (.docx),
 PowerPoint (.pptx), Excel (.xlsx), Markdown, text, CSV, JSON, LaTeX or code files of at most 50 MB each. The model gets
