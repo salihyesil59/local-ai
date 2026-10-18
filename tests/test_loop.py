@@ -219,8 +219,9 @@ async def test_parallel_research_cache_and_events(mcp_config):
     client = ScriptedClient(
         {
             "plan": [plan],
-            "research:1": [reply(calls=[search]), reply("- A done")],
-            "research:2": [reply(calls=[search]), reply("- B done")],
+            # each is asked once to register a source for what it found, and answers again
+            "research:1": [reply(calls=[search]), reply("- A done"), reply("- A done")],
+            "research:2": [reply(calls=[search]), reply("- B done"), reply("- B done")],
             "write": [reply("Answer.")],
         },
         delay=0.05,
@@ -545,6 +546,62 @@ def test_internet_search_and_page_reading_are_research_roles():
     assert guide.index("library__search_library") < guide.index("web__search") < guide.index("web__fetch_content")
 
 
+async def test_short_thinking_leaves_the_writing_its_full_thinking(mcp_config):
+    class ThinkingClient:
+        def __init__(self):
+            self.requests = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        async def create(self, **kwargs):
+            self.requests.append(kwargs)
+
+            def chunk(reasoning=None, content=None):
+                delta = SimpleNamespace(content=content, tool_calls=None, reasoning_content=reasoning)
+                return SimpleNamespace(choices=[SimpleNamespace(delta=delta, finish_reason=None)], usage=None)
+
+            async def stream():
+                for i in range(200):  # about 9 000 characters: over the short limit
+                    yield chunk(reasoning=f"Section plan, point {i}: explain term {i}. ")
+                yield chunk(content="## The report\n\nLong text.")
+
+            return stream()
+
+    client = ThinkingClient()
+    settings = AgentSettings(model="test", stream=True, short_thinking=True)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, on_event=lambda e: None)
+        written = await agent._complete([{"role": "user", "content": "Write."}], max_tokens=settings.report_tokens)
+        assert written.content.startswith("## The report") and len(client.requests) == 1
+        step = await agent._complete([{"role": "user", "content": "Next step."}])  # a step: cut and asked again
+        assert step.content and len(client.requests) == 3
+
+
+async def test_an_empty_report_or_section_is_replaced_by_the_findings(mcp_config, tmp_path, monkeypatch):
+    from local_ai.research import loop
+
+    monkeypatch.setattr(loop, "export_document", lambda project_dir, fmt: project_dir / "document.md")
+    monkeypatch.setattr(loop, "pdf_engine", lambda: None)
+    client = ScriptedClient(
+        {
+            "plan": [reply('{"language": "en", "sub_questions": [{"question": "Vary √-g?"}]}')],
+            "research": [reply("- δ√-g = -½√-g g_μν δg^μν")],
+            "section": [reply("## 1. Vary √-g?")],  # only its heading came back
+            "write": [reply("")],  # nothing came back
+        }
+    )
+    events = []
+    settings = AgentSettings(model="test", gap_check=False, critic=False, learn=False, document=True)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, on_event=events.append)
+        report = await agent.run("Derive", project="empty")
+
+    assert "δ√-g = -½√-g g_μν δg^μν" in report.split("## References")[0]
+    chapter = (tmp_path / "workspace" / "empty" / "notes" / "chapter-01.md").read_text(encoding="utf-8")
+    assert chapter.startswith("## 1. Vary √-g?") and "δ√-g = -½√-g" in chapter
+    warnings = [e["text"] for e in events if e["kind"] == "log" and e.get("level") == "warning"]
+    assert any("came back empty" in w for w in warnings) and any("findings stand in" in w for w in warnings)
+
+
 async def test_quick_answer(mcp_config):
     client = ScriptedClient(
         {
@@ -684,6 +741,7 @@ async def test_skill_limits_apply_to_its_sub_question(mcp_config):
             "research": [
                 reply(calls=[("library__read_library", {"source": "paper.txt", "page": 1, "pages": 3})]),
                 reply("- omega 299792458 (p. 2)"),
+                reply("- omega 299792458 (p. 2)"),  # asked to register what it read; it does not
             ],
             "write": [reply("omega 299792458")],
         }
@@ -693,7 +751,8 @@ async def test_skill_limits_apply_to_its_sub_question(mcp_config):
         agent = ResearchAgent(client, bridge, settings, console=Console(quiet=True))
         await agent.run("paper.txt dosyasını özetle", project="ozet")
 
-    first, second = client.requests["research"]
+    first, second, reminded = client.requests["research"]
+    assert "you registered no source" in reminded["messages"][-1]["content"]
     assert (
         "Read the WHOLE paper" in first["messages"][0]["content"] and "limits:" not in first["messages"][0]["content"]
     )

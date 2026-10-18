@@ -4,7 +4,8 @@ description: Derive a formula or result step by step and verify it symbolically
 when_to_use: "derive", "show that", "where does this formula come from", "türet", "ispatla"
 ---
 1. State the starting point explicitly: the physical laws/definitions you start from, with a citation for each
-   (textbook PDF via search_library, or Wikipedia). List assumptions (e.g. non-relativistic, ideal gas, small angle).
+   (textbook PDF via search_library, or Wikipedia): read the passage, register it with add_source and cite the [n]
+   it returns. List assumptions (e.g. non-relativistic, ideal gas, small angle).
 2. Define every symbol once, with its unit.
 3. Do each algebra/calculus step with the `solve` tool or sympy in `python` — never by hand. Show the sympy code.
 4. After the final expression:

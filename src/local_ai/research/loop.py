@@ -92,6 +92,7 @@ class ResearchAgent:
         self.evidence: list[str] = []  # raw tool outputs; numbers and quotes are checked against these
         self.chapters: dict[int, str] = {}  # document mode: sub-question number -> its chapter
         self.language = ""  # of the question, from the plan
+        self.registered = 0  # sources registered in this run
         self.nb = settings.notebook_server
         if not bridge.has(f"{self.nb}__write_note"):
             raise RuntimeError(f"The '{self.nb}' MCP server is required (see config/lmstudio/mcp.json.example).")
@@ -122,26 +123,30 @@ class ResearchAgent:
         if not self.settings.stream:
             response = await self.client.chat.completions.create(**kwargs)
             return response.choices[0].message
-        message = await self._complete_streaming(kwargs, index)
+        # Short thinking is for the steps (tool calls, plan, reflection); a reply that writes the report or a section
+        # (with the report's token budget) plans a long text and keeps the normal limit.
+        writing = (max_tokens or self.settings.max_tokens) >= self.settings.report_tokens
+        full = self.settings.max_thinking_chars
+        limit = self.settings.short_thinking_chars if self.settings.short_thinking and not writing else full
+        message = await self._complete_streaming(kwargs, index, limit)
         if message.looping:  # asked once more, sampled more freely and with repeating made costly
             self._log("The model's thinking went in circles; asking it again.", "warning")
             kwargs["temperature"] = max(self.settings.temperature, UNSTICK_TEMPERATURE)
             kwargs["extra_body"] = {**kwargs["extra_body"], "repeat_penalty": UNSTICK_REPEAT_PENALTY}
-            message = await self._complete_streaming(kwargs, index)
+            message = await self._complete_streaming(kwargs, index, full)
         elif message.cut:  # it only thought until its limit: the reply is asked for at once, from where it stood
             self._log("The thinking reached its limit; asking for the reply now.")
             nudge = prompts.ANSWER_NOW.format(tail=message.thinking_tail.strip() or "(nothing)")
             kwargs["messages"] = [*messages, {"role": "user", "content": nudge}]
-            message = await self._complete_streaming(kwargs, index)
+            message = await self._complete_streaming(kwargs, index, full)  # not cut again at the short limit
         return message
 
-    async def _complete_streaming(self, kwargs: dict, index: int | None):
+    async def _complete_streaming(self, kwargs: dict, index: int | None, limit: int):
         """Stream a completion: text and reasoning go out as batched "token" events while the message (content and
-        tool calls) is rebuilt from the deltas. Thinking that goes in circles is stopped at once (looping); with short
-        thinking a reply that only thinks is stopped at its limit (cut)."""
+        tool calls) is rebuilt from the deltas. Thinking that goes in circles is stopped at once (looping); a reply
+        that only thinks is stopped after `limit` characters of thinking (cut)."""
         stream = await self.client.chat.completions.create(**kwargs, stream=True)
         batch = TokenBatcher(lambda text, thinking: self.emit("token", index=index, text=text, thinking=thinking))
-        limit = self.settings.short_thinking_chars if self.settings.short_thinking else self.settings.max_thinking_chars
         reply = await read_stream(stream, batch.add, limit)
         batch.flush()
         self.emit("stream_end", index=index)
@@ -222,6 +227,7 @@ class ResearchAgent:
                     outputs.append(output)
                     self.evidence.append(output)
                     has_read = has_read or name in readers
+                    self.registered += name == f"{self.nb}__add_source"
                 if name == self.roles.get("python"):
                     self._record_python(args, output, is_error)
                 self.emit(
@@ -416,7 +422,14 @@ class ResearchAgent:
             },
         ]
         # Fresh message list per sub-question: earlier work enters only as its summary.
+        before = self.registered
         findings, outputs = await self._tool_loop(messages, prompts.FINALIZE_FINDINGS, index=i, **limits)
+        cited = cited_numbers(findings or "")  # a source registered earlier may be cited again
+        if outputs and self.registered == before and not cited and self._has_nb("add_source"):  # read, cited nothing
+            self._log("No source was registered for these findings; asking for them.", "warning")
+            messages += [{"role": "assistant", "content": findings or ""}, {"role": "user", "content": prompts.REGISTER}]
+            again, more = await self._tool_loop(messages, prompts.FINALIZE_FINDINGS, index=i, max_steps=6)
+            findings, outputs = again or findings, outputs + more
         sub.findings = findings
         await self._notebook(
             "write_note", project=project, title=f"finding-{i:02d}", content=f"# {sub.question}\n\n{findings}"
@@ -464,7 +477,18 @@ class ResearchAgent:
             ],
             max_tokens=self.settings.report_tokens,
         )
-        return strip_think(message.content)
+        draft = strip_think(message.content)
+        if not draft.strip():  # a report must never be empty: what was found stands in for it
+            self._log("The report came back empty; the findings stand in for it.", "warning")
+            draft = "\n\n".join(f"## {title_of(s.question)}\n\n{s.findings}" for s in subs if s.findings)
+        return draft
+
+    def _or_findings(self, text: str, title: str, subs: list[SubQuestion]) -> str:
+        """A written section, or (when only its heading came back) the findings it was to be written from."""
+        if any(line.strip() and not line.lstrip().startswith("#") for line in text.splitlines()):
+            return text
+        self._log(f"The section {title!r} came back empty; its findings stand in for it.", "warning")
+        return f"## {title}\n\n" + "\n\n".join(s.findings for s in subs if s.findings)
 
     async def outline(self, question: str, subs: list[SubQuestion]) -> list[dict]:
         """The sections of a long report: title, what it covers and the sub-questions (1-based) it is written from."""
@@ -521,7 +545,7 @@ class ResearchAgent:
             [{"role": "system", "content": prompts.SECTION_WRITER}, {"role": "user", "content": task}],
             max_tokens=self.settings.report_tokens,
         )
-        return self._headed(strip_think(message.content or ""), section["title"])
+        return self._or_findings(self._headed(strip_think(message.content or ""), section["title"]), section["title"], subs)
 
     async def chapter(self, project: str, question: str, subs: list[SubQuestion], i: int) -> None:
         """Document mode: the chapter of sub-question i, written (and checked) as soon as its findings are in, and
@@ -604,7 +628,7 @@ class ResearchAgent:
             reviewer = await self.critique(question + note, subs, text)
             self.emit("problems", source="reviewer", items=reviewer)
         fixed = await self._fix(project, text, reviewer, what="section", label=f" {label}")
-        return self._headed(fixed, section["title"])
+        return self._or_findings(self._headed(fixed, section["title"]), section["title"], subs)
 
     async def _fix(self, project: str, draft: str, reviewer: list[str], what: str = "report", label: str = "") -> str:
         """Send the draft (a report or one section) back with its problems until the checks pass."""

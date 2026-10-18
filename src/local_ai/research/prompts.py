@@ -242,6 +242,12 @@ Registered sources:
 Findings:
 {findings}"""
 
+REGISTER = (
+    "Your findings rest on what the tools returned, but you registered no source, so none of it can be cited. "
+    "Register each source your findings rely on with add_source (a short exact quote from what you read; for a "
+    "computation origin python), then reply with your findings again, cited with the [n] numbers add_source returns."
+)
+
 READ_FIRST = (
     "Not registered: read the relevant part of this source first (read the library pages, the arXiv paper, the "
     "Wikipedia article or the web page), then register it with a quote from what you read."
