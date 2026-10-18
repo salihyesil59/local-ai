@@ -353,6 +353,43 @@ async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_th
         assert "## 2. B?" in (tmp_path / "workspace" / "doc" / "document.md").read_text(encoding="utf-8")
 
 
+async def test_thinking_that_goes_in_circles_is_stopped_and_asked_again(mcp_config):
+    plan = '{"language": "en", "sub_questions": [{"question": "A?"}]}'
+
+    class LoopingClient:
+        def __init__(self):
+            self.requests = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        async def create(self, **kwargs):
+            self.requests.append(kwargs)
+            first = len(self.requests) == 1
+            pieces = ["Sub-question 3: Palatini identity, terms. " * 3] * 60 if first else ["Plan it."]
+
+            def chunk(reasoning=None, content=None):
+                delta = SimpleNamespace(content=content, tool_calls=None, reasoning_content=reasoning)
+                return SimpleNamespace(choices=[SimpleNamespace(delta=delta, finish_reason=None)], usage=None)
+
+            async def stream():
+                for p in pieces:
+                    yield chunk(reasoning=p)
+                if not first:
+                    yield chunk(content=plan)
+
+            return stream()
+
+    client, events = LoopingClient(), []
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, AgentSettings(model="test", stream=True), on_event=events.append)
+        language, subs = await agent.plan("A question?")
+
+    assert [s.question for s in subs] == ["A?"] and len(client.requests) == 2
+    first, again = client.requests
+    assert first["extra_body"] == {"top_k": 20} and first["temperature"] == 0.6
+    assert again["temperature"] == 0.9 and again["extra_body"]["repeat_penalty"] == 1.1
+    assert any(e["kind"] == "log" and "went in circles" in e["text"] for e in events)
+
+
 async def test_quick_answer(mcp_config):
     client = ScriptedClient(
         {

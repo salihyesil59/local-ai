@@ -1236,7 +1236,10 @@ function liveBox(ctx, key) {
   if (!ctx.live[key]) {
     const thinking = document.createTextNode("");
     const text = el("div", { class: "live-text md" });
-    const box = el("div", { class: "live" }, el("div", { class: "live-thinking" }, thinking), text);
+    // a click shows all of the thinking so far (scrollable), another one only its newest lines again
+    const lines = el("div", { class: "live-thinking", title: t("Click to see all of the thinking"),
+      onclick: () => lines.classList.toggle("open") }, thinking);
+    const box = el("div", { class: "live" }, lines, text);
     box.text = ""; // the model's text so far, as Markdown
     box.thinking = thinking;
     box.draw = () => renderStream(text, box.text);
@@ -1802,6 +1805,7 @@ function renderEvent(e, ctx) {
       break;
     case "segment_end": // an earlier message of this chat ended here
     case "end":
+      for (const key of Object.keys(ctx.live)) closeLive(ctx, key); // stopped while streaming: keep all it thought
       clearSendNow();
       if (e.status !== "done") append(el("div", { class: "log warning" }, `${t("Run")} ${t(e.status)}.`));
       break;

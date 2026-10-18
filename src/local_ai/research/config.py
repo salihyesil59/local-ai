@@ -15,6 +15,10 @@ class AgentSettings:
     model: str | None = field(default_factory=lambda: os.environ.get("LOCAL_AI_MODEL"))
     temperature: float = 0.6
     top_p: float = 0.95
+    top_k: int = 20  # what Qwen recommends for thinking; also keeps the thinking from drifting into loops
+    # Thinking that repeats itself is stopped at once and asked again; this many characters of thinking without any
+    # answer stop a reply too (above what a report needs, so in practice only loops stop it).
+    max_thinking_chars: int = 60_000
     max_steps: int = 12  # tool-calling steps per sub-question
     quick_steps: int = 6  # tool-calling steps for a quick answer
     # A quick answer names the source of each fact; one from memory, or with numbers no tool shows, is checked once

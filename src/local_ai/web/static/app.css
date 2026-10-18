@@ -226,7 +226,8 @@ div.problems { white-space: pre-wrap; padding-left: 0; }
 .log { font-size: 12.5px; color: var(--muted); } .log.warning { color: var(--warn); } .log.success { color: var(--ok); }
 .live { border-left: 2px solid var(--accent); padding: 4px 10px; margin: 4px 0; }
 .live-thinking { color: var(--muted); font-style: italic; font-size: 13px; white-space: pre-wrap; max-height: 9.6em; overflow: hidden;
-  display: flex; flex-direction: column-reverse; } /* the newest lines of the thinking stay in sight */
+  display: flex; flex-direction: column-reverse; cursor: pointer; } /* the newest lines of the thinking stay in sight */
+.live-thinking.open { max-height: 36em; overflow-y: auto; display: block; }
 .live-text { white-space: pre-wrap; }
 .live-thinking:empty, .live-text:empty { display: none; }
 

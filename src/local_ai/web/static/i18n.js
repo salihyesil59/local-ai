@@ -11,7 +11,7 @@ const TR = {
   "Attach images (or paste / drop them)": "Görsel ekle (ya da yapıştır / sürükle bırak)", "Attach images": "Görsel ekle",
   "Attached image": "Eklenen görsel", "Only PNG, JPEG, WebP or GIF images can be attached.": "Yalnızca PNG, JPEG, WebP ya da GIF görseller eklenebilir.",
   "At most 6 images per message.": "Bir mesajda en çok 6 görsel olabilir.",
-  "Attach files": "Dosya ekle",
+  "Attach files": "Dosya ekle", "Click to see all of the thinking": "Düşünmenin tamamını görmek için tıkla",
   "Attach images and files: PDF, Word, PowerPoint, Excel, notes, code (or paste / drop them)":
     "Görsel ve dosya ekle: PDF, Word, PowerPoint, Excel, not, kod (ya da yapıştır / sürükle bırak)",
   "{name}: this kind of file cannot be attached.": "{name}: bu tür dosya eklenemez.",

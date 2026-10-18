@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from local_ai.core.llm import TokenBatcher, read_stream
+from local_ai.core.llm import UNSTICK_REPEAT_PENALTY, UNSTICK_TEMPERATURE, TokenBatcher, read_stream
 from local_ai.core.mcp_bridge import MCPBridge
 from local_ai.core.text import extract_json, parse_inline_tool_calls, strip_think, strip_tool_calls, trim
 from local_ai.servers.common import write_notebook
@@ -103,23 +103,32 @@ class ResearchAgent:
             temperature=self.settings.temperature,
             top_p=self.settings.top_p,
             max_tokens=max_tokens or self.settings.max_tokens,
+            extra_body={"top_k": self.settings.top_k},
         )
         if tools:
             kwargs["tools"] = tools
-        if self.settings.stream:
-            return await self._complete_streaming(kwargs, index)
-        response = await self.client.chat.completions.create(**kwargs)
-        return response.choices[0].message
+        if not self.settings.stream:
+            response = await self.client.chat.completions.create(**kwargs)
+            return response.choices[0].message
+        message = await self._complete_streaming(kwargs, index)
+        if message.looping:  # asked once more, sampled more freely and with repeating made costly
+            self._log("The model's thinking went in circles; asking it again.", "warning")
+            kwargs["temperature"] = max(self.settings.temperature, UNSTICK_TEMPERATURE)
+            kwargs["extra_body"] = {**kwargs["extra_body"], "repeat_penalty": UNSTICK_REPEAT_PENALTY}
+            message = await self._complete_streaming(kwargs, index)
+        return message
 
     async def _complete_streaming(self, kwargs: dict, index: int | None):
         """Stream a completion: text and reasoning go out as batched "token" events while the message (content and
-        tool calls) is rebuilt from the deltas."""
+        tool calls) is rebuilt from the deltas. Thinking that goes in circles is stopped at once (looping)."""
         stream = await self.client.chat.completions.create(**kwargs, stream=True)
         batch = TokenBatcher(lambda text, thinking: self.emit("token", index=index, text=text, thinking=thinking))
-        reply = await read_stream(stream, batch.add)
+        reply = await read_stream(stream, batch.add, self.settings.max_thinking_chars)
         batch.flush()
         self.emit("stream_end", index=index)
-        return SimpleNamespace(content=reply.content or None, tool_calls=reply.tool_calls or None)
+        return SimpleNamespace(
+            content=reply.content or None, tool_calls=reply.tool_calls or None, looping=reply.looping
+        )
 
     async def _ask_json(self, system: str, user: str):
         """One tool-free completion parsed as JSON; None if the reply is unusable."""
