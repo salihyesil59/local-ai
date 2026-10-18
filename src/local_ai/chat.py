@@ -18,7 +18,8 @@ SYSTEM = (
 )
 DOCUMENTS = (
     " When the user asks for the answer as a PDF or Word file, write the full content in Markdown and pass it to "
-    "make_pdf or make_docx; then say in one line that the file is ready (the chat shows a download link)."
+    "make_pdf or make_docx (make_pdf with also_docx true when they want both); then say in one line that the file "
+    "is ready (the chat shows a download link)."
 )
 MAX_TOOL_ROUNDS = 8  # replies with tool calls in a row; the reply after them is given no tools
 MAX_TOOL_CHARS = 8000  # of one tool result kept in the conversation

@@ -307,9 +307,52 @@ function renderChips() {
 }
 
 function optionsChanged() {
+  syncPreset();
   renderChips();
   schedulePanel();
 }
+
+// Presets of the research options: one sets the switches; changing a switch afterwards makes it "custom" (and
+// switching back to a preset's values shows that preset again).
+const PRESET_CONTROLS = { quick: "#quick", fast: "#fast", sources: "#sources", long_report: "#long-report",
+  document: "#document", short_thinking: "#short-thinking", critic: "#critic", review: "#review", depth: "#depth" };
+const PRESET_BASE = { quick: false, fast: false, sources: true, long_report: false, document: false,
+  short_thinking: false, critic: true, review: false, depth: 0 };
+const PRESETS = {
+  standard: PRESET_BASE,
+  quick: { ...PRESET_BASE, quick: true }, // one tool loop with sources: a minute or two
+  fast: { ...PRESET_BASE, fast: true, short_thinking: true, critic: false }, // draft, a few checks, short thinking
+  deep: { ...PRESET_BASE, depth: 1, review: true }, // clarify and approve the plan, follow what the checks open
+  document: { ...PRESET_BASE, fast: true, short_thinking: true, critic: false, document: true }, // also Word and PDF
+};
+
+function controlValue(key) {
+  const node = $(PRESET_CONTROLS[key]);
+  return key === "depth" ? +node.value : node.checked;
+}
+
+function applyPreset(name) {
+  const values = PRESETS[name];
+  if (!values) return;
+  for (const [key, value] of Object.entries(values)) {
+    const node = $(PRESET_CONTROLS[key]);
+    if (key === "depth") node.value = String(value);
+    else node.checked = value;
+  }
+}
+
+function syncPreset() {
+  if (state.mode !== "research") return;
+  const match = Object.entries(PRESETS).find(([, values]) => Object.entries(values).every(([k, v]) => controlValue(k) === v));
+  $("#preset").value = match ? match[0] : "custom";
+  remember("research_preset", $("#preset").value);
+}
+
+$("#preset").addEventListener("change", () => {
+  applyPreset($("#preset").value); // "custom" keeps the switches as they are
+  optionsChanged();
+});
+applyPreset(recall("research_preset")); // the preset chosen last time (a custom set starts from the switches' defaults)
 for (const id of ["#fast", "#quick", "#sources", "#long-report", "#document", "#short-thinking", "#critic", "#depth", "#review"]) $(id).addEventListener("change", optionsChanged);
 
 // -- the Tools view: the MCP servers, with their tools; add, switch off, restart, remove ----------
@@ -1425,9 +1468,9 @@ function renderToolResult(e, ctx) {
   else d.append(el("pre", {}, e.output));
   const n = d.source && !e.error && /\[(\d+)\]/.exec(e.output);
   if (n) { round(ctx).sources.set(+n[1], d.source); schedulePanel(); }
-  const saved = !e.error && /^Saved (PDF|DOCX): (.+)$/m.exec(e.output); // a file the documents server made
-  if (saved) {
-    const path = saved[2].trim(), url = fileUrl(path);
+  // the files the documents server made (a PDF, and its Word copy when asked for)
+  for (const saved of e.error ? [] : e.output.matchAll(/^Saved (?:PDF|DOCX): (.+)$/gm)) {
+    const path = saved[1].trim(), url = fileUrl(path);
     append(el("div", { class: "log success" }, t("File ready: "),
       url ? el("a", { href: url, download: "" }, path.split(/[\\/]/).pop()) : path));
   }
@@ -1700,6 +1743,14 @@ function renderEvent(e, ctx) {
     case "stream_end":
       closeLive(ctx, e.index ?? "main");
       break;
+    case "streamed": { // a finished reply, as a page that opens the chat later gets it: drawn as if it had streamed
+      const key = e.index ?? "main";
+      const box = liveBox(ctx, key);
+      if (e.thinking) box.thinking.appendData(e.thinking);
+      box.text += e.text || "";
+      closeLive(ctx, key);
+      break;
+    }
     case "status":
       break;
     case "phase":

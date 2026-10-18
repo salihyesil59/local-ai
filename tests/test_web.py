@@ -87,7 +87,8 @@ def test_run_project_export_memory(client):
     # replaying a finished run returns the same events
     assert "token" in kinds and "stream_end" in kinds  # the UI streams model output
     replay = [e["kind"] for e in read_events(client, run["id"])]
-    assert replay == [k for k in kinds if k not in ("token", "stream_end")]  # live output is not replayed
+    # a reply that streamed comes back as one event where it ended (with its text and thinking), not token by token
+    assert replay == ["streamed" if k == "stream_end" else k for k in kinds if k != "token"]
 
     projects = client.get("/api/projects").json()
     assert projects[0]["name"] == "light" and projects[0]["has_report"]

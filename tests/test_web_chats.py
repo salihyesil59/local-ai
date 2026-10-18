@@ -122,6 +122,34 @@ def test_runs_can_be_deleted_but_not_while_running(tmp_path):
         assert client.delete(f"/api/runs/{run_id}").status_code == 404
 
 
+def test_a_page_that_opens_a_working_chat_sees_the_reply_from_its_start():
+    from local_ai.web.runs import Run
+
+    run = Run(id="r", question="q", project="", mode="chat", status="running")
+    run.push({"kind": "user", "text": "q"})
+    run.push({"kind": "token", "text": "Let me think. ", "thinking": True})
+    run.push({"kind": "token", "text": "The ans", "thinking": False})
+    run.push({"kind": "token", "text": "wer is", "thinking": False})
+    # opened now: the reply so far, as one piece of thinking and one of text
+    assert run.live_events() == [
+        {"kind": "token", "index": None, "text": "Let me think. ", "thinking": True},
+        {"kind": "token", "index": None, "text": "The answer is", "thinking": False},
+    ]
+    assert [e["kind"] for e in run.events] == ["user"]  # tokens are not events of their own
+    run.push({"kind": "stream_end"})
+    assert run.live_events() == []
+    assert run.events[-1] == {"kind": "streamed", "index": None, "text": "The answer is", "thinking": "Let me think. "}
+
+
+def test_a_finished_chat_opened_later_shows_what_the_model_thought_and_wrote(tmp_path):
+    with make_client([("Hazır cevap.", [])]) as client:
+        run = client.post("/api/runs", json={"mode": "chat", "question": "Merhaba"}).json()
+        read_events(client, run["id"])
+        later = read_events(client, run["id"])  # a page that opens the chat now
+    [streamed] = [e for e in later if e["kind"] == "streamed"]
+    assert streamed["text"] == "Hazır cevap." and later.index(streamed) < [e["kind"] for e in later].index("answer")
+
+
 def test_a_follow_up_message_continues_the_same_chat(tmp_path):
     more = FOLLOW_UP
     with make_client([*FINISHING, *more]) as client:

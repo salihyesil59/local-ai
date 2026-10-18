@@ -45,15 +45,20 @@ def make(markdown: str, title: str, filename: str, fmt: str) -> str:
 
 
 @mcp.tool()
-def make_pdf(markdown: str, title: str = "", filename: str = "") -> str:
+def make_pdf(markdown: str, title: str = "", filename: str = "", also_docx: bool = False) -> str:
     """Make a PDF file of a text for the user to download. Use it when the user asks for a PDF.
 
     markdown: the whole content in Markdown: headings (#, ##), lists, tables, code blocks, formulas in LaTeX
               ($...$ inline, $$...$$ on their own line). Write the full text here, not a summary of it.
     title: shown at the top of the document. filename: a short name for the file (without extension).
-    Returns "Saved PDF: <path>"; tell the user the file is ready (the chat shows a download link).
+    also_docx: true when the user wants the same document as a Word (.docx) file too.
+    Returns "Saved PDF: <path>" (and "Saved DOCX: <path>"); tell the user the file is ready (the chat shows a
+    download link).
     """
-    return make(markdown, title, filename, "pdf")
+    saved = [make(markdown, title, filename, "pdf")]
+    if also_docx:
+        saved.append(make(markdown, title, filename, "docx"))
+    return "\n".join(saved)
 
 
 @mcp.tool()

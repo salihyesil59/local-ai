@@ -94,6 +94,13 @@
                 <select id="notebook" title="A notebook: this message searches only its files" aria-label="Notebook"></select>
               </label>
               <div class="menu-head agent-only">Options</div>
+              <label class="menu-item research-only" data-icon="star"><span>Preset</span>
+                <select id="preset" title="A ready set of the options below; changing one of them makes it Custom" aria-label="Preset">
+                  <option value="standard">Standard</option><option value="quick">Quick answer</option>
+                  <option value="fast">Fast research</option><option value="deep">Deep research</option>
+                  <option value="document">Document</option><option value="custom">Custom</option>
+                </select>
+              </label>
               <label id="fast-opt" class="switch-row agent-only"><span class="switch-text"><span>Fast</span><small class="muted"></small></span>
                 <span class="switch"><input type="checkbox" id="fast" role="switch"><span class="knob"></span></span></label>
               <label id="quick-opt" class="switch-row agent-only"><span class="switch-text"><span>Quick</span><small class="muted"></small></span>

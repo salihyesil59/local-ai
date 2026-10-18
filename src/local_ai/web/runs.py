@@ -50,6 +50,7 @@ def clean_settings(raw) -> dict:
 
 
 EARLIER_CHARS = 3000  # of the last answer shown to the agent with a follow-up message
+STREAMED_THINKING = 30_000  # characters of a finished reply's thinking kept in the chat (its end)
 # The faster ways of a code run: what changes when the chat has not chosen otherwise in its settings.
 SPEEDS = {
     "fast": {"max_thinking_chars": 5000},
@@ -90,18 +91,41 @@ class Run:
     created: float = field(default_factory=time.time)
     events: list[dict] = field(default_factory=list)
     listeners: list[asyncio.Queue] = field(default_factory=list)
+    live: dict[str, dict] = field(default_factory=dict)  # index -> text and thinking of the reply being written
     task: asyncio.Task | None = None
     agent: object | None = None  # the code agent of a code run, for the Compact button
     sink: Callable[[dict], None] | None = None  # saves events to disk
     loaded: bool = True  # False for a run read from disk whose events are not loaded yet
 
     def push(self, event: dict) -> None:
-        if event["kind"] not in ("token", "stream_end"):  # live output is not replayed to late listeners
+        kind = event["kind"]
+        if kind == "token":  # the reply being written, kept so a page that opens the chat now sees it from its start
+            live = self.live.setdefault(str(event.get("index")), {"text": "", "thinking": ""})
+            live["thinking" if event.get("thinking") else "text"] += event["text"]
+        elif kind == "stream_end":  # a finished reply stays in the chat as one event, also for later pages
+            live = self.live.pop(str(event.get("index")), None)
+            if live and (live["text"] or live["thinking"]):
+                done = {"kind": "streamed", "index": event.get("index"), "text": live["text"],
+                        "thinking": live["thinking"][-STREAMED_THINKING:]}  # fmt: skip
+                self.events.append(done)
+                if self.sink:
+                    self.sink(done)
+        else:
             self.events.append(event)
             if self.sink:
                 self.sink(event)
         for q in self.listeners:
             q.put_nowait(event)
+
+    def live_events(self) -> list[dict]:
+        """The replies being written right now, as token events: what a page that opens the chat has missed."""
+        events = []
+        for key, live in self.live.items():
+            index = None if key == "None" else int(key) if key.isdigit() else key
+            for part in ("thinking", "text"):
+                if live[part]:
+                    events.append({"kind": "token", "index": index, "text": live[part], "thinking": part == "thinking"})
+        return events
 
     def last_question(self) -> str:
         """The newest message of the user in this chat."""

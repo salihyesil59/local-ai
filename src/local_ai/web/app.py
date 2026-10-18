@@ -704,7 +704,8 @@ def create_app(
 
         async def stream():
             queue: asyncio.Queue = asyncio.Queue()
-            past = list(run.events)
+            # taken together, with no await between: no event is missed or sent twice
+            past = list(run.events) + (run.live_events() if run.status in ACTIVE else [])
             run.listeners.append(queue)
             try:
                 for i, event in enumerate(past):

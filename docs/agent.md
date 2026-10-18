@@ -18,6 +18,11 @@ A research drafts first, then checks:
 
 So a question the model already knows well costs a few checks, not a whole research from nothing.
 
+In the web UI the **Preset** of the **+** menu sets the research options at once: **Standard** (reviewer on, sources
+required), **Quick answer** (one tool loop with sources), **Fast research** (fast, short thinking, no reviewer),
+**Deep research** (clarify and approve the plan, depth 1) and **Document** (Fast research with the Word/PDF
+document). Changing any option afterwards makes it **Custom**; the last choice is remembered.
+
 ```powershell
 local-ai "What limits the efficiency of perovskite solar cells?" -v --out report.md
 local-ai "Kara cisim ışımasında Wien yasası nasıl türetilir?" -v
@@ -158,7 +163,8 @@ then the model may call its tools. The settings of a chat are the model, tempera
 as long as max tokens allows, and a conversation longer than the context limit drops its oldest messages.
 
 A chat can always make a PDF or Word file of an answer: ask for it ("bunu PDF olarak ver"). The `documents` MCP
-server (`local-ai-documents`, or `python -m local_ai.servers.documents.server`) offers `make_pdf` and `make_docx`:
+server (`local-ai-documents`, or `python -m local_ai.servers.documents.server`) offers `make_pdf` (with
+`also_docx` for a Word copy too, "PDF ve Word olarak ver") and `make_docx`:
 the model writes the content in Markdown (formulas in LaTeX become Word equations), the file goes to
 `<workspace>/outputs/`, and the chat shows a download link. It needs pandoc, and for PDF a LaTeX engine.
 

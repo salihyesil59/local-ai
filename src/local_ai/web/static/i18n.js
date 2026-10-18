@@ -12,6 +12,10 @@ const TR = {
   "Attached image": "Eklenen görsel", "Only PNG, JPEG, WebP or GIF images can be attached.": "Yalnızca PNG, JPEG, WebP ya da GIF görseller eklenebilir.",
   "At most 6 images per message.": "Bir mesajda en çok 6 görsel olabilir.",
   "File ready: ": "Dosya hazır: ", "Draft answer (not verified yet)": "Taslak cevap (henüz doğrulanmadı)",
+  "Preset": "Hazır ayar", "Standard": "Standart", "Quick answer": "Kısa yanıt", "Fast research": "Hızlı araştırma",
+  "Deep research": "Derin araştırma", "Custom": "Özel",
+  "A ready set of the options below; changing one of them makes it Custom":
+    "Aşağıdaki seçeneklerin hazır bir takımı; birini değiştirirsen Özel olur",
   "Short thinking": "Kısa düşünme", "Depth": "Derinlik", "Off": "Kapalı", "Plan review": "Plan onayı",
   "Deepening: after each step the findings are reflected on and what they opened is followed":
     "Derinleştirme: her adımdan sonra bulgular üzerine düşünülür ve açtıkları yeni sorular izlenir",
