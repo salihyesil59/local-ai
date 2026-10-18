@@ -288,6 +288,7 @@ async def run_research(
     fast = bool(options.get("fast"))
     settings.critic = settings.critic and not fast and options.get("critic", True) is not False
     settings.long_report = bool(options.get("long_report"))
+    settings.document = bool(options.get("document"))
     settings.gap_check = settings.gap_check and not fast
     settings.learn = settings.learn and not fast
     settings.parallel = max(1, min(int(options.get("parallel") or settings.parallel), 8))

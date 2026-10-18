@@ -298,6 +298,7 @@ function renderChips() {
     !chat && $("#quick").checked ? chip(t("Quick"), off("#quick")) : null,
     state.mode === "research" && !$("#sources").checked ? chip(t("No sources"), off("#sources")) : null,
     state.mode === "research" && $("#long-report").checked ? chip(t("Long report"), off("#long-report")) : null,
+    state.mode === "research" && $("#document").checked ? chip(t("Document"), off("#document")) : null,
     !chat && !$("#critic").checked ? chip(t("No reviewer"), off("#critic")) : null,
   ].filter(Boolean));
 }
@@ -306,7 +307,7 @@ function optionsChanged() {
   renderChips();
   schedulePanel();
 }
-for (const id of ["#fast", "#quick", "#sources", "#long-report", "#critic"]) $(id).addEventListener("change", optionsChanged);
+for (const id of ["#fast", "#quick", "#sources", "#long-report", "#document", "#critic"]) $(id).addEventListener("change", optionsChanged);
 
 // -- the Tools view: the MCP servers, with their tools; add, switch off, restart, remove ----------
 async function loadTools() {
@@ -953,7 +954,7 @@ $("#ask").addEventListener("submit", async (ev) => {
   if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
   if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, critic: $("#critic").checked });
   if (state.mode === "research") Object.assign(options, { parallel: +$("#parallel").value, sources: $("#sources").checked,
-    long_report: $("#long-report").checked });
+    long_report: $("#long-report").checked, document: $("#document").checked });
   try {
     let run;
     if (state.currentRun) {
@@ -1557,6 +1558,7 @@ function environmentCard() {
   const offered = offeredServers(), chosen = chosenServers();
   const options = [mode !== "chat" && $("#fast").checked && t("Fast"), mode !== "chat" && $("#quick").checked && t("Quick"),
     mode === "research" && $("#long-report").checked && t("Long report"),
+    mode === "research" && $("#document").checked && t("Document"),
     mode !== "chat" && !$("#critic").checked && t("No reviewer")].filter(Boolean);
   const folder = run ? run.project : $("#folder").value.trim(); // the last part of the path; all of it in the tooltip
   const rows = [
@@ -1707,6 +1709,18 @@ function renderEvent(e, ctx) {
       append(el("div", { class: "log" }, t("Computations notebook: "), url ? el("a", { href: url, download: "" }, e.path) : e.path));
       break;
     }
+    case "chapter": // document mode: the chapter of a sub-question is written
+      append(el("div", { class: "log success" }, t("Chapter written: {title}", { title: e.title })));
+      break;
+    case "document": {
+      const links = ["docx", "pdf", "md"].filter((f) => e[f]).flatMap((f, i) => {
+        const url = fileUrl(e[f]);
+        const link = url ? el("a", { href: url, download: "" }, f.toUpperCase()) : el("span", { title: e[f] }, f.toUpperCase());
+        return i ? [" · ", link] : [link];
+      });
+      append(el("div", { class: "log success" }, t("Document: "), ...links));
+      break;
+    }
     case "report": {
       const extras = e.cache_hits ? [el("span", { class: "muted" }, `· ${e.cache_hits} ${t("cached tool calls")}`)] : [];
       delete sourceCache[e.project]; // a new report may have new sources
@@ -1806,6 +1820,10 @@ async function openProject(name) {
   const p = await api(`/api/projects/${encodeURIComponent(name)}`);
   const extras = [];
   if (p.notebook) extras.push(el("a", { class: "ghost", href: `/files/${encodeURIComponent(p.name)}/computations.ipynb`, download: "" }, t("Notebook (.ipynb)")));
+  for (const doc of p.documents || []) {
+    extras.push(el("a", { class: "ghost", href: `/files/${encodeURIComponent(p.name)}/exports/${encodeURIComponent(doc)}`, download: "" },
+      `${t("Document")} (.${doc.split(".").pop()})`));
+  }
   extras.push(el("button", { class: "ghost", onclick: () => resume(p.name) }, t("Resume")));
   const parts = [el("button", { class: "ghost small back", type: "button", onclick: () => openView("projects") }, `← ${t("All projects")}`),
     el("h2", {}, p.plan.question || p.name)];

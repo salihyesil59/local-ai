@@ -193,11 +193,50 @@ def _pandoc_markdown(markdown: str, keys: dict[int, str]) -> str:
     return CITE_RE.sub(cite, body) + "\n\n# References\n"
 
 
-def _pdf_engine() -> str | None:
+def pdf_engine() -> str | None:
     for engine in ("xelatex", "lualatex", "pdflatex", "tectonic"):
         if shutil.which(engine):
             return engine
     return None
+
+
+def _pandoc(src: Path, out: Path, fmt: str, resources: Path, extra: list[str]) -> None:
+    """Run pandoc on a Markdown file; ExportError (with what to install) when it cannot."""
+    pandoc = shutil.which("pandoc")
+    if not pandoc:
+        raise ExportError(
+            "pandoc is not installed (https://pandoc.org; on Windows: winget install JohnMacFarlane.Pandoc); "
+            "html, md and bib work without it."
+        )
+    cmd = [pandoc, str(src), "-o", str(out), "--resource-path", str(resources), *extra]
+    if fmt == "tex":
+        cmd.append("--standalone")
+    if fmt == "pdf":
+        engine = pdf_engine()
+        if not engine:
+            raise ExportError(
+                "PDF export needs a LaTeX engine (xelatex, lualatex, pdflatex or tectonic). "
+                "Export html and print it to PDF, or install TeX Live / tectonic."
+            )
+        cmd += ["--pdf-engine", engine]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        raise ExportError(f"pandoc failed: {result.stderr.strip()[-2000:]}")
+
+
+def export_document(project_dir: Path, fmt: str) -> Path:
+    """The document of a research run in document mode (document.md: chapters, synthesis, numbered sources) as
+    exports/document.docx or .pdf, with a table of contents. The [n] citations stay as they are."""
+    if fmt not in ("docx", "pdf"):
+        raise ExportError(f"A document is exported as docx or pdf, not {fmt!r}.")
+    src = project_dir / "document.md"
+    if not src.is_file():
+        raise ExportError(f"No document in {project_dir}; run a research with the document option.")
+    out_dir = project_dir / "exports"
+    out_dir.mkdir(exist_ok=True)
+    out = out_dir / f"document.{fmt}"
+    _pandoc(src, out, fmt, project_dir, ["--toc", "--from", "markdown-citations"])
+    return out
 
 
 def export(project_dir: Path, fmt: str, title: str | None = None) -> Path:
@@ -220,35 +259,9 @@ def export(project_dir: Path, fmt: str, title: str | None = None) -> Path:
         out.write_text(render_html(markdown, sources, title, project_dir), encoding="utf-8")
         return out
 
-    pandoc = shutil.which("pandoc")
-    if not pandoc:
-        raise ExportError("pandoc is not installed (https://pandoc.org); html, md and bib work without it.")
     bib_path = out_dir / "references.bib"
     bib_path.write_text(bib, encoding="utf-8")
     src = out_dir / "report.pandoc.md"
     src.write_text(f'---\ntitle: "{title}"\n---\n\n' + _pandoc_markdown(markdown, keys), encoding="utf-8")
-    cmd = [
-        pandoc,
-        str(src),
-        "-o",
-        str(out),
-        "--citeproc",
-        "--bibliography",
-        str(bib_path),
-        "--resource-path",
-        str(project_dir),
-    ]
-    if fmt == "tex":
-        cmd.append("--standalone")
-    if fmt == "pdf":
-        engine = _pdf_engine()
-        if not engine:
-            raise ExportError(
-                "PDF export needs a LaTeX engine (xelatex, lualatex, pdflatex or tectonic). "
-                "Export html and print it to PDF, or install TeX Live / tectonic."
-            )
-        cmd += ["--pdf-engine", engine]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if result.returncode != 0:
-        raise ExportError(f"pandoc failed: {result.stderr.strip()[-2000:]}")
+    _pandoc(src, out, fmt, project_dir, ["--citeproc", "--bibliography", str(bib_path)])
     return out

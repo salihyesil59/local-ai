@@ -75,7 +75,7 @@ def test_pandoc_docx_and_tex(project):
 def test_pdf_without_latex_explains(project, monkeypatch):
     import local_ai.servers.export as ex
 
-    monkeypatch.setattr(ex, "_pdf_engine", lambda: None)
+    monkeypatch.setattr(ex, "pdf_engine", lambda: None)
     if not shutil.which("pandoc"):
         pytest.skip("pandoc not installed")
     with pytest.raises(ExportError, match="LaTeX engine"):

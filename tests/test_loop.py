@@ -290,6 +290,69 @@ async def test_a_long_report_is_written_and_verified_section_by_section(mcp_conf
     assert "42.5" not in report and "Unverified" not in report
 
 
+async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_the_end(
+    mcp_config, tmp_path, monkeypatch
+):
+    from local_ai.research import loop
+
+    def fake_export(project_dir, fmt):
+        out = project_dir / "exports" / f"document.{fmt}"
+        out.parent.mkdir(exist_ok=True)
+        out.write_text((project_dir / "document.md").read_text(encoding="utf-8"), encoding="utf-8")
+        return out
+
+    monkeypatch.setattr(loop, "export_document", fake_export)
+    monkeypatch.setattr(loop, "pdf_engine", lambda: None)
+    source = (
+        "notebook__add_source",
+        {"project": "doc", "source_id": "Speed of light", "title": "Speed of light", "origin": "wikipedia",
+         "quote": "c = 299792458 m/s"},
+    )
+    client = ScriptedClient(
+        {
+            "plan": [reply('{"language": "tr", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
+            "research": [
+                reply(calls=[("library__search_library", {"query": "speed of light"})]),
+                reply(calls=[source]),
+                reply("- c = 299792458 m/s [1]"),
+                reply("- B: nothing more"),
+            ],
+            "section": [reply("## 1. A?\n\nIşık hızı 299792458 m/s [1]."), reply("B hakkında bilgi yok.")],
+            "write": [reply("# Sentez\n\nIşık hızı 299792458 m/s [1].")],
+            "critic": [reply('{"issues": []}')] * 3,
+        }
+    )
+    events = []
+    settings = AgentSettings(model="test", gap_check=False, learn=False, document=True)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, on_event=events.append)
+        await agent.run("Işık hızı?", project="doc")
+
+        assert not client.left(), f"unused replies: {client.left()}"
+        kinds = [e["kind"] for e in events]
+        # each chapter right after the findings of its step, the document after the report is saved
+        found, written = ([i for i, k in enumerate(kinds) if k == kind] for kind in ("findings", "chapter"))
+        assert found[0] < written[0] < found[1] < written[1] < kinds.index("document") < kinds.index("report")
+        assert [e["title"] for e in events if e["kind"] == "chapter"] == ["1. A?", "2. B?"]
+        chapters = [r["messages"][1]["content"] for r in client.requests["section"]]
+        assert "- c = 299792458" in chapters[0] and "- B: nothing more" not in chapters[0]
+        assert "- B: nothing more" in chapters[1] and "Section 2: 2. B?" in chapters[1]
+        [done] = [e for e in events if e["kind"] == "document"]
+        assert set(done) >= {"md", "docx"} and "pdf" not in done
+        text = (tmp_path / "workspace" / "doc" / "document.md").read_text(encoding="utf-8")
+        order = ["# Bölüm I", "## 1. A?", "## 2. B?", "B hakkında bilgi yok.", "# Bölüm II", "## Sentez", "# Kaynakça",
+                 "[1] *Speed of light*"]
+        positions = [text.index(s) for s in order]
+        assert positions == sorted(positions)
+
+        # resumed: the chapters are read back, not written again
+        again = ScriptedClient({"write": [reply("# Sentez\n\nYine [1].")], "critic": [reply('{"issues": []}')]})
+        agent = ResearchAgent(again, bridge, settings, console=Console(quiet=True))
+        await agent.run(project="doc", resume=True)
+        assert not again.left() and "section" not in again.requests
+        assert "## 2. B?" in (tmp_path / "workspace" / "doc" / "document.md").read_text(encoding="utf-8")
+
+
 async def test_quick_answer(mcp_config):
     client = ScriptedClient(
         {

@@ -159,7 +159,11 @@ const TR = {
   "Speed": "Hız", "Used": "Kullanılan", "required": "zorunlu", "not required": "zorunlu değil",
   "Images, notebook, options and tools": "Görseller, defter, seçenekler ve araçlar",
   "Model and settings of this chat (Ctrl+,)": "Bu sohbetin modeli ve ayarları (Ctrl+,)",
-  "No sources": "Kaynaksız", "Long report": "Uzun rapor", "Reviewer": "Hakem", "No reviewer": "Hakemsiz",
+  "No sources": "Kaynaksız", "Document": "Belge", "Document (DOCX/PDF)": "Belge (DOCX/PDF)", "Document: ": "Belge: ",
+  "Chapter written: {title}": "Bölüm yazıldı: {title}",
+  "A chapter for the findings of each step, then the synthesis and the sources: a Word and PDF document":
+    "Her adımın bulguları ayrı bir bölüm, sonda sentez ve kaynakça: Word ve PDF belge",
+  "Long report": "Uzun rapor", "Reviewer": "Hakem", "No reviewer": "Hakemsiz",
   "An outline, then each section written and checked on its own: a much longer report, but slower":
     "Önce bir taslak, sonra her bölüm ayrı yazılır ve kontrol edilir: çok daha uzun bir rapor, ama daha yavaş",
   "A reviewer reads the report against the findings and sends real problems back to be fixed":

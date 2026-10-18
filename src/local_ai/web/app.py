@@ -780,6 +780,9 @@ def create_app(
             body, refs = render_body((pdir / "report.md").read_text(encoding="utf-8"), sources, pdir)
             report_html = body + refs
         exports = sorted(f.name for f in (pdir / "exports").glob("report.*")) if (pdir / "exports").is_dir() else []
+        documents = (
+            sorted(f.name for f in (pdir / "exports").glob("document.*")) if (pdir / "exports").is_dir() else []
+        )
         return JSONResponse(
             {
                 "name": pdir.name,
@@ -789,6 +792,7 @@ def create_app(
                 "report_html": report_html,
                 "notebook": (pdir / "computations.ipynb").exists(),
                 "exports": exports,
+                "documents": documents,
             }
         )
 

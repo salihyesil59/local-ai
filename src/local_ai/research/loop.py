@@ -23,8 +23,9 @@ from local_ai.core.llm import TokenBatcher, read_stream
 from local_ai.core.mcp_bridge import MCPBridge
 from local_ai.core.text import extract_json, parse_inline_tool_calls, strip_think, strip_tool_calls, trim
 from local_ai.servers.common import write_notebook
+from local_ai.servers.export import ExportError, export_document, pdf_engine
 
-from . import prompts
+from . import document, prompts
 from .checks import cited_numbers, unknown_citations, unverified_numbers, unverified_quotes
 from .config import AgentSettings
 from .render import ConsoleRenderer
@@ -78,6 +79,7 @@ class ResearchAgent:
         self.handlers: list[EventHandler] = [on_event or ConsoleRenderer(console or Console(), verbose)]
         self.python_cells: list[dict] = []  # python-role calls, for the computations notebook fallback
         self.evidence: list[str] = []  # raw tool outputs; numbers and quotes are checked against these
+        self.chapters: dict[int, str] = {}  # document mode: sub-question number -> its chapter
         self.nb = settings.notebook_server
         if not bridge.has(f"{self.nb}__write_note"):
             raise RuntimeError(f"The '{self.nb}' MCP server is required (see config/lmstudio/mcp.json.example).")
@@ -234,7 +236,7 @@ class ResearchAgent:
             prompts.PLAN_TASK.format(
                 question=question, skills=self.skills or "(none)", memory=self.memory or "(nothing yet)"
             )
-            + (prompts.LONG_PLAN if self.settings.long_report else ""),
+            + (prompts.LONG_PLAN if self.settings.long_report or self.settings.document else ""),
         )
         language, subs = "", []
         try:
@@ -324,6 +326,8 @@ class ResearchAgent:
             "write_note", project=project, title=f"evidence-{i:02d}", content="\n\n-----\n\n".join(outputs)
         )
         self.emit("findings", index=i, question=sub.question, text=findings or "(empty)")
+        if self.settings.document:
+            await self.chapter(project, question, subs, i)
 
     async def gap_check(self, question: str, subs: list[SubQuestion]) -> list[SubQuestion]:
         self._phase("Gap check")
@@ -395,22 +399,44 @@ class ResearchAgent:
         texts = []
         for i, section in enumerate(sections, 1):
             self._phase(f"Write section {i}/{len(sections)}: {section['title']}")
-            task = prompts.SECTION_TASK.format(
-                question=question,
-                outline=outline,
-                index=i,
-                title=section["title"],
-                covers=section["covers"],
-                preferences=self.preferences or "(none)",
-                sources=sources,
-                findings=self._findings([subs[n - 1] for n in section["subs"]]),
-            )
-            message = await self._complete(
-                [{"role": "system", "content": prompts.SECTION_WRITER}, {"role": "user", "content": task}],
-                max_tokens=self.settings.report_tokens,
-            )
-            texts.append(self._headed(strip_think(message.content or ""), section["title"]))
+            own = [subs[n - 1] for n in section["subs"]]
+            texts.append(await self._write_section(question, outline, i, section, own, sources))
         return sections, texts
+
+    async def _write_section(
+        self, question: str, outline: str, index: int, section: dict, subs: list[SubQuestion], sources: str
+    ) -> str:
+        """One section (or chapter) in its own completion, from the findings of its sub-questions only."""
+        task = prompts.SECTION_TASK.format(
+            question=question,
+            outline=outline,
+            index=index,
+            title=section["title"],
+            covers=section["covers"],
+            preferences=self.preferences or "(none)",
+            sources=sources,
+            findings=self._findings(subs),
+        )
+        message = await self._complete(
+            [{"role": "system", "content": prompts.SECTION_WRITER}, {"role": "user", "content": task}],
+            max_tokens=self.settings.report_tokens,
+        )
+        return self._headed(strip_think(message.content or ""), section["title"])
+
+    async def chapter(self, project: str, question: str, subs: list[SubQuestion], i: int) -> None:
+        """Document mode: the chapter of sub-question i, written (and checked) as soon as its findings are in, and
+        kept as the note chapter-NN."""
+        sub = subs[i - 1]
+        title = sub.question.removeprefix("[gap] ")
+        section = {"title": f"{i}. {title}", "covers": sub.question}
+        outline = "\n".join(f"{j}. {s.question.removeprefix('[gap] ')}" for j, s in enumerate(subs, 1))
+        self._phase(f"Write chapter {i}/{len(subs)}")
+        sources = await self._notebook("list_sources", project=project)
+        text = await self._write_section(question, outline, i, section, [sub], sources)
+        text = await self._review_section(project, question, [sub], section, text, f"chapter {i}/{len(subs)}")
+        self.chapters[i] = text
+        await self._notebook("write_note", project=project, title=f"chapter-{i:02d}", content=text)
+        self.emit("chapter", index=i, title=section["title"])
 
     @staticmethod
     def _headed(text: str, title: str) -> str:
@@ -464,16 +490,22 @@ class ResearchAgent:
         rest keeps its length."""
         texts = list(texts)
         for i, (section, text) in enumerate(zip(sections, texts, strict=True)):
-            label = f"section {i + 1}/{len(sections)}"
-            reviewer = []
-            if self.settings.critic:
-                self._phase(f"Review {label}")
-                note = prompts.SECTION_NOTE.format(title=section["title"], covers=section["covers"])
-                reviewer = await self.critique(question + note, [subs[n - 1] for n in section["subs"]], text)
-                self.emit("problems", source="reviewer", items=reviewer)
-            fixed = await self._fix(project, text, reviewer, what="section", label=f" {label}")
-            texts[i] = self._headed(fixed, section["title"])
+            own = [subs[n - 1] for n in section["subs"]]
+            texts[i] = await self._review_section(project, question, own, section, text, f"section {i + 1}/{len(sections)}")
         return await self._flag_remaining(project, "\n\n".join(texts))
+
+    async def _review_section(
+        self, project: str, question: str, subs: list[SubQuestion], section: dict, text: str, label: str
+    ) -> str:
+        """The reviewer (when on) and the checks for one section; it is rewritten alone when they find problems."""
+        reviewer = []
+        if self.settings.critic:
+            self._phase(f"Review {label}")
+            note = prompts.SECTION_NOTE.format(title=section["title"], covers=section["covers"])
+            reviewer = await self.critique(question + note, subs, text)
+            self.emit("problems", source="reviewer", items=reviewer)
+        fixed = await self._fix(project, text, reviewer, what="section", label=f" {label}")
+        return self._headed(fixed, section["title"])
 
     async def _fix(self, project: str, draft: str, reviewer: list[str], what: str = "report", label: str = "") -> str:
         """Send the draft (a report or one section) back with its problems until the checks pass."""
@@ -642,6 +674,8 @@ class ResearchAgent:
         saved = await self._notebook("save_report", project=project, markdown=report)
         project_dir = Path(saved.rsplit(" to ", 1)[-1]).parent
         await self.export_computations(project, project_dir)
+        if self.settings.document:
+            await self.write_document(project, project_dir, question, language, subs, report)
         if self.settings.learn:
             await self.learn(project, question, report)
         final = await self._notebook("read_report", project=project)
@@ -653,6 +687,28 @@ class ResearchAgent:
             cache_hits=self.bridge.cache_hits,
         )
         return final
+
+    async def write_document(
+        self, project: str, project_dir: Path, question: str, language: str, subs: list[SubQuestion], report: str
+    ) -> None:
+        """Document mode: the chapters, the report as the synthesis and the numbered sources as document.md, then
+        as .docx (and .pdf when a LaTeX engine is there). A missing pandoc only costs the Word and PDF files."""
+        for i, sub in enumerate(subs, 1):
+            if i not in self.chapters and sub.findings:  # e.g. researched before a resume
+                await self.chapter(project, question, subs, i)
+        self._phase("Document")
+        chapters = [self.chapters[i] for i in sorted(self.chapters)]
+        text = document.build(question, language, chapters, report, await self._sources(project))
+        path = project_dir / "document.md"
+        path.write_text(text, encoding="utf-8")
+        files = {"md": str(path)}
+        for fmt in ("docx", "pdf") if pdf_engine() else ("docx",):
+            try:
+                files[fmt] = str(await asyncio.to_thread(export_document, project_dir, fmt))
+            except ExportError as e:
+                self._log(f"No {fmt.upper()} file: {e}", "warning")
+                break  # the same reason (no pandoc) would stop the next format too
+        self.emit("document", **files)
 
     async def export_computations(self, project: str, project_dir: Path) -> None:
         """Save the run's calculations as <project>/computations.ipynb."""
@@ -686,4 +742,6 @@ class ResearchAgent:
                 sub.findings = text.split("\n\n", 1)[1] if "\n\n" in text else text
             if f"evidence-{i:02d}" in notes:
                 self.evidence.append(await self._notebook("read_note", project=project, title=f"evidence-{i:02d}"))
+            if f"chapter-{i:02d}" in notes:
+                self.chapters[i] = await self._notebook("read_note", project=project, title=f"chapter-{i:02d}")
         return state["question"], state.get("language", ""), subs

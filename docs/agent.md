@@ -25,6 +25,7 @@ local-ai --resume --project "kara-cisim-isimasinda-wien-yasasi-nasil-turetilir"
 | `--parallel` | 1 | sub-questions researched at the same time (enable parallel requests in LM Studio) |
 | `--no-critic`, `--no-gap-check`, `--no-learn`, `--fast` | all on | skip phases for speed (**Reviewer** switch in the web UI) |
 | `--long-report` | off | write the report section by section (see below; **Long report** in the web UI) |
+| `--document` | off | a chapter per sub-question, then the report and the sources as .docx / .pdf (see below) |
 | `--quick` | off | fast answer instead of a report (see below) |
 
 ## Long reports
@@ -38,6 +39,21 @@ With `--long-report` the planner asks for 5-8 sub-questions, and the report is n
   report keeps its length.
 
 It takes one model reply per section more (two with the reviewer on), one after the other.
+
+## Documents (Word / PDF)
+
+With `--document` (**Document** in the web UI) the run also builds a document as it goes:
+
+- right after each sub-question is researched, its findings are written up as a chapter of their own (checked like a
+  section of a long report, reviewer included) and kept as the note `chapter-NN`, so a resumed run keeps them;
+- at the end the report becomes the synthesis, and the registered sources follow on a page of their own, numbered as
+  the `[n]` in the text;
+- `<project>/document.md`, then `exports/document.docx` with a table of contents, and `document.pdf` when a LaTeX
+  engine (xelatex, lualatex, pdflatex or tectonic) is installed.
+
+Word and PDF need [pandoc](https://pandoc.org) (on Windows: `winget install JohnMacFarlane.Pandoc`); formulas become
+Word equations. Without it the run still ends with `document.md` and says what is missing. Combine it with
+`--long-report` for the longest document.
 
 ## Quick answers
 
