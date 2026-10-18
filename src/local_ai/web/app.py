@@ -28,6 +28,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from local_ai.coder import files as coder_files
+from local_ai.core import attachments as att
 from local_ai.core import images as img
 from local_ai.core.llm import pick_model
 from local_ai.core.mcp_bridge import (
@@ -41,14 +42,27 @@ from local_ai.core.mcp_bridge import (
 )
 from local_ai.core.mcp_bridge import config_path as mcp_config_path
 from local_ai.research.config import AgentSettings
-from local_ai.servers.common import slugify, workspace_root
+from local_ai.servers.common import NOTEBOOKS, slugify, workspace_root
 from local_ai.servers.export import FORMATS, ExportError, export, render_body, render_markdown
 
 from . import offline
-from .runs import ACTIVE, IMAGES_ONLY, NOTEBOOK_NOTE, Run, clean_settings, run_chat, run_code, run_research
+from .runs import (
+    ACTIVE,
+    FILES_ONLY,
+    IMAGES_ONLY,
+    NOTEBOOK_NOTE,
+    Run,
+    clean_settings,
+    run_chat,
+    run_code,
+    run_research,
+)
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
+# Characters of attached files that go into a message; a research repeats its question in every step.
+ATTACH_CHARS = 40_000
+ATTACH_RESEARCH_CHARS = 12_000
 MAX_RUNS = 4  # chats working at the same time, any mode: the parallel requests LM Studio serves by default
 REVALIDATE = {"Cache-Control": "no-cache"}  # the browser asks each time, so a new version of the UI is used at once
 
@@ -192,6 +206,38 @@ def create_app(
     def attach_store(run: Run) -> None:
         run.sink = lambda event: store.append_event(run.id, event)
 
+    def put_in_library(run_id: str, item: dict) -> str:
+        """The whole of a large attached file in the chat's notebook of the library (Word, PowerPoint, ... as the
+        text read from them); its path there, "" when it could not be saved."""
+        name, content = item["name"], item["data"]
+        if Path(name).suffix.lower() not in offline.LIBRARY_SUFFIXES:
+            name, content = f"{name}.md", item["text"].encode("utf-8")
+        try:
+            return offline.save_file(where(), f"{NOTEBOOKS}/ekler-{run_id}", name, content)["path"]
+        except (OSError, ValueError):
+            return ""
+
+    async def take_files(run: Run, uploads: list[tuple[str, bytes]]) -> tuple[list[str], dict]:
+        """Keep the files of a message and make their text for the agent: their names in the chat, and the options
+        that bring the text to the run (what does not fit is cut there; the whole file goes into the library)."""
+        if not uploads:
+            return [], {}
+        names = [store.save_file(run.id, name, data) for name, data in uploads]
+        items = []
+        for (name, data), stored in zip(uploads, names, strict=True):
+            try:
+                text, info = await asyncio.to_thread(att.extract, store.file_path(run.id, stored))
+            except Exception as e:  # a damaged file: the model is told that nothing could be read from it
+                text, info = "", f"unreadable: {type(e).__name__}"
+            items.append({"name": name, "text": text, "info": info, "data": data})
+        budget = ATTACH_RESEARCH_CHARS if run.mode == "research" else ATTACH_CHARS
+        in_library = False
+        for item, share in zip(items, att.shares([len(i["text"]) for i in items], budget), strict=True):
+            if len(item["text"]) > share:
+                item["library"] = await asyncio.to_thread(put_in_library, run.id, item)
+                in_library = in_library or bool(item["library"])
+        return names, {"attachment_text": att.block(items, budget), "attachment_library": in_library}
+
     for run_id, meta in sorted(store.runs.items(), key=lambda item: item[1].get("created", 0)):
         past = Run(
             id=run_id,
@@ -203,6 +249,7 @@ def create_app(
             folder=meta.get("folder"),
             pinned=bool(meta.get("pinned")),
             images=list(meta.get("images") or []),
+            files=list(meta.get("files") or []),
             notebook=meta.get("notebook") or "",
             settings=meta.get("settings") or {},
             created=meta.get("created", 0),
@@ -296,6 +343,11 @@ def create_app(
                 note = NOTEBOOK_NOTE.format(name=notebook, files=", ".join(files) or "(none yet)")
                 question += note
                 run.push({"kind": "log", "text": f"Notebook: {notebook} ({len(files)} files)"})
+            if options.get("attachment_text"):  # the text of the files sent with this message
+                question += options["attachment_text"]
+                servers = run_settings.servers
+                if options.get("attachment_library") and servers is not None and "library" not in servers:
+                    run_settings.servers = [*servers, "library"]
             if options.get("mode") == "code":
                 await run_code(run, question, options, run_settings, state["client"], state["bridge"], store)
             elif options.get("mode") == "chat":
@@ -475,15 +527,19 @@ def create_app(
             return JSONResponse({"error": "unknown folder"}, status_code=400)
         try:
             pictures = img.decode(body.get("images"))
+            uploads = att.decode(body.get("files"))
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
         if pictures and not question:
             question = IMAGES_ONLY
+        elif uploads and not question:
+            question = FILES_ONLY
 
-        def start(run: Run) -> Response:
+        async def start(run: Run) -> Response:
             run.folder, run.mode = chat_folder, body.get("mode") if body.get("mode") in ("code", "chat") else "research"
             run.settings = clean_settings(body.get("settings"))
             run.images = [store.save_image(run.id, data, ext) for data, ext in pictures]
+            run.files, attached = await take_files(run, uploads)
             run.notebook = str(body.get("notebook") or "")
             store.add_run(
                 run.id,
@@ -495,11 +551,13 @@ def create_app(
                 settings=run.settings,
                 created=run.created,
                 images=run.images,
+                files=run.files,
                 notebook=run.notebook,
             )
             attach_store(run)
             state["runs"][run.id] = run
-            options = {**body, "images": None, "image_paths": [store.image_path(run.id, n) for n in run.images]}
+            paths = [store.image_path(run.id, n) for n in run.images]
+            options = {**body, "images": None, "files": None, "image_paths": paths, **attached}
             run.task = asyncio.create_task(execute(run, options, run.question, run.project))
             return JSONResponse(run.summary(), status_code=201)
 
@@ -507,14 +565,14 @@ def create_app(
             folder = str(body.get("folder", "")).strip()
             if not folder or not Path(folder).expanduser().is_absolute():
                 return JSONResponse({"error": "give the project folder as an absolute path"}, status_code=400)
-            return start(Run(id=uuid.uuid4().hex[:12], question=question or "(continue the plan)", project=folder))
+            return await start(Run(id=uuid.uuid4().hex[:12], question=question or "(continue the plan)", project=folder))
         if body.get("mode") == "chat":
             if not question:
                 return JSONResponse({"error": "write a message"}, status_code=400)
-            return start(Run(id=uuid.uuid4().hex[:12], question=question, project=""))
+            return await start(Run(id=uuid.uuid4().hex[:12], question=question, project=""))
         if not question and not (body.get("resume") and project):
             return JSONResponse({"error": "question is required"}, status_code=400)
-        return start(Run(id=uuid.uuid4().hex[:12], question=question or f"(resume {project})", project=project))
+        return await start(Run(id=uuid.uuid4().hex[:12], question=question or f"(resume {project})", project=project))
 
     async def list_runs(request: Request) -> Response:
         return JSONResponse([r.summary() for r in reversed(list(state["runs"].values()))])
@@ -537,25 +595,32 @@ def create_app(
         message = str(body.get("question", "")).strip()
         try:
             pictures = img.decode(body.get("images"))
+            uploads = att.decode(body.get("files"))
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
         if pictures and not message:
             message = IMAGES_ONLY
+        elif uploads and not message:
+            message = FILES_ONLY
 
-        def keep_images() -> dict:
-            """Save the images of this message; the user event shows them, the agent gets their files."""
+        async def keep() -> tuple[dict, dict]:
+            """Save the images and files of this message: what the user event shows (their names), and the
+            options that bring the text of the files to the agent."""
             names = [store.save_image(run.id, data, ext) for data, ext in pictures]
-            return {"images": names} if names else {}
+            files, attached = await take_files(run, uploads)
+            return {**({"images": names} if names else {}), **({"files": files} if files else {})}, attached
 
         if run.status in ACTIVE:
             if run.status == "running" and message and run.mode == "research":
-                shown = keep_images()  # researched when the running research is done
-                run.queued.append((message, [store.image_path(run.id, n) for n in shown.get("images", [])]))
+                shown, attached = await keep()  # researched when the running research is done
+                paths = [store.image_path(run.id, n) for n in shown.get("images", [])]
+                run.queued.append((message + attached.get("attachment_text", ""), paths))
                 run.push({"kind": "steer", "text": message, **shown})
                 return JSONResponse(run.summary(), status_code=202)
             if run.status == "running" and message and hasattr(run.agent, "steer"):
-                shown = keep_images()
-                run.agent.steer(message, [store.image_path(run.id, n) for n in shown.get("images", [])])
+                shown, attached = await keep()
+                paths = [store.image_path(run.id, n) for n in shown.get("images", [])]
+                run.agent.steer(message + attached.get("attachment_text", ""), paths)
                 run.push({"kind": "steer", "text": message, **shown})  # a code or chat run takes it while it works
                 return JSONResponse(run.summary(), status_code=202)
             return JSONResponse({"error": "wait until the run has ended, or cancel it"}, status_code=409)
@@ -570,14 +635,26 @@ def create_app(
                 project = run.resumable()
                 if not project:
                     return JSONResponse({"error": "question is required"}, status_code=400)
-        shown = keep_images()
-        return follow_up(run, body, message, project, shown.get("images", []))
+        shown, attached = await keep()
+        return follow_up(run, body, message, project, shown.get("images", []), files=shown.get("files", []),
+                         attached=attached)  # fmt: skip
 
-    def follow_up(run: Run, body: dict, message: str, project: str, images: list[str], shown: bool = True) -> Response:
-        """Start the next message of a chat (images: names of its saved images). shown=False: the message is on
-        the page already (it was queued while the chat worked), the user event only starts its part."""
+    def follow_up(
+        run: Run,
+        body: dict,
+        message: str,
+        project: str,
+        images: list[str],
+        shown: bool = True,
+        files: list[str] | None = None,
+        attached: dict | None = None,
+    ) -> Response:
+        """Start the next message of a chat (images, files: names of its saved images and files; attached: the
+        options with the text of the files). shown=False: the message is on the page already (it was queued while
+        the chat worked), the user event only starts its part."""
         paths = [store.image_path(run.id, n) for n in images]
-        options = {**body, "images": None, "image_paths": paths, "mode": run.mode, "folder": run.project}
+        options = {**body, "images": None, "files": None, "image_paths": paths, "mode": run.mode, "folder": run.project}
+        options.update(attached or {})
         options["resume"] = bool(project)
         task = run.follow_up(message) if message else ""  # an empty message continues the plan of a code chat
         if run.mode in ("code", "chat"):  # the agent still has the conversation: the message alone is enough
@@ -588,7 +665,15 @@ def create_app(
         run.status = "queued"
         store.update_run(run.id, status="queued", settings=run.settings, notebook=run.notebook)
         text = message or ("(continue the research)" if project else "(continue the plan)")
-        run.push({"kind": "user", "text": text, **({"images": images} if images else {}), **({} if shown else {"queued": True})})
+        run.push(
+            {
+                "kind": "user",
+                "text": text,
+                **({"images": images} if images else {}),
+                **({"files": files} if files else {}),
+                **({} if shown else {"queued": True}),
+            }
+        )
         # a research follow-up with a question gets a project of its own; without one the stopped project goes on
         run.task = asyncio.create_task(execute(run, options, task, project))
         return JSONResponse(run.summary(), status_code=202)
@@ -665,6 +750,8 @@ def create_app(
             return JSONResponse({"error": "cancel the run before deleting it"}, status_code=409)
         del state["runs"][run.id]
         store.delete_run(run.id)
+        with contextlib.suppress(FileNotFoundError):  # the large files it put into the library
+            offline.delete_notebook(where(), f"ekler-{run.id}")
         return JSONResponse({"ok": True})
 
     async def list_folders(request: Request) -> Response:
@@ -943,6 +1030,14 @@ def create_app(
             return JSONResponse({"error": "not found"}, status_code=404)
         return FileResponse(path)
 
+    async def run_attachment(request: Request) -> Response:
+        """A file sent with a message of a chat (a download, under its own name)."""
+        name = request.path_params["name"]
+        path = store.file_path(request.path_params["run_id"], name)
+        if path is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return FileResponse(path, filename=name.split("-", 1)[1])
+
     async def files(request: Request) -> Response:
         path = (workspace / request.path_params["path"]).resolve()
         if not path.is_relative_to(workspace) or not path.is_file():
@@ -963,6 +1058,7 @@ def create_app(
         Route("/api/runs/{run_id}/messages", add_message, methods=["POST"]),
         Route("/api/runs/{run_id}/send-now", send_now, methods=["POST"]),
         Route("/api/runs/{run_id}/images/{name}", run_image),
+        Route("/api/runs/{run_id}/attachments/{name}", run_attachment),
         Route("/api/offline", offline_state),
         Route("/api/offline/files", offline_upload, methods=["POST"]),
         Route("/api/offline/files", offline_delete, methods=["DELETE"]),

@@ -6,6 +6,7 @@
 <workspace>/ui/runs/<id>.chat.json  the conversation of a code chat with the model, to go on with it later
 <workspace>/ui/runs/<id>.trace.jsonl  its runs with the model's thinking, as training data (local-ai traces export)
 <workspace>/ui/images/<id>/   the images sent with the messages of a chat
+<workspace>/ui/files/<id>/    the other files sent with them (PDF, Word, notes, code, ...)
 """
 
 from __future__ import annotations
@@ -60,6 +61,7 @@ class Store:
         (self.dir / "runs" / f"{run_id}.chat.json").unlink(missing_ok=True)
         self.trace_path(run_id).unlink(missing_ok=True)
         shutil.rmtree(self.dir / "images" / run_id, ignore_errors=True)
+        shutil.rmtree(self.dir / "files" / run_id, ignore_errors=True)
 
     # -- folders -----------------------------------------------------------------
 
@@ -146,6 +148,23 @@ class Store:
         if not IMAGE_NAME.fullmatch(name) or not re.fullmatch(r"\w+", run_id):
             return None
         path = self.dir / "images" / run_id / name
+        return path if path.is_file() else None
+
+    # -- files (documents, notes, code) --------------------------------------------
+
+    def save_file(self, run_id: str, name: str, data: bytes) -> str:
+        """Keep a file sent with a message (name: a safe file name); returns its name within the chat."""
+        stored = f"{uuid.uuid4().hex[:8]}-{name}"
+        folder = self.dir / "files" / run_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / stored).write_bytes(data)
+        return stored
+
+    def file_path(self, run_id: str, name: str) -> Path | None:
+        """The file of a chat; None for a name that is not one (no path can leave the folder)."""
+        if not re.fullmatch(r"[0-9a-f]{8}-[^/\\]+", name) or not re.fullmatch(r"\w+", run_id) or ".." in name:
+            return None
+        path = self.dir / "files" / run_id / name
         return path if path.is_file() else None
 
     def clear(self) -> None:

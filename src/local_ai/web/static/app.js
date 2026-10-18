@@ -21,7 +21,7 @@ const api = async (path, opts = {}) => {
 };
 
 // runs: id -> summary of every chat; currentRun: the chat that is open (null = a new chat is being written)
-const state = { status: {}, view: "new", runs: {}, runList: [], currentRun: null, running: false, source: null, project: null, mode: "research", folders: [], targetFolder: null, images: [] };
+const state = { status: {}, view: "new", runs: {}, runList: [], currentRun: null, running: false, source: null, project: null, mode: "research", folders: [], targetFolder: null, images: [], files: [] };
 
 // Remembered per browser; storage may be unavailable, the page works without it.
 const remember = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
@@ -834,7 +834,7 @@ function updateComposer() {
   const q = $("#question");
   const resume = !!run && state.mode === "research" && !state.running && run.resumable; // a stopped research can go on
   // code mode may continue an existing plan without a new task; a message of images alone needs no text
-  q.required = !state.images.length && ((!code && !resume) || steer);
+  q.required = !state.images.length && !state.files.length &&((!code && !resume) || steer);
   q.placeholder = chat && steer ? t("Write your next message: it is answered when the current reply is done.")
     : steer && !code ? t("Write your next question: it is researched when this research is done.")
     : chat ? t("Write a message — any language. Images can be pasted or dropped here.")
@@ -864,18 +864,28 @@ $("#browse").addEventListener("click", async () => {
   }
 });
 
-// -- images: attached with the button, pasted or dropped; made smaller here and sent with the message ------
+// -- attachments: images (made smaller here) and other files (PDF, Word, notes, code), attached with the button,
+// pasted or dropped, and sent with the message; the server gives the model the text of the files ------
 const IMAGES = { max: 6, side: 1600, bytes: 3 * 1024 * 1024 };
 const IMAGE_TYPES = /^image\/(png|jpeg|webp|gif)$/;
+const FILES = { max: 10, bytes: 50 * 1024 * 1024 };
+const FILE_TYPES = /\.(pdf|docx|pptx|xlsx|md|txt|csv|tsv|json|ya?ml|toml|tex|bib|html?|xml|log|ipynb|py|js|ts|c|cpp|h|hpp|java|rs|go|m|jl|r|sh|ps1|bat|sql|ini|cfg)$/i;
+
+const sizeText = (n) => n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 
 function renderAttachments() {
   const box = $("#attachments");
-  box.hidden = !state.images.length;
-  box.replaceChildren(...state.images.map((url, i) => {
-    const remove = el("button", { type: "button", class: "remove", title: t("Remove"), "aria-label": t("Remove") }, icon("x"));
-    remove.addEventListener("click", () => { state.images.splice(i, 1); renderAttachments(); });
-    return el("div", { class: "thumb" }, el("img", { src: url, alt: t("Attached image") }), remove);
-  }));
+  box.hidden = !state.images.length && !state.files.length;
+  const remove = (list, i) => {
+    const button = el("button", { type: "button", class: "remove", title: t("Remove"), "aria-label": t("Remove") }, icon("x"));
+    button.addEventListener("click", () => { list.splice(i, 1); renderAttachments(); });
+    return button;
+  };
+  box.replaceChildren(
+    ...state.images.map((url, i) => el("div", { class: "thumb" }, el("img", { src: url, alt: t("Attached image") }), remove(state.images, i))),
+    ...state.files.map((f, i) => el("div", { class: "file-chip", title: f.name }, icon("file"),
+      el("span", { class: "file-name" }, f.name), el("small", { class: "muted" }, sizeText(f.size)), remove(state.files, i))),
+  );
   updateComposer();
 }
 
@@ -899,20 +909,26 @@ async function shrink(file) {
   return file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.92);
 }
 
-async function addImages(files) {
+async function addFiles(files) {
   for (const file of files) {
-    if (!IMAGE_TYPES.test(file.type)) { toast(t("Only PNG, JPEG, WebP or GIF images can be attached."), "error"); continue; }
-    if (state.images.length >= IMAGES.max) { toast(t("At most 6 images per message."), "error"); break; }
-    try { state.images.push(await shrink(file)); } catch (e) { fail(e); }
+    if (IMAGE_TYPES.test(file.type)) {
+      if (state.images.length >= IMAGES.max) { toast(t("At most 6 images per message."), "error"); continue; }
+      try { state.images.push(await shrink(file)); } catch (e) { fail(e); }
+      continue;
+    }
+    if (!FILE_TYPES.test(file.name)) { toast(t("{name}: this kind of file cannot be attached.", { name: file.name }), "error"); continue; }
+    if (state.files.length >= FILES.max) { toast(t("At most 10 files per message."), "error"); break; }
+    if (!file.size || file.size > FILES.bytes) { toast(t("{name} is empty or larger than 50 MB.", { name: file.name }), "error"); continue; }
+    try { state.files.push({ name: file.name, size: file.size, data: await readAsDataURL(file) }); } catch (e) { fail(e); }
   }
   renderAttachments();
 }
 
 $("#attach").addEventListener("click", () => { closePopovers(); $("#attach-input").click(); });
-$("#attach-input").addEventListener("change", (ev) => { addImages([...ev.target.files]); ev.target.value = ""; });
+$("#attach-input").addEventListener("change", (ev) => { addFiles([...ev.target.files]); ev.target.value = ""; });
 $("#question").addEventListener("paste", (ev) => {
-  const files = [...(ev.clipboardData?.items || [])].filter((i) => i.kind === "file" && IMAGE_TYPES.test(i.type)).map((i) => i.getAsFile());
-  if (files.length) { ev.preventDefault(); addImages(files); }
+  const files = [...(ev.clipboardData?.items || [])].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
+  if (files.length) { ev.preventDefault(); addFiles(files); }
 });
 $("#ask").addEventListener("dragover", (ev) => {
   if (![...ev.dataTransfer.types].includes("Files")) return;
@@ -924,13 +940,14 @@ $("#ask").addEventListener("drop", (ev) => {
   $("#ask").classList.remove("dropping");
   if (!ev.dataTransfer.files.length) return;
   ev.preventDefault();
-  addImages([...ev.dataTransfer.files]);
+  addFiles([...ev.dataTransfer.files]);
 });
 
 function sent() { // the message was taken: the box is empty for the next one
   $("#question").value = "";
   resizeQuestion();
   state.images = [];
+  state.files = [];
   renderAttachments();
 }
 
@@ -938,19 +955,20 @@ $("#ask").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const question = $("#question").value.trim();
   const images = [...state.images];
-  const empty = !question && !images.length;
+  const files = state.files.map(({ name, data }) => ({ name, data }));
+  const empty = !question && !images.length && !files.length;
   const code = state.mode === "code", chat = state.mode === "chat";
   const steer = state.running && state.currentRun;
   const resume = state.mode === "research" && state.currentRun && state.runs[state.currentRun]?.resumable;
   if ((empty && ((!code && !resume) || steer)) || (state.running && !steer)) return;
   if (steer) { // the live stream shows the message when the server has taken it
     try {
-      await api(`/api/runs/${state.currentRun}/messages`, { method: "POST", body: JSON.stringify({ question, images }) });
+      await api(`/api/runs/${state.currentRun}/messages`, { method: "POST", body: JSON.stringify({ question, images, files }) });
       sent();
     } catch (e) { fail(e); }
     return;
   }
-  const options = { question, images, servers: getSelectedMcpServers(), settings: getSettings() };
+  const options = { question, images, files, servers: getSelectedMcpServers(), settings: getSettings() };
   if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
   if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, critic: $("#critic").checked });
   if (state.mode === "research") Object.assign(options, { parallel: +$("#parallel").value, sources: $("#sources").checked,
@@ -1128,7 +1146,7 @@ function attach(runId) {
     setSettings(run.settings || {});
     setMode(run.mode);
     setNotebook(run.notebook || "");
-    userBubble(run.question, run.images);
+    userBubble(run.question, run.images, run.files || []);
   }
   const ctx = newContext(run ? run.question : "");
   ctx.mode = run ? knownMode(run.mode) : state.mode;
@@ -1184,13 +1202,16 @@ function addSendNow() {
 }
 function clearSendNow() { document.querySelectorAll(".send-now").forEach((b) => b.remove()); }
 
-function userBubble(text, images = []) {
+function userBubble(text, images = [], files = []) {
   const auto = /^\((continue|resume)\b/.test(text); // sent by the page, not typed
   const pictures = images.length ? el("div", { class: "bubble-images" }, images.map((name) => {
     const url = `/api/runs/${state.currentRun}/images/${encodeURIComponent(name)}`;
     return el("a", { href: url, target: "_blank", rel: "noopener" }, el("img", { src: url, alt: t("Attached image"), loading: "lazy" }));
   })) : null;
-  append(el("div", { class: "turn" }, el("div", { class: "bubble" + (auto ? " auto" : "") }, pictures, auto ? t(text.slice(1, -1)) : text)));
+  const attached = files.length ? el("div", { class: "bubble-files" }, files.map((name) =>
+    el("a", { class: "file-chip", href: `/api/runs/${state.currentRun}/attachments/${encodeURIComponent(name)}`, download: "" },
+      icon("file"), el("span", { class: "file-name" }, name.replace(/^[0-9a-f]{8}-/, ""))))) : null;
+  append(el("div", { class: "turn" }, el("div", { class: "bubble" + (auto ? " auto" : "") }, pictures, attached, auto ? t(text.slice(1, -1)) : text)));
 }
 
 function card(ctx, key, title, badge) {
@@ -1640,10 +1661,10 @@ function renderEvent(e, ctx) {
     case "user":
       nextMessage(ctx, e.text);
       clearSendNow();
-      if (!e.queued) userBubble(e.text, e.images); // a queued message is on the page already
+      if (!e.queued) userBubble(e.text, e.images, e.files); // a queued message is on the page already
       break;
     case "steer": // sent while the agent was working: read by a code run, queued by a chat or a research
-      userBubble(e.text, e.images);
+      userBubble(e.text, e.images, e.files);
       if (state.running) addSendNow();
       break;
     case "dequeued": // the oldest queued message is being read now

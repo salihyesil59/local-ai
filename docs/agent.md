@@ -137,7 +137,15 @@ images. It offers no MCP server until you switch one on in the **+** menu of the
 then the model may call its tools. The settings of a chat are the model, temperature and max tokens; a reply thinks
 as long as max tokens allows, and a conversation longer than the context limit drops its oldest messages.
 
-Images go with a message through **Attach images** in the **+** menu, or pasted (Ctrl+V) or dropped onto the box: up
+Files go with a message in every mode the same way (**Attach files**, paste or drop): up to ten PDF, Word (.docx),
+PowerPoint (.pptx), Excel (.xlsx), Markdown, text, CSV, JSON, LaTeX or code files of at most 50 MB each. The model gets
+their text with the message: up to 40 000 characters in chat and code, 12 000 in a research (its question goes into
+every step). What does not fit is cut, and the whole file is put into the library as the notebook `ekler-<chat id>`
+(Word, PowerPoint and Excel as the text read from them): the model is told to read it there with `read_library` and
+to search it with `search_library`. The files are kept with the chat in `<workspace>/ui/files/`; deleting the chat
+deletes them and its notebook.
+
+Images go with a message through **Attach files** in the **+** menu, or pasted (Ctrl+V) or dropped onto the box: up
 to six PNG, JPEG, WebP or GIF images, large ones scaled down to 1600 px. A code chat gives them to the model with the
 message (a screenshot of an error, a sketch of a layout); a research chat first has the model write down what they
 show (text exactly, plots and tables described) and researches with that. The model needs vision: in LM Studio load

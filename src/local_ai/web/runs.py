@@ -63,6 +63,7 @@ NOTEBOOK_NOTE = (
     'answer comes from. Pass scope="" only when the user asks to search beyond the notebook.]'
 )
 IMAGES_ONLY = "Look at the attached image and help with what it shows."  # a message that is only images
+FILES_ONLY = "Look at the attached file(s) and help with them."  # a message that is only files
 FOLLOW_UP = "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThe answer was:\n{answer}"
 STOPPED_RUN = (
     "{message}\n\nEarlier in this chat the user asked:\n{question}\n\nThat run was stopped before it had an "
@@ -81,6 +82,7 @@ class Run:
     folder: str | None = None  # id of the chat folder it is sorted into
     pinned: bool = False  # kept at the top of the chat list
     images: list[str] = field(default_factory=list)  # names of the images sent with the first message
+    files: list[str] = field(default_factory=list)  # names of the other files sent with it
     notebook: str = ""  # the notebook (a folder notebooks/<name> of the library) its last message chose
     # questions sent while a research ran, with their image files: researched one after the other when it is done
     queued: list[tuple[str, list[Path]]] = field(default_factory=list)
@@ -155,6 +157,7 @@ class Run:
             "folder": self.folder,
             "pinned": self.pinned,
             "images": self.images,
+            "files": self.files,
             "notebook": self.notebook,
             "resumable": bool(self.loaded and self.resumable()),
             "settings": self.settings,
@@ -178,6 +181,8 @@ async def run_code(
     if bridge:
         selected = options.get("servers")
         allowed = (set(selected) if selected is not None else set(CODE_SERVERS)) - {"coder"}
+        if options.get("attachment_library"):  # a large attached file is read from the library
+            allowed.add("library")
         extra_tools = bridge.as_tools(allowed)
     if extra_tools:
         active = sorted({bridge.tools[name].server for name in extra_tools})
@@ -235,7 +240,9 @@ async def run_chat(
     """Chat mode: one answer of a plain conversation. The conversation of the chat is kept like a code chat's."""
     selected = set(options.get("servers") or [])
     tools = bridge.as_tools(selected - {"coder", settings.notebook_server}) if bridge and selected else {}
-    if bridge and options.get("notebook"):  # a chat with a notebook searches it, whatever else is switched on
+    # a chat with a notebook, or with a large attached file (put into the library), searches and reads the library,
+    # whatever else is switched on
+    if bridge and (options.get("notebook") or options.get("attachment_library")):
         tools.update({n: t for n, t in bridge.as_tools({"library"}).items() if n in NOTEBOOK_TOOLS})
     if tools:
         active = sorted({bridge.tools[name].server for name in tools})
