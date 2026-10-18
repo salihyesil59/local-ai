@@ -142,6 +142,9 @@ class Run:
         if found:
             return STOPPED_RUN.format(message=message, question=trim(question, 600), found=trim(found, EARLIER_CHARS))
         answer = next((e["text"] for e in reversed(self.events) if e["kind"] in ("answer", "report")), "")
+        asked = next((e for e in reversed(self.last_message()) if e["kind"] == "clarify"), None)
+        if asked:  # the message answers the questions asked before the research
+            answer = "Before researching, these questions were asked:\n" + "\n".join(f"- {q}" for q in asked["questions"])
         if not answer:
             return message
         return FOLLOW_UP.format(message=message, question=trim(question, 600), answer=trim(answer, EARLIER_CHARS))
@@ -297,6 +300,13 @@ async def run_research(
     settings.long_report = bool(options.get("long_report"))
     settings.document = bool(options.get("document"))
     settings.short_thinking = bool(options.get("short_thinking"))
+    try:
+        settings.depth = max(0, min(int(options.get("depth") or 0), 3))
+    except (TypeError, ValueError):
+        settings.depth = 0
+    # clarifying questions only for the first message of a chat; the plan can be reviewed for any new question
+    settings.clarify = bool(options.get("review")) and not options.get("follow_up")
+    settings.review_plan = bool(options.get("review"))
     settings.gap_check = settings.gap_check and not fast
     settings.learn = settings.learn and not fast
     settings.parallel = max(1, min(int(options.get("parallel") or settings.parallel), 8))

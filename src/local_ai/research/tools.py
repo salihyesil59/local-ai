@@ -21,7 +21,11 @@ ROLE_PATTERNS: dict[str, list[str]] = {
     "arxiv": ["*__search_arxiv"],
     "read_arxiv": ["*__read_arxiv"],
     "docs": ["*__docs"],
+    "web_search": ["web__search", "*__web_search", "*__search_web"],
+    "web_fetch": ["*__fetch_content", "*__web_fetch", "*__fetch_url"],
 }
+# Tools that read a source (not only point at it): after one of them a source may be registered.
+READ_ROLES = ("read", "read_arxiv", "wikipedia", "docs", "web_fetch")
 
 ROLE_GUIDE: dict[str, str] = {
     "search": "passages from the user's library and offline arXiv abstracts (sources=zim also searches the offline "
@@ -32,6 +36,9 @@ ROLE_GUIDE: dict[str, str] = {
     "arxiv": "research papers and recent results (online).",
     "read_arxiv": "read pages of an arXiv paper found by the arXiv search.",
     "docs": "offline programming documentation (Python, numpy, pandas, ...); query full names like pathlib.Path.glob.",
+    "web_search": "search the internet when the offline sources above are not enough (recent results, a specific "
+    "paper or page); a hit is only a pointer.",
+    "web_fetch": "read a web page found by the internet search, before citing it.",
     "python": "ANY calculation, unit conversion, numeric estimate, formula check, table or plot. Write the code, "
     "run it, quote the number from its output. Never compute in your head. On errors fix and rerun.",
     "check_units": "dimensional analysis of every formula you derive or use (expected_unit gives OK/MISMATCH).",

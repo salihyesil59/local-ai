@@ -11,7 +11,17 @@ const TR = {
   "Attach images (or paste / drop them)": "Görsel ekle (ya da yapıştır / sürükle bırak)", "Attach images": "Görsel ekle",
   "Attached image": "Eklenen görsel", "Only PNG, JPEG, WebP or GIF images can be attached.": "Yalnızca PNG, JPEG, WebP ya da GIF görseller eklenebilir.",
   "At most 6 images per message.": "Bir mesajda en çok 6 görsel olabilir.",
-  "Short thinking": "Kısa düşünme",
+  "Short thinking": "Kısa düşünme", "Depth": "Derinlik", "Off": "Kapalı", "Plan review": "Plan onayı",
+  "Deepening: after each step the findings are reflected on and what they opened is followed":
+    "Derinleştirme: her adımdan sonra bulgular üzerine düşünülür ve açtıkları yeni sorular izlenir",
+  "Clarify and approve the plan": "Netleştir ve planı onayla",
+  "Asks a few questions first if needed, then shows the plan: change it and start the research":
+    "Gerekirse önce birkaç soru sorar, sonra planı gösterir: düzenle ve araştırmayı başlat",
+  "Before researching": "Araştırmadan önce",
+  "Answer in the message box; the research starts from your answers.": "Mesaj kutusundan yanıtla; araştırma yanıtlarınla başlar.",
+  "The plan: change it, then start the research": "Plan: düzenle, sonra araştırmayı başlat",
+  "Sub-question": "Alt soru", "+ Add a sub-question": "+ Alt soru ekle", "Approve and start": "Onayla ve başla",
+  "Keep at least one sub-question.": "En az bir alt soru kalmalı.",
   "Each step thinks briefly and then acts: much faster, a little less careful":
     "Her adım kısa düşünüp harekete geçer: çok daha hızlı, biraz daha az titiz",
   "Attach files": "Dosya ekle", "Click to see all of the thinking": "Düşünmenin tamamını görmek için tıkla",

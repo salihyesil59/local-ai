@@ -25,9 +25,16 @@ local-ai --resume --project "kara-cisim-isimasinda-wien-yasasi-nasil-turetilir"
 | `--parallel` | 1 | sub-questions researched at the same time (enable parallel requests in LM Studio) |
 | `--no-critic`, `--no-gap-check`, `--no-learn`, `--fast` | all on | skip phases for speed (**Reviewer** switch in the web UI) |
 | `--long-report` | off | write the report section by section (see below; **Long report** in the web UI) |
+| `--depth N` | 0 | deepening: after each sub-question the findings are reflected on and up to 2 follow-ups added, N levels down (at most 3 per level; **Depth** in the web UI) |
+| `--review` | off | clarifying questions before planning; in the web UI (**Clarify and approve the plan**) also the plan, to change and approve before the research starts |
 | `--short-thinking` | off | a reply thinks at most ~1700 tokens, then is asked to act from there (**Short thinking**) |
 | `--document` | off | a chapter per sub-question, then the report and the sources as .docx / .pdf (see below) |
 | `--quick` | off | fast answer instead of a report (see below) |
+
+A source is registered only after the researcher read a part of it (library pages, the arXiv paper, the Wikipedia
+article, documentation or a web page): `add_source` right after a search hit is refused with a request to read first
+(a computation, origin `python`, is registered at once). When the offline sources are not enough, the researcher may
+search the internet (`web__search`) and read pages (`web__fetch_content`) if the `web` server is configured.
 
 ## Long reports
 

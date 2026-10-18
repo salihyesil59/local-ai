@@ -369,7 +369,7 @@ def create_app(
                     run.push({"kind": "dequeued"})
                     run.push({"kind": "log", "text": f"Now the question sent during the research: {message}"})
                     task = run.follow_up(message, asked) + note
-                    follow = {**options, "image_paths": paths, "resume": False}
+                    follow = {**options, "image_paths": paths, "resume": False, "follow_up": True}
                     await run_research(
                         run, task, "", follow, run_settings, state["client"], state["bridge"],
                         lambda e: run.push(decorate(e)),
@@ -655,7 +655,7 @@ def create_app(
         paths = [store.image_path(run.id, n) for n in images]
         options = {**body, "images": None, "files": None, "image_paths": paths, "mode": run.mode, "folder": run.project}
         options.update(attached or {})
-        options["resume"] = bool(project)
+        options["resume"], options["follow_up"] = bool(project), True
         task = run.follow_up(message) if message else ""  # an empty message continues the plan of a code chat
         if run.mode in ("code", "chat"):  # the agent still has the conversation: the message alone is enough
             options["with_earlier_answer"], task = task, message
@@ -883,6 +883,28 @@ def create_app(
             }
         )
 
+    async def update_plan(request: Request) -> Response:
+        """The sub-questions of a planned research, as the user changed them before it starts (a question that
+        stayed keeps its search terms)."""
+        try:
+            pdir = project_dir(request.path_params["name"])
+        except FileNotFoundError:
+            return JSONResponse({"error": "unknown project"}, status_code=404)
+        path = pdir / "notes" / "plan.md"
+        if not path.is_file():
+            return JSONResponse({"error": "the project has no plan"}, status_code=404)
+        if any((pdir / "notes").glob("finding-*.md")):
+            return JSONResponse({"error": "the research has started already"}, status_code=409)
+        body = await request.json()
+        wanted = [str(q).strip() for q in body.get("sub_questions") or [] if str(q).strip()][:12]
+        if not wanted:
+            return JSONResponse({"error": "keep at least one sub-question"}, status_code=400)
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        old = {s["question"]: s for s in plan.get("sub_questions", [])}
+        plan["sub_questions"] = [old.get(q, {"question": q}) for q in wanted]
+        path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+        return JSONResponse({"sub_questions": wanted})
+
     async def source_passages(request: Request) -> Response:
         """The quotes of one source of a project, each with the passage of the tool output it was taken from."""
         try:
@@ -1079,6 +1101,7 @@ def create_app(
         Route("/api/runs/{run_id}/file", run_file),
         Route("/api/projects", list_projects),
         Route("/api/projects/{name}", get_project),
+        Route("/api/projects/{name}/plan", update_plan, methods=["PUT"]),
         Route("/api/projects/{name}/export", export_project, methods=["POST"]),
         Route("/api/projects/{name}/sources/{n:int}/passages", source_passages),
         Route("/api/memory", memory),

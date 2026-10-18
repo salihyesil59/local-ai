@@ -41,6 +41,12 @@ class AgentSettings:
     gap_check: bool = True  # add sub-questions for gaps after research
     learn: bool = True  # save verified facts/lessons to long-term memory
     max_gap_questions: int = 2
+    # deepening: after each sub-question the findings are reflected on and follow-up questions added (at most 2 per
+    # step, 3 per level, down to this many levels; 0 = off)
+    depth: int = 0
+    clarify: bool = False  # ask the user a few questions before planning
+    review_plan: bool = False  # stop after the plan, so the user can change it and start the research
+    read_before_cite: bool = True  # a source is registered only after a part of it was read (not from a search hit)
     parallel: int = 1  # sub-questions researched at the same time
     servers: list[str] | None = None  # subset of servers active for this run (None = all)
     role_overrides: dict[str, str] = field(default_factory=dict)  # e.g. {"search": "library__search"}

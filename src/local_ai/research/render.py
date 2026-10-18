@@ -38,6 +38,10 @@ class ConsoleRenderer:
                 self._print(f"No issues from {event['source']}.", "green")
         elif kind == "notebook":
             self._print(f"Computations notebook: {event['path']}", "dim")
+        elif kind == "clarify":
+            self._print("Before researching, answer these (ask again with the answers in the question):", "yellow")
+            for q in event["questions"]:
+                self._print(f"  ? {q}", "yellow")
         elif not self.verbose:
             return
         elif kind == "log":

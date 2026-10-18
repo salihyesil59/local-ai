@@ -20,6 +20,8 @@ PHASES = {
     "You review the progress": "gap",
     "You write the final report": "write",
     "You plan the sections": "outline",
+    "You reflect on one step": "reflect",
+    "You prepare the work": "clarify",
     "You write ONE section": "section",
     "You are a strict reviewer": "critic",
     "You are the verification step": "verify",
@@ -89,6 +91,7 @@ def full_script():
         "research": [
             # sub-question 1: search, cite (one real quote, one invented), compute, answer
             reply(calls=[("library__search_library", {"query": "speed of light"})]),
+            reply(calls=[("library__read_library", {"source": "speed_of_light.md"})]),
             reply(
                 calls=[
                     (
@@ -249,6 +252,7 @@ async def test_a_long_report_is_written_and_verified_section_by_section(mcp_conf
             "plan": [reply('{"language": "tr", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
             "research": [
                 reply(calls=[("library__search_library", {"query": "speed of light"})]),
+                reply(calls=[("library__read_library", {"source": "speed_of_light.md"})]),
                 reply(calls=[source]),
                 reply("- c = 299792458 m/s [1]"),
                 reply("- B: nothing more"),
@@ -313,6 +317,7 @@ async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_th
             "plan": [reply('{"language": "tr", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
             "research": [
                 reply(calls=[("library__search_library", {"query": "speed of light"})]),
+                reply(calls=[("library__read_library", {"source": "speed_of_light.md"})]),
                 reply(calls=[source]),
                 reply("- c = 299792458 m/s [1]"),
                 reply("- B: nothing more"),
@@ -431,6 +436,113 @@ async def test_short_thinking_stops_at_its_limit_and_asks_for_the_reply(mcp_conf
     assert "of the variation." in nudge["content"]  # where its thinking stood
     assert len(short.requests[0]["messages"]) == 2  # the conversation of the caller is not changed
     assert any(e["kind"] == "log" and "reached its limit" in e["text"] for e in events)
+
+
+async def test_deepening_follows_what_a_step_opened_one_level_down(mcp_config, tmp_path):
+    client = ScriptedClient(
+        {
+            "plan": [reply('{"language": "en", "sub_questions": [{"question": "Vary the action?"}]}')],
+            "research": [reply("- δS needs δ√-g [1]"), reply("- δ√-g = -½√-g g_μν δg^μν"), reply("- δR_μν: Palatini")],
+            "reflect": [
+                reply(
+                    '{"follow_ups": [{"question": "How does √-g vary?"}, {"question": "What is the Palatini '
+                    'identity?"}, {"question": "A third one"}]}'
+                )
+            ],
+            "write": [reply("The derivation.")],
+        }
+    )
+    events = []
+    settings = AgentSettings(model="test", depth=1, gap_check=False, critic=False, learn=False)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, on_event=events.append)
+        await agent.run("Derive the field equations", project="deep")
+
+    assert not client.left(), f"unused replies: {client.left()}"
+    assert len(client.requests["reflect"]) == 1  # the follow-ups (level 1) are not reflected on again
+    reflected = client.requests["reflect"][0]["messages"][1]["content"]
+    assert "1. [done] Vary the action?" in reflected and "δS needs δ√-g" in reflected
+    asked = [r["messages"][1]["content"] for r in client.requests["research"]]
+    assert "Sub-question 2/3: [deeper] How does √-g vary?" in asked[1] and "Palatini" in asked[2]
+    assert [e["sub_questions"] for e in events if e["kind"] == "gaps"] == [
+        ["[deeper] How does √-g vary?", "[deeper] What is the Palatini identity?"]  # at most 2 per step
+    ]
+    plan = json.loads((tmp_path / "workspace" / "deep" / "notes" / "plan.md").read_text(encoding="utf-8"))
+    assert [s["level"] for s in plan["sub_questions"]] == [0, 1, 1]
+
+
+async def test_clarifying_questions_and_a_plan_to_approve(mcp_config):
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        asking = ScriptedClient({"clarify": [reply('{"questions": ["Which metric signature?", "  "]}')]})
+        events = []
+        settings = AgentSettings(model="test", clarify=True, review_plan=True, learn=False, gap_check=False, critic=False)
+        agent = ResearchAgent(asking, bridge, settings, on_event=events.append)
+        assert await agent.run("Derive the field equations") == ""
+        assert [e["questions"] for e in events if e["kind"] == "clarify"] == [["Which metric signature?"]]
+        assert "plan" not in asking.requests  # nothing is planned before the answers
+
+        # clear enough: the plan is made, saved and shown, and the run stops there
+        planning = ScriptedClient(
+            {
+                "clarify": [reply('{"questions": []}')],
+                "plan": [reply('{"language": "en", "sub_questions": [{"question": "A?"}, {"question": "B?"}]}')],
+            }
+        )
+        events = []
+        agent = ResearchAgent(planning, bridge, settings, on_event=events.append)
+        assert await agent.run("Derive (-,+,+,+)", project="review") == ""
+        [shown] = [e for e in events if e["kind"] == "plan_review"]
+        assert shown == {**shown, "project": "review", "sub_questions": ["A?", "B?"]} and "research" not in planning.requests
+
+        # the user kept only B: the research goes on from the changed plan
+        plan = json.loads((await bridge.call("notebook__read_note", {"project": "review", "title": "plan"}))[0])
+        plan["sub_questions"] = plan["sub_questions"][1:]
+        await bridge.call("notebook__write_note", {"project": "review", "title": "plan", "content": json.dumps(plan)})
+        going = ScriptedClient({"research": [reply("- B done")], "write": [reply("Answer.")]})
+        agent = ResearchAgent(going, bridge, settings, console=Console(quiet=True))
+        assert (await agent.run(project="review", resume=True)).startswith("Answer.")  # resumed: no review again
+        assert "Sub-question 1/1: B?" in going.requests["research"][0]["messages"][1]["content"]
+
+
+async def test_a_source_is_registered_only_after_reading_it(mcp_config):
+    def source(origin, quote):
+        return ("notebook__add_source", {"project": "read", "source_id": origin, "title": origin, "origin": origin,
+                                         "quote": quote})  # fmt: skip
+
+    client = ScriptedClient(
+        {
+            "plan": [reply('{"language": "en", "sub_questions": [{"question": "c?"}]}')],
+            "research": [
+                reply(calls=[("compute__python", {"code": "print(299792458 / 1000)"})]),
+                reply(calls=[source("python", "299792.458")]),  # a computation: at once
+                reply(calls=[("library__search_library", {"query": "speed of light"})]),
+                reply(calls=[source("wikipedia", "c = 299792458 m/s")]),  # from a search hit only: refused
+                reply(calls=[("library__read_library", {"source": "speed_of_light.md"})]),
+                reply(calls=[source("pdf", "c = 299792458 m/s")]),  # read first: registered
+                reply("- c = 299792458 m/s [2]"),
+            ],
+            "write": [reply("c = 299792458 m/s [2].")],
+        }
+    )
+    events = []
+    settings = AgentSettings(model="test", gap_check=False, critic=False, learn=False)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, on_event=events.append)
+        await agent.run("What is c?", project="read")
+        listed = json.loads((await bridge.call("notebook__list_sources", {"project": "read", "format": "json"}))[0])
+
+    results = [e for e in events if e["kind"] == "tool_result" and e["name"] == "notebook__add_source"]
+    assert [r["error"] for r in results] == [False, True, False] and "read the relevant part" in results[1]["output"]
+    assert [s["origin"] for s in listed] == ["python", "pdf"]
+
+
+def test_internet_search_and_page_reading_are_research_roles():
+    from local_ai.research.tools import ToolRoles
+
+    roles = ToolRoles.detect(["web__search", "web__fetch_content", "web__expand_link", "library__search_library"])
+    assert roles.get("web_search") == "web__search" and roles.get("web_fetch") == "web__fetch_content"
+    guide = roles.guide()
+    assert guide.index("library__search_library") < guide.index("web__search") < guide.index("web__fetch_content")
 
 
 async def test_quick_answer(mcp_config):

@@ -48,6 +48,8 @@ Research tools, in the order to try them:
 Rules:
 - Rely only on tool output. If the tools don't support a claim, say it is unknown.
 - If results are thin, rephrase the query (synonyms, English terms, broader/narrower) before giving up.
+- Read before you cite: a search hit is only a pointer. Read the relevant part of the source (read the library
+  pages, the arXiv paper, the Wikipedia article or the web page) and quote from what you read.
 {unit_rule}- When you have enough evidence, stop calling tools and reply with your findings for this
   sub-question. The report writer sees ONLY these findings, not the tool output, so make them
   complete: definitions, methods, assumptions, formulas (LaTeX), numbers with units, results and
@@ -161,7 +163,34 @@ Your last reply was cut off while you were still thinking. Do not think it throu
 tool call, the JSON or the text that is asked for), going on from where your thinking stood:
 {tail}"""
 
-LONG_PLAN ="\n\nThe user wants a long, detailed report: plan 5-8 sub-questions that cover the topic in depth."
+CLARIFY = """\
+You prepare the work of an offline research agent. Before it plans, decide whether the user's question leaves open
+something that would change the research a lot: the level (introductory or advanced), the notation and conventions
+(e.g. metric signature, units), the scope (what to include or leave out), or what the result should look like.
+If so, ask 1-3 short questions, in the language of the user's question. If the question is clear enough, ask none.
+Reply with JSON only: {"questions": ["..."]}"""
+
+CLARIFY_TASK = "Question: {question}"
+
+REFLECT = """\
+You reflect on one step of an offline research agent, as a careful researcher would before going on. Given the main
+question, the plan (done steps are marked) and the findings of the step just done, decide whether these findings
+opened something that must be followed to answer the main question in depth: a step of a derivation that is used but
+not explained, a term or object to define, a contradiction between sources to settle, a number or claim to check.
+Return at most 2 follow-up questions, only if they add real depth and no planned step covers them; else none.
+Reply with JSON only: {"follow_ups": [{"question": "...", "search_terms_en": ["..."], "needs_python": false, \
+"skill": ""}]}"""
+
+REFLECT_TASK = """\
+Main question: {question}
+
+Plan:
+{plan}
+
+Findings of step {index} ({sub_question}):
+{findings}"""
+
+LONG_PLAN = "\n\nThe user wants a long, detailed report: plan 5-8 sub-questions that cover the topic in depth."
 
 OUTLINE = """\
 You plan the sections of a long, detailed report of an offline research agent. The report is written one
@@ -212,6 +241,11 @@ Registered sources:
 
 Findings:
 {findings}"""
+
+READ_FIRST = (
+    "Not registered: read the relevant part of this source first (read the library pages, the arXiv paper, the "
+    "Wikipedia article or the web page), then register it with a quote from what you read."
+)
 
 SECTION_NOTE = (
     '\n\n(The draft is one section of a longer report: "{title}". It covers: {covers}. Other parts of the question '

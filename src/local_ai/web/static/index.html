@@ -102,7 +102,14 @@
                 <span class="switch"><input type="checkbox" id="sources" role="switch" checked><span class="knob"></span></span></label>
               <label id="long-report-opt" class="switch-row research-only"><span class="switch-text"><span>Long report</span><small class="muted">An outline, then each section written and checked on its own: a much longer report, but slower</small></span>
                 <span class="switch"><input type="checkbox" id="long-report" role="switch"><span class="knob"></span></span></label>
-              <label id="short-thinking-opt" class="switch-row research-only"><span class="switch-text"><span>Short thinking</span><small class="muted">Each step thinks briefly and then acts: much faster, a little less careful</small></span>
+              <label class="menu-item research-only" data-icon="layers"><span>Depth</span>
+                <select id="depth" title="Deepening: after each step the findings are reflected on and what they opened is followed" aria-label="Depth">
+                  <option value="0">Off</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                </select>
+              </label>
+              <label id="review-opt" class="switch-row research-only"><span class="switch-text"><span>Clarify and approve the plan</span><small class="muted">Asks a few questions first if needed, then shows the plan: change it and start the research</small></span>
+                <span class="switch"><input type="checkbox" id="review" role="switch"><span class="knob"></span></span></label>
+              <label id="short-thinking-opt"class="switch-row research-only"><span class="switch-text"><span>Short thinking</span><small class="muted">Each step thinks briefly and then acts: much faster, a little less careful</small></span>
                 <span class="switch"><input type="checkbox" id="short-thinking" role="switch"><span class="knob"></span></span></label>
               <label id="document-opt"class="switch-row research-only"><span class="switch-text"><span>Document (DOCX/PDF)</span><small class="muted">A chapter for the findings of each step, then the synthesis and the sources: a Word and PDF document</small></span>
                 <span class="switch"><input type="checkbox" id="document" role="switch"><span class="knob"></span></span></label>

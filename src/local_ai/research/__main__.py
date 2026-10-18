@@ -52,6 +52,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--long-report", action="store_true", help="Write the report section by section (much longer, slower)."
     )
     p.add_argument(
+        "--depth",
+        type=int,
+        choices=range(4),
+        default=0,
+        help="Deepening: reflect after each sub-question and follow what it opened, down to N levels (default: 0).",
+    )
+    p.add_argument(
+        "--review",
+        action="store_true",
+        help="Ask clarifying questions first when the question leaves something open (then ask again with answers).",
+    )
+    p.add_argument(
         "--short-thinking",
         action="store_true",
         help="Think at most about 1700 tokens per reply, then answer from there (much faster, a little less careful).",
@@ -106,6 +118,8 @@ async def main(argv: list[str] | None = None) -> int:
     settings.long_report = args.long_report
     settings.document = args.document
     settings.short_thinking = args.short_thinking
+    settings.depth = args.depth
+    settings.clarify = args.review and not args.resume
 
     client = AsyncOpenAI(base_url=settings.base_url, api_key=settings.api_key)
     if not settings.model:

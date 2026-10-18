@@ -300,6 +300,8 @@ function renderChips() {
     state.mode === "research" && $("#long-report").checked ? chip(t("Long report"), off("#long-report")) : null,
     state.mode === "research" && $("#document").checked ? chip(t("Document"), off("#document")) : null,
     state.mode === "research" && $("#short-thinking").checked ? chip(t("Short thinking"), off("#short-thinking")) : null,
+    state.mode === "research" && +$("#depth").value ? chip(`${t("Depth")} ${$("#depth").value}`, () => { $("#depth").value = "0"; optionsChanged(); }) : null,
+    state.mode === "research" && $("#review").checked ? chip(t("Plan review"), off("#review")) : null,
     !chat && !$("#critic").checked ? chip(t("No reviewer"), off("#critic")) : null,
   ].filter(Boolean));
 }
@@ -308,7 +310,7 @@ function optionsChanged() {
   renderChips();
   schedulePanel();
 }
-for (const id of ["#fast", "#quick", "#sources", "#long-report", "#document", "#short-thinking", "#critic"]) $(id).addEventListener("change", optionsChanged);
+for (const id of ["#fast", "#quick", "#sources", "#long-report", "#document", "#short-thinking", "#critic", "#depth", "#review"]) $(id).addEventListener("change", optionsChanged);
 
 // -- the Tools view: the MCP servers, with their tools; add, switch off, restart, remove ----------
 async function loadTools() {
@@ -952,6 +954,13 @@ function sent() { // the message was taken: the box is empty for the next one
   renderAttachments();
 }
 
+// What the + menu sets for a research message.
+function researchOptions() {
+  return { parallel: +$("#parallel").value, sources: $("#sources").checked, long_report: $("#long-report").checked,
+    document: $("#document").checked, short_thinking: $("#short-thinking").checked, depth: +$("#depth").value,
+    review: $("#review").checked, critic: $("#critic").checked, fast: $("#fast").checked };
+}
+
 $("#ask").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const question = $("#question").value.trim();
@@ -972,8 +981,7 @@ $("#ask").addEventListener("submit", async (ev) => {
   const options = { question, images, files, servers: getSelectedMcpServers(), settings: getSettings() };
   if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
   if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, critic: $("#critic").checked });
-  if (state.mode === "research") Object.assign(options, { parallel: +$("#parallel").value, sources: $("#sources").checked,
-    long_report: $("#long-report").checked, document: $("#document").checked, short_thinking: $("#short-thinking").checked });
+  if (state.mode === "research") Object.assign(options, researchOptions());
   try {
     let run;
     if (state.currentRun) {
@@ -1585,6 +1593,8 @@ function environmentCard() {
     mode === "research" && $("#long-report").checked && t("Long report"),
     mode === "research" && $("#document").checked && t("Document"),
     mode === "research" && $("#short-thinking").checked && t("Short thinking"),
+    mode === "research" && +$("#depth").value && `${t("Depth")} ${$("#depth").value}`,
+    mode === "research" && $("#review").checked && t("Plan review"),
     mode !== "chat" && !$("#critic").checked && t("No reviewer")].filter(Boolean);
   const folder = run ? run.project : $("#folder").value.trim(); // the last part of the path; all of it in the tooltip
   const rows = [
@@ -1735,6 +1745,14 @@ function renderEvent(e, ctx) {
       append(el("div", { class: "log" }, t("Computations notebook: "), url ? el("a", { href: url, download: "" }, e.path) : e.path));
       break;
     }
+    case "clarify": // questions before the research: the answer is the next message
+      append(el("div", { class: "card clarify" }, el("h4", {}, t("Before researching")),
+        el("ol", {}, e.questions.map((q) => el("li", {}, q))),
+        el("p", { class: "muted" }, t("Answer in the message box; the research starts from your answers."))));
+      break;
+    case "plan_review": // the plan, to be changed and approved before the research starts
+      append(planReview(e));
+      break;
     case "chapter": // document mode: the chapter of a sub-question is written
       append(el("div", { class: "log success" }, t("Chapter written: {title}", { title: e.title })));
       break;
@@ -1812,6 +1830,38 @@ function renderEvent(e, ctx) {
       if (e.status !== "done") append(el("div", { class: "log warning" }, `${t("Run")} ${t(e.status)}.`));
       break;
   }
+}
+
+// The plan of a research waiting for approval: each sub-question can be changed, removed or added; "Approve and
+// start" saves it and continues the chat's research with the options set now.
+function planReview(e) {
+  const run = state.currentRun;
+  const list = el("ol", { class: "plan-edit" });
+  const row = (question) => {
+    const input = el("input", { type: "text", value: question, "aria-label": t("Sub-question") });
+    const li = el("li", {}, input,
+      el("button", { type: "button", class: "ghost small", title: t("Remove"), "aria-label": t("Remove"), onclick: () => li.remove() }, icon("x")));
+    return li;
+  };
+  list.append(...e.sub_questions.map(row));
+  const add = el("button", { type: "button", class: "ghost small",
+    onclick: () => { const li = row(""); list.append(li); li.querySelector("input").focus(); } }, t("+ Add a sub-question"));
+  const start = el("button", { type: "button", class: "primary" }, t("Approve and start"));
+  start.addEventListener("click", async () => {
+    const subs = [...list.querySelectorAll("input")].map((i) => i.value.trim()).filter(Boolean);
+    if (!subs.length) { toast(t("Keep at least one sub-question."), "error"); return; }
+    try {
+      await api(`/api/projects/${encodeURIComponent(e.project)}/plan`, { method: "PUT", body: JSON.stringify({ sub_questions: subs }) });
+      const body = { question: "", servers: getSelectedMcpServers(), settings: getSettings(), ...researchOptions(), review: false };
+      const next = await api(`/api/runs/${run}/messages`, { method: "POST", body: JSON.stringify(body) });
+      start.disabled = add.disabled = true;
+      state.runs[next.id] = next;
+      attach(next.id);
+      renderRunsSidebar();
+    } catch (err) { fail(err); }
+  });
+  return el("div", { class: "card plan-review" }, el("h4", {}, t("The plan: change it, then start the research")),
+    list, el("div", { class: "toolbar" }, add, start));
 }
 
 function exportBar(project, extra = []) {

@@ -19,7 +19,10 @@ def test_roles_from_the_package_servers():
     assert roles.get("arxiv") == "library__search_arxiv"
     guide = roles.guide()
     assert guide.index("library__search_library") < guide.index("library__wikipedia") < guide.index("compute__python")
-    assert "web__" not in guide and "notebook__" not in guide
+    assert "notebook__" not in guide
+    # the internet comes after the offline sources: only when they are not enough
+    assert guide.index("library__read_arxiv") < guide.index("web__search") < guide.index("web__fetch_content")
+    assert roles.get("web_search") == "web__search" and roles.get("web_fetch") == "web__fetch_content"
 
 
 def test_other_servers_and_overrides():

@@ -29,7 +29,7 @@ from . import document, prompts
 from .checks import cited_numbers, unknown_citations, unverified_numbers, unverified_quotes
 from .config import AgentSettings
 from .render import ConsoleRenderer
-from .tools import ToolRoles
+from .tools import READ_ROLES, ToolRoles
 
 EventHandler = Callable[[dict], None]
 SKILL_LIMITS = re.compile(r"<!-- limits: ((?:max_(?:steps|tool_chars|tokens)=\d+ ?)+)-->\n")
@@ -50,17 +50,28 @@ class SubQuestion:
     search_terms_en: list[str] = field(default_factory=list)
     needs_python: bool = False
     skill: str = ""
+    level: int = 0  # 0: planned; n: a follow-up found while deepening, n steps away from the plan
     findings: str | None = None
 
     @classmethod
     def from_json(cls, data: dict) -> SubQuestion:
+        try:
+            level = max(0, int(data.get("level") or 0))
+        except (TypeError, ValueError):
+            level = 0
         return cls(
             question=str(data["question"]),
             search_terms=[str(t) for t in data.get("search_terms", []) or []],
             search_terms_en=[str(t) for t in data.get("search_terms_en", []) or []],
             needs_python=bool(data.get("needs_python", False)),
             skill=str(data.get("skill") or ""),
+            level=level,
         )
+
+
+def title_of(question: str) -> str:
+    """A sub-question without the mark of where it came from ([gap] at the end, [deeper] while deepening)."""
+    return question.removeprefix("[gap] ").removeprefix("[deeper] ")
 
 
 class ResearchAgent:
@@ -80,6 +91,7 @@ class ResearchAgent:
         self.python_cells: list[dict] = []  # python-role calls, for the computations notebook fallback
         self.evidence: list[str] = []  # raw tool outputs; numbers and quotes are checked against these
         self.chapters: dict[int, str] = {}  # document mode: sub-question number -> its chapter
+        self.language = ""  # of the question, from the plan
         self.nb = settings.notebook_server
         if not bridge.has(f"{self.nb}__write_note"):
             raise RuntimeError(f"The '{self.nb}' MCP server is required (see config/lmstudio/mcp.json.example).")
@@ -185,6 +197,8 @@ class ResearchAgent:
         Returns (answer, raw outputs of the successful tool calls)."""
         tools = self.bridge.openai_tools(self.settings.servers) if tools is None else tools
         outputs: list[str] = []
+        readers = {self.roles.get(r) for r in READ_ROLES} - {None}
+        has_read = False  # a source is registered only after a tool read a part of one (not from a search hit)
         for _ in range(max_steps or self.settings.max_steps):
             message = await self._complete(messages, tools, index=index, max_tokens=max_tokens)
             content = strip_think(message.content)
@@ -200,10 +214,14 @@ class ResearchAgent:
                 name = call["function"]["name"]
                 args = call["function"].get("arguments") or "{}"
                 self.emit("tool_call", index=index, id=call["id"], name=name, arguments=args)
-                output, is_error = await self.bridge.call(name, args)
+                if self._cites_unread(name, args, has_read):
+                    output, is_error = prompts.READ_FIRST, True
+                else:
+                    output, is_error = await self.bridge.call(name, args)
                 if not is_error:
                     outputs.append(output)
                     self.evidence.append(output)
+                    has_read = has_read or name in readers
                 if name == self.roles.get("python"):
                     self._record_python(args, output, is_error)
                 self.emit(
@@ -220,6 +238,16 @@ class ResearchAgent:
         messages.append({"role": "user", "content": finalize_prompt})
         message = await self._complete(messages, index=index, max_tokens=max_tokens)
         return strip_think(message.content), outputs
+
+    def _cites_unread(self, name: str, args: str, has_read: bool) -> bool:
+        """True for a source registered before anything was read (a computation may be registered at once)."""
+        if not self.settings.read_before_cite or has_read or name != f"{self.nb}__add_source":
+            return False
+        try:
+            origin = str(json.loads(args).get("origin", ""))
+        except (json.JSONDecodeError, AttributeError):
+            origin = ""
+        return origin != "python"
 
     def _record_python(self, args: str, output: str, is_error: bool) -> None:
         try:
@@ -249,6 +277,16 @@ class ResearchAgent:
                 self.emit("memory", text=self.memory)
         if self._has_nb("list_skills"):
             self.skills = await self._notebook("list_skills")
+
+    async def clarify(self, question: str) -> list[str]:
+        """The questions to ask the user before planning (none when the question is clear enough)."""
+        self._phase("Clarify")
+        data = await self._ask_json(prompts.CLARIFY, prompts.CLARIFY_TASK.format(question=question))
+        raw = data.get("questions", []) if isinstance(data, dict) else []
+        asked = [str(q).strip() for q in raw if str(q).strip()][:3] if isinstance(raw, list) else []
+        if asked:
+            self.emit("clarify", questions=asked)
+        return asked
 
     async def plan(self, question: str) -> tuple[str, list[SubQuestion]]:
         self._phase("Plan")
@@ -294,10 +332,51 @@ class ResearchAgent:
                     await self._research_one(project, question, subs, i, sub)
 
             await asyncio.gather(*(one(i, sub) for i, sub in pending))
+            if self.settings.depth:
+                self._log("Deepening works one sub-question after the other: it is off while they run in parallel.")
         else:
-            for i, sub in pending:
-                self._phase(f"Research {i}/{len(subs)}")
-                await self._research_one(project, question, subs, i, sub)
+            i = start
+            while i <= len(subs):  # follow-ups found on the way join the end of the list
+                sub = subs[i - 1]
+                if not sub.findings:
+                    self._phase(f"Research {i}/{len(subs)}")
+                    await self._research_one(project, question, subs, i, sub)
+                    if self.settings.depth:
+                        await self.deepen(project, question, subs, i)
+                i += 1
+
+    async def deepen(self, project: str, question: str, subs: list[SubQuestion], i: int) -> None:
+        """Reflect on the findings of sub-question i, as a researcher would before going on: what they opened that
+        must be followed (a derivation step used but not explained, a contradiction, a claim to check) becomes a
+        follow-up question at the end of the plan, one level deeper."""
+        sub = subs[i - 1]
+        budget = 3 * self.settings.depth - sum(s.level > 0 for s in subs)
+        if sub.level >= self.settings.depth or budget <= 0 or not sub.findings:
+            return
+        plan = "\n".join(
+            f"{j}. [{'done' if s.findings else 'to do'}] {title_of(s.question)}" for j, s in enumerate(subs, 1)
+        )
+        self._phase(f"Reflect on {i}/{len(subs)}")
+        data = await self._ask_json(
+            prompts.REFLECT,
+            prompts.REFLECT_TASK.format(
+                question=question, plan=plan, index=i, sub_question=title_of(sub.question), findings=sub.findings
+            ),
+        )
+        try:
+            found = [SubQuestion.from_json(s) for s in (data or {}).get("follow_ups", []) if s.get("question")]
+        except (AttributeError, KeyError, TypeError):
+            found = []
+        known = {title_of(s.question).strip().lower() for s in subs}
+        extra = [s for s in found if s.question.strip().lower() not in known][: min(2, budget)]
+        if not extra:
+            self._log("Nothing new to follow.")
+            return
+        for s in extra:
+            s.question, s.level = f"[deeper] {s.question}", sub.level + 1
+        subs.extend(extra)
+        await self._save_state(project, question, self.language, subs)
+        self.emit("gaps", sub_questions=[s.question for s in extra])
 
     async def _research_one(
         self, project: str, question: str, subs: list[SubQuestion], i: int, sub: SubQuestion
@@ -405,7 +484,7 @@ class ResearchAgent:
             )
         if not sections:  # no usable outline: one section per sub-question
             sections = [
-                {"title": s.question.removeprefix("[gap] "), "covers": s.question, "subs": [i]}
+                {"title": title_of(s.question), "covers": s.question, "subs": [i]}
                 for i, s in enumerate(subs, 1)
             ]
         return sections[: self.settings.max_sections]
@@ -448,9 +527,8 @@ class ResearchAgent:
         """Document mode: the chapter of sub-question i, written (and checked) as soon as its findings are in, and
         kept as the note chapter-NN."""
         sub = subs[i - 1]
-        title = sub.question.removeprefix("[gap] ")
-        section = {"title": f"{i}. {title}", "covers": sub.question}
-        outline = "\n".join(f"{j}. {s.question.removeprefix('[gap] ')}" for j, s in enumerate(subs, 1))
+        section = {"title": f"{i}. {title_of(sub.question)}", "covers": sub.question}
+        outline = "\n".join(f"{j}. {title_of(s.question)}" for j, s in enumerate(subs, 1))
         self._phase(f"Write chapter {i}/{len(subs)}")
         sources = await self._notebook("list_sources", project=project)
         text = await self._write_section(question, outline, i, section, [sub], sources)
@@ -661,8 +739,13 @@ class ResearchAgent:
             if not question:
                 raise ValueError("A question is required.")
             await self.prepare(question)
+            if self.settings.clarify:
+                asked = await self.clarify(question)
+                if asked:  # the user answers with the next message, which is then researched
+                    return ""
             language, subs = await self.plan(question)
             project = project or question
+        self.language = language
         project = (await self._notebook("create_project", name=project)).split(": ", 1)[-1]
         self.bridge.clear_cache()
         self.bridge.cacheable = {self.roles.get(r) for r in CACHEABLE_ROLES if self.roles.get(r)}
@@ -673,6 +756,9 @@ class ResearchAgent:
         if not resume:
             await self._save_state(project, question, language, subs)
         self.emit("project", name=project)  # from here on the run can be resumed: its plan is saved
+        if self.settings.review_plan and not resume:  # the user changes the plan and starts the research
+            self.emit("plan_review", project=project, sub_questions=[s.question for s in subs])
+            return ""
 
         await self.research(project, question, subs)
         if self.settings.gap_check and not any(s.question.startswith("[gap] ") for s in subs):

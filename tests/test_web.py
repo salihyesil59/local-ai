@@ -18,6 +18,7 @@ def script():
         "plan": [reply('{"language": "en", "sub_questions": [{"question": "What is c?", "needs_python": true}]}')],
         "research": [
             reply(calls=[("library__search_library", {"query": "speed of light"})]),
+            reply(calls=[("library__read_library", {"source": "speed_of_light.md"})]),
             reply(
                 calls=[
                     (
@@ -190,6 +191,30 @@ def test_mcp_servers_are_listed_added_disabled_and_removed(mcp_config):
     with TestClient(create_app([], AgentSettings(model="test"), client=StreamingClient({}))) as client:
         assert client.get("/api/mcp").json()["editable"] is False  # started without a file to change
         assert client.post("/api/mcp", json={"name": "x", "command": "y"}).status_code == 400
+
+
+def test_a_planned_research_can_be_changed_before_it_starts(client, tmp_path):
+    notes = tmp_path / "workspace" / "plan-me" / "notes"
+    notes.mkdir(parents=True)
+    plan = {"question": "Q", "language": "en", "sub_questions": [{"question": "A?", "search_terms_en": ["a"]}]}
+    (notes / "plan.md").write_text(json.dumps(plan), encoding="utf-8")
+    put = client.put("/api/projects/plan-me/plan", json={"sub_questions": ["A?", " New one ", ""]})
+    assert put.json() == {"sub_questions": ["A?", "New one"]}
+    saved = json.loads((notes / "plan.md").read_text(encoding="utf-8"))
+    assert saved["sub_questions"] == [{"question": "A?", "search_terms_en": ["a"]}, {"question": "New one"}]
+    assert client.put("/api/projects/plan-me/plan", json={"sub_questions": []}).status_code == 400
+    assert client.put("/api/projects/nothing-here/plan", json={"sub_questions": ["x"]}).status_code == 404
+    (notes / "finding-01.md").write_text("# A?\n\n- found", encoding="utf-8")
+    assert client.put("/api/projects/plan-me/plan", json={"sub_questions": ["x"]}).status_code == 409
+
+
+def test_the_answer_to_clarifying_questions_is_researched_with_them():
+    from local_ai.web.runs import Run
+
+    run = Run(id="r", question="Derive the field equations", project="")
+    run.events = [{"kind": "user", "text": run.question}, {"kind": "clarify", "questions": ["Which signature?"]}]
+    task = run.follow_up("(-,+,+,+), advanced")
+    assert task.startswith("(-,+,+,+), advanced") and "Derive the field equations" in task and "Which signature?" in task
 
 
 def test_a_stopped_research_keeps_what_it_found(mcp_config):
