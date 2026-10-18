@@ -97,6 +97,7 @@ async def main(argv: list[str] | None = None) -> int:
     settings.gap_check = not (args.no_gap_check or args.fast)
     settings.learn = not (args.no_learn or args.fast)
     settings.require_sources = not args.no_sources
+    settings.stream = True  # streamed replies can be stopped as soon as their thinking goes in circles
     settings.long_report = args.long_report
     settings.document = args.document
 

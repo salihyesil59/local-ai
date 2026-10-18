@@ -83,6 +83,10 @@ def parse_inline_tool_calls(content: str) -> list[dict]:
     return calls
 
 
+# A backslash that does not start one of JSON's own escapes \" \\ \/ \uXXXX (models write LaTeX into JSON strings)
+LATEX_BACKSLASH = re.compile(r'\\(?!["\\/]|u[0-9a-fA-F]{4})')
+
+
 def extract_json(text: str):
     """Parse the first JSON object/array in a model reply (tolerates code fences and prose)."""
     text = strip_think(text)
@@ -92,8 +96,13 @@ def extract_json(text: str):
     for opener, closer in (("{", "}"), ("[", "]")):
         start, end = text.find(opener), text.rfind(closer)
         if start != -1 and end > start:
+            part = text[start : end + 1]
             try:
-                return json.loads(text[start : end + 1])
+                return json.loads(part)
+            except json.JSONDecodeError:
+                pass
+            try:  # LaTeX in the strings ($T_{\mu\nu}$): its backslashes kept as backslashes
+                return json.loads(LATEX_BACKSLASH.sub(r"\\\\", part))
             except json.JSONDecodeError:
                 continue
     raise ValueError("No JSON found in model reply.")

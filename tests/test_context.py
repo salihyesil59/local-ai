@@ -17,6 +17,11 @@ def test_extract_json_from_fenced_reply():
     assert extract_json('Plan:\n```json\n{"a": [1]}\n```') == {"a": [1]}
 
 
+def test_extract_json_with_latex_in_its_strings():
+    reply = r'```json' '\n' r'{"q": "Varyasyon $T_{\mu\nu}$ ve $\sqrt{-g}$, \"tırnak\" ç"}' '\n```'
+    assert extract_json(reply) == {"q": r'Varyasyon $T_{\mu\nu}$ ve $\sqrt{-g}$, "tırnak" ç'}
+
+
 def test_inline_tool_calls():
     calls = parse_inline_tool_calls(
         '<tool_call>{"name": "library__search_arxiv", "arguments": {"query": "x"}}</tool_call>'
