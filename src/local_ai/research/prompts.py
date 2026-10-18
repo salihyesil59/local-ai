@@ -156,7 +156,12 @@ Registered sources:
 Findings:
 {findings}"""
 
-LONG_PLAN = "\n\nThe user wants a long, detailed report: plan 5-8 sub-questions that cover the topic in depth."
+ANSWER_NOW = """\
+Your last reply was cut off while you were still thinking. Do not think it through again: give your reply now (the \
+tool call, the JSON or the text that is asked for), going on from where your thinking stood:
+{tail}"""
+
+LONG_PLAN ="\n\nThe user wants a long, detailed report: plan 5-8 sub-questions that cover the topic in depth."
 
 OUTLINE = """\
 You plan the sections of a long, detailed report of an offline research agent. The report is written one

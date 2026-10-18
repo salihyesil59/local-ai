@@ -299,6 +299,7 @@ function renderChips() {
     state.mode === "research" && !$("#sources").checked ? chip(t("No sources"), off("#sources")) : null,
     state.mode === "research" && $("#long-report").checked ? chip(t("Long report"), off("#long-report")) : null,
     state.mode === "research" && $("#document").checked ? chip(t("Document"), off("#document")) : null,
+    state.mode === "research" && $("#short-thinking").checked ? chip(t("Short thinking"), off("#short-thinking")) : null,
     !chat && !$("#critic").checked ? chip(t("No reviewer"), off("#critic")) : null,
   ].filter(Boolean));
 }
@@ -307,7 +308,7 @@ function optionsChanged() {
   renderChips();
   schedulePanel();
 }
-for (const id of ["#fast", "#quick", "#sources", "#long-report", "#document", "#critic"]) $(id).addEventListener("change", optionsChanged);
+for (const id of ["#fast", "#quick", "#sources", "#long-report", "#document", "#short-thinking", "#critic"]) $(id).addEventListener("change", optionsChanged);
 
 // -- the Tools view: the MCP servers, with their tools; add, switch off, restart, remove ----------
 async function loadTools() {
@@ -972,7 +973,7 @@ $("#ask").addEventListener("submit", async (ev) => {
   if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
   if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, critic: $("#critic").checked });
   if (state.mode === "research") Object.assign(options, { parallel: +$("#parallel").value, sources: $("#sources").checked,
-    long_report: $("#long-report").checked, document: $("#document").checked });
+    long_report: $("#long-report").checked, document: $("#document").checked, short_thinking: $("#short-thinking").checked });
   try {
     let run;
     if (state.currentRun) {
@@ -1583,6 +1584,7 @@ function environmentCard() {
   const options = [mode !== "chat" && $("#fast").checked && t("Fast"), mode !== "chat" && $("#quick").checked && t("Quick"),
     mode === "research" && $("#long-report").checked && t("Long report"),
     mode === "research" && $("#document").checked && t("Document"),
+    mode === "research" && $("#short-thinking").checked && t("Short thinking"),
     mode !== "chat" && !$("#critic").checked && t("No reviewer")].filter(Boolean);
   const folder = run ? run.project : $("#folder").value.trim(); // the last part of the path; all of it in the tooltip
   const rows = [

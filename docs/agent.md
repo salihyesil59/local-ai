@@ -25,6 +25,7 @@ local-ai --resume --project "kara-cisim-isimasinda-wien-yasasi-nasil-turetilir"
 | `--parallel` | 1 | sub-questions researched at the same time (enable parallel requests in LM Studio) |
 | `--no-critic`, `--no-gap-check`, `--no-learn`, `--fast` | all on | skip phases for speed (**Reviewer** switch in the web UI) |
 | `--long-report` | off | write the report section by section (see below; **Long report** in the web UI) |
+| `--short-thinking` | off | a reply thinks at most ~1700 tokens, then is asked to act from there (**Short thinking**) |
 | `--document` | off | a chapter per sub-question, then the report and the sources as .docx / .pdf (see below) |
 | `--quick` | off | fast answer instead of a report (see below) |
 

@@ -390,6 +390,49 @@ async def test_thinking_that_goes_in_circles_is_stopped_and_asked_again(mcp_conf
     assert any(e["kind"] == "log" and "went in circles" in e["text"] for e in events)
 
 
+async def test_short_thinking_stops_at_its_limit_and_asks_for_the_reply(mcp_config):
+    plan = '{"language": "en", "sub_questions": [{"question": "A?"}]}'
+
+    class LongThinkingClient:
+        def __init__(self):
+            self.requests = []
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        async def create(self, **kwargs):
+            self.requests.append(kwargs)
+            first = len(self.requests) == 1
+            pieces = [f"Step {i}: consider term number {i * 7} of the variation. " for i in range(300)] if first else []
+
+            def chunk(reasoning=None, content=None):
+                delta = SimpleNamespace(content=content, tool_calls=None, reasoning_content=reasoning)
+                return SimpleNamespace(choices=[SimpleNamespace(delta=delta, finish_reason=None)], usage=None)
+
+            async def stream():
+                for p in pieces:
+                    yield chunk(reasoning=p)
+                yield chunk(content=plan)
+
+            return stream()
+
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        normal = LongThinkingClient()  # about 17 000 characters of thinking: under the normal limit
+        agent = ResearchAgent(normal, bridge, AgentSettings(model="test", stream=True), on_event=lambda e: None)
+        await agent.plan("A question?")
+        assert len(normal.requests) == 1
+
+        short, events = LongThinkingClient(), []
+        settings = AgentSettings(model="test", stream=True, short_thinking=True)
+        agent = ResearchAgent(short, bridge, settings, on_event=events.append)
+        _, subs = await agent.plan("A question?")
+
+    assert [s.question for s in subs] == ["A?"] and len(short.requests) == 2
+    nudge = short.requests[1]["messages"][-1]
+    assert nudge["role"] == "user" and nudge["content"].startswith("Your last reply was cut off")
+    assert "of the variation." in nudge["content"]  # where its thinking stood
+    assert len(short.requests[0]["messages"]) == 2  # the conversation of the caller is not changed
+    assert any(e["kind"] == "log" and "reached its limit" in e["text"] for e in events)
+
+
 async def test_quick_answer(mcp_config):
     client = ScriptedClient(
         {

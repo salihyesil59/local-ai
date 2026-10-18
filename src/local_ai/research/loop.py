@@ -116,18 +116,30 @@ class ResearchAgent:
             kwargs["temperature"] = max(self.settings.temperature, UNSTICK_TEMPERATURE)
             kwargs["extra_body"] = {**kwargs["extra_body"], "repeat_penalty": UNSTICK_REPEAT_PENALTY}
             message = await self._complete_streaming(kwargs, index)
+        elif message.cut:  # it only thought until its limit: the reply is asked for at once, from where it stood
+            self._log("The thinking reached its limit; asking for the reply now.")
+            nudge = prompts.ANSWER_NOW.format(tail=message.thinking_tail.strip() or "(nothing)")
+            kwargs["messages"] = [*messages, {"role": "user", "content": nudge}]
+            message = await self._complete_streaming(kwargs, index)
         return message
 
     async def _complete_streaming(self, kwargs: dict, index: int | None):
         """Stream a completion: text and reasoning go out as batched "token" events while the message (content and
-        tool calls) is rebuilt from the deltas. Thinking that goes in circles is stopped at once (looping)."""
+        tool calls) is rebuilt from the deltas. Thinking that goes in circles is stopped at once (looping); with short
+        thinking a reply that only thinks is stopped at its limit (cut)."""
         stream = await self.client.chat.completions.create(**kwargs, stream=True)
         batch = TokenBatcher(lambda text, thinking: self.emit("token", index=index, text=text, thinking=thinking))
-        reply = await read_stream(stream, batch.add, self.settings.max_thinking_chars)
+        limit = self.settings.short_thinking_chars if self.settings.short_thinking else self.settings.max_thinking_chars
+        reply = await read_stream(stream, batch.add, limit)
         batch.flush()
         self.emit("stream_end", index=index)
+        cut = reply.finish_reason == "length" and not reply.looping and not reply.content.strip() and not reply.tool_calls
         return SimpleNamespace(
-            content=reply.content or None, tool_calls=reply.tool_calls or None, looping=reply.looping
+            content=reply.content or None,
+            tool_calls=reply.tool_calls or None,
+            looping=reply.looping,
+            cut=cut,
+            thinking_tail=reply.reasoning_tail,
         )
 
     async def _ask_json(self, system: str, user: str):

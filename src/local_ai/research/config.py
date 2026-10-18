@@ -19,6 +19,9 @@ class AgentSettings:
     # Thinking that repeats itself is stopped at once and asked again; this many characters of thinking without any
     # answer stop a reply too (above what a report needs, so in practice only loops stop it).
     max_thinking_chars: int = 60_000
+    # short thinking: a reply may think this much (about 1700 tokens), then it is asked to answer from where it stood
+    short_thinking: bool = False
+    short_thinking_chars: int = 6_000
     max_steps: int = 12  # tool-calling steps per sub-question
     quick_steps: int = 6  # tool-calling steps for a quick answer
     # A quick answer names the source of each fact; one from memory, or with numbers no tool shows, is checked once

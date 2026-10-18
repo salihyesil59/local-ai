@@ -52,6 +52,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--long-report", action="store_true", help="Write the report section by section (much longer, slower)."
     )
     p.add_argument(
+        "--short-thinking",
+        action="store_true",
+        help="Think at most about 1700 tokens per reply, then answer from there (much faster, a little less careful).",
+    )
+    p.add_argument(
         "--document",
         action="store_true",
         help="Also a chapter per sub-question, then the report and the sources: <project>/exports/document.docx/pdf.",
@@ -100,6 +105,7 @@ async def main(argv: list[str] | None = None) -> int:
     settings.stream = True  # streamed replies can be stopped as soon as their thinking goes in circles
     settings.long_report = args.long_report
     settings.document = args.document
+    settings.short_thinking = args.short_thinking
 
     client = AsyncOpenAI(base_url=settings.base_url, api_key=settings.api_key)
     if not settings.model:
