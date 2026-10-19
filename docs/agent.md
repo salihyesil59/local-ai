@@ -18,10 +18,12 @@ A research drafts first, then checks:
 
 So a question the model already knows well costs a few checks, not a whole research from nothing.
 
-In the web UI the **Preset** of the **+** menu sets the research options at once: **Standard** (reviewer on, sources
-required), **Quick answer** (one tool loop with sources), **Fast research** (fast, short thinking, no reviewer),
-**Deep research** (clarify and approve the plan, depth 1) and **Document** (Fast research with the Word/PDF
-document). Changing any option afterwards makes it **Custom**; the last choice is remembered.
+In the web UI the options button beside the model (it shows the name of the set in use) chooses how a research
+works: **Quick answer** (one tool loop with sources), **Fast research** (fast, short thinking, no reviewer),
+**Standard** (reviewer on, sources required), **Deep research** (clarify and approve the plan, depth 1) and
+**Document** (Fast research with the Word/PDF document). The single switches are folded under **Advanced**;
+changing one makes the set **Custom**, which is kept too. In a code chat the same button chooses **Normal**,
+**Fast** or **Quick**; the last choice of each mode is remembered.
 
 ```powershell
 local-ai "What limits the efficiency of perovskite solar cells?" -v --out report.md
@@ -145,15 +147,15 @@ citation tooltips and export buttons (HTML, MD, BibTeX, TeX, DOCX, PDF). Code bl
 
 The page has three parts:
 
-- the **sidebar** on the left: **New chat**, the pages (Projects: report, sources with quotes, findings,
-  computations notebook, resume; Memory, with search and forget; Skills; Tools; Offline), and below them the chats
-  with their folders and a search. Its foot shows whether LM Studio answers, the model and the number of tools,
+- the **sidebar** on the left: **New chat**, a search and the chats with their folders; at its foot a row of icons
+  for the pages (Projects: report, sources with quotes, findings, computations notebook, resume; Memory, with
+  search and forget; Skills; Tools; Offline). Its foot shows whether LM Studio answers, the model and the number of tools,
   and switches the language and the theme. **Ctrl+B** hides it; on a phone it is a drawer opened from the top bar;
 - the **chat** in the middle, with the message box at its foot. The title in the top bar opens the menu of the chat
   (rename, pin, move to a folder, delete);
-- the **panel** on the right (**Ctrl+.** or the button of the top bar shows or hides it): what the chat works with
-  (mode, model, folder or notebook, Sources, options, tools), how full the context is with the turn and the speed,
-  and the progress: the plan and verifications of a code chat, the sub-questions and sources of a research, the
+- the **panel** on the right: it opens by itself when a chat has progress to show and stays closed for a plain
+  chat; once **Ctrl+.** or the button of the top bar shows or hides it, that choice is kept. It shows how full the
+  context is with the turn and the speed, and the progress: the plan and verifications of a code chat, the sub-questions and sources of a research, the
   history of the messages and the project files.
 
 The message box has three modes: **Chat**, **Research** and **Code**. Chat is a plain conversation with the model,
@@ -195,9 +197,9 @@ LM Studio; with a smaller context length set a smaller limit, about 2 characters
 In a report, pointing at a citation `[n]` shows its source with the registered quote; a click keeps the card
 open and shows the passage of the tool output the quote was taken from.
 
-The **+** menu of the message box holds everything else a message can take: images, the notebook, the options of
-the mode (Fast, Quick, Sources) and the MCP servers it may use. What is set shows as chips above the text, each
-removed with one click.
+The **+** menu of the message box holds what a message can take: files and images, the notebook and the MCP
+servers it may use. A chosen notebook shows as a chip above the text, removed with one click. How the agent works
+is the options button beside the model; the model and its settings are the button after it.
 
 The foot of the sidebar switches the language of the page (English / Turkish; what the agents write stays in their
 own language) and the theme (system, light, dark).

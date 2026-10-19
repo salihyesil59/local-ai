@@ -19,17 +19,17 @@
         <button id="hide-sidebar" class="icon" type="button" title="Hide the sidebar (Ctrl+B)" aria-label="Hide the sidebar" data-icon="sidebar"></button>
       </div>
       <button id="new-chat" class="new-chat" type="button" title="Alt+N" data-icon="plus"><span>New chat</span><kbd>Alt N</kbd></button>
-      <div class="tabs" role="tablist">
-        <button class="tab" data-view="projects" data-icon="book" role="tab">Projects</button>
-        <button class="tab" data-view="memory" data-icon="layers" role="tab">Memory</button>
-        <button class="tab" data-view="skills" data-icon="star" role="tab">Skills</button>
-        <button class="tab" data-view="tools" data-icon="plug" role="tab">Tools</button>
-        <button class="tab" data-view="offline" data-icon="folder" role="tab">Offline</button>
-      </div>
       <div class="side-head-row">
         <input id="chat-search" type="search" placeholder="Search chats  ( / )" aria-label="Search chats">
       </div>
       <div id="chat-rows" class="side-list"></div>
+      <div class="tabs side-nav" role="tablist">
+        <button class="tab" data-view="projects" data-icon="book" role="tab" title="Projects" aria-label="Projects"></button>
+        <button class="tab" data-view="memory" data-icon="layers" role="tab" title="Memory" aria-label="Memory"></button>
+        <button class="tab" data-view="skills" data-icon="star" role="tab" title="Skills" aria-label="Skills"></button>
+        <button class="tab" data-view="tools" data-icon="plug" role="tab" title="Tools" aria-label="Tools"></button>
+        <button class="tab" data-view="offline" data-icon="folder" role="tab" title="Offline" aria-label="Offline"></button>
+      </div>
       <div class="side-foot">
         <div id="status" class="status" title=""><span class="dot running"></span><span class="status-text">connecting…</span></div>
         <button id="lang" class="icon" type="button"></button>
@@ -53,7 +53,6 @@
           <div id="timeline" class="timeline"></div>
           <form id="ask" class="ask">
             <div id="target" class="target muted new-only" hidden></div>
-            <div id="chat-info" class="chat-info muted" hidden></div>
             <div id="settings" class="settings popover" hidden>
               <div class="menu-head">Model and settings of this chat</div>
               <label class="wide">Model
@@ -65,24 +64,29 @@
               <label title="Tokens per model reply, thinking included">Max tokens
                 <input id="set-max_tokens" type="number" min="256" max="65536" step="256" placeholder="8192">
               </label>
-              <label class="code-only" title="Model replies in one run">Max turns
-                <input id="set-max_turns" type="number" min="1" max="500" placeholder="80">
-              </label>
-              <label class="code-only" title="The conversation is compacted above this many characters (about 3 per token). Keep it below the context length set in LM Studio.">Context limit (characters)
-                <input id="set-context_chars" type="number" min="20000" max="2000000" step="10000" placeholder="300000">
-              </label>
-              <label class="code-only" title="A reply that only thinks is stopped after this many characters and told to act. Raise it for hard problems; the token limit of a reply still applies.">Thinking limit (characters)
-                <input id="set-max_thinking_chars" type="number" min="1000" max="200000" step="1000" placeholder="8000">
-              </label>
-              <label class="research-only" title="Tool-calling steps per sub-question">Max steps
-                <input id="set-max_steps" type="number" min="1" max="100" placeholder="12">
-              </label>
-              <label class="research-only">Parallel
-                <select id="parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
-              </label>
-              <label class="research-only new-only wide">Project name
-                <input id="project" placeholder="Project name (optional)">
-              </label>
+              <details class="advanced wide agent-only">
+                <summary>Advanced</summary>
+                <div class="advanced-grid">
+                  <label class="code-only" title="Model replies in one run">Max turns
+                    <input id="set-max_turns" type="number" min="1" max="500" placeholder="80">
+                  </label>
+                  <label class="code-only" title="The conversation is compacted above this many characters (about 3 per token). Keep it below the context length set in LM Studio.">Context limit (characters)
+                    <input id="set-context_chars" type="number" min="20000" max="2000000" step="10000" placeholder="300000">
+                  </label>
+                  <label class="code-only" title="A reply that only thinks is stopped after this many characters and told to act. Raise it for hard problems; the token limit of a reply still applies.">Thinking limit (characters)
+                    <input id="set-max_thinking_chars" type="number" min="1000" max="200000" step="1000" placeholder="8000">
+                  </label>
+                  <label class="research-only" title="Tool-calling steps per sub-question">Max steps
+                    <input id="set-max_steps" type="number" min="1" max="100" placeholder="12">
+                  </label>
+                  <label class="research-only">Parallel
+                    <select id="parallel"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+                  </label>
+                  <label class="research-only new-only wide">Project name
+                    <input id="project" placeholder="Project name (optional)">
+                  </label>
+                </div>
+              </details>
               <div class="row wide">
                 <button id="set-reset" class="ghost small" type="button">Defaults</button>
                 <span class="muted note">Empty = default. Saved with this chat.</span>
@@ -93,36 +97,35 @@
               <label class="menu-item not-code" data-icon="book"><span>Notebook</span>
                 <select id="notebook" title="A notebook: this message searches only its files" aria-label="Notebook"></select>
               </label>
-              <div class="menu-head agent-only">Options</div>
-              <label class="menu-item research-only" data-icon="star"><span>Preset</span>
-                <select id="preset" title="A ready set of the options below; changing one of them makes it Custom" aria-label="Preset">
-                  <option value="standard">Standard</option><option value="quick">Quick answer</option>
-                  <option value="fast">Fast research</option><option value="deep">Deep research</option>
-                  <option value="document">Document</option><option value="custom">Custom</option>
-                </select>
-              </label>
-              <label id="fast-opt" class="switch-row agent-only"><span class="switch-text"><span>Fast</span><small class="muted"></small></span>
-                <span class="switch"><input type="checkbox" id="fast" role="switch"><span class="knob"></span></span></label>
-              <label id="quick-opt" class="switch-row agent-only"><span class="switch-text"><span>Quick</span><small class="muted"></small></span>
-                <span class="switch"><input type="checkbox" id="quick" role="switch"><span class="knob"></span></span></label>
-              <label id="sources-opt" class="switch-row research-only"><span class="switch-text"><span>Sources</span><small class="muted">A quick answer names its sources and is checked with the tools; off: it may use your library but need not cite it</small></span>
-                <span class="switch"><input type="checkbox" id="sources" role="switch" checked><span class="knob"></span></span></label>
-              <label id="long-report-opt" class="switch-row research-only"><span class="switch-text"><span>Long report</span><small class="muted">An outline, then each section written and checked on its own: a much longer report, but slower</small></span>
-                <span class="switch"><input type="checkbox" id="long-report" role="switch"><span class="knob"></span></span></label>
-              <label class="menu-item research-only" data-icon="layers"><span>Depth</span>
-                <select id="depth" title="Deepening: after each step the findings are reflected on and what they opened is followed" aria-label="Depth">
-                  <option value="0">Off</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
-                </select>
-              </label>
-              <label id="review-opt" class="switch-row research-only"><span class="switch-text"><span>Clarify and approve the plan</span><small class="muted">Asks a few questions first if needed, then shows the plan: change it and start the research</small></span>
-                <span class="switch"><input type="checkbox" id="review" role="switch"><span class="knob"></span></span></label>
-              <label id="short-thinking-opt"class="switch-row research-only"><span class="switch-text"><span>Short thinking</span><small class="muted">Each step thinks briefly and then acts: much faster, a little less careful</small></span>
-                <span class="switch"><input type="checkbox" id="short-thinking" role="switch"><span class="knob"></span></span></label>
-              <label id="document-opt"class="switch-row research-only"><span class="switch-text"><span>Document (DOCX/PDF)</span><small class="muted">A chapter for the findings of each step, then the synthesis and the sources: a Word and PDF document</small></span>
-                <span class="switch"><input type="checkbox" id="document" role="switch"><span class="knob"></span></span></label>
-              <label id="critic-opt"class="switch-row agent-only"><span class="switch-text"><span>Reviewer</span><small class="muted"></small></span>
-                <span class="switch"><input type="checkbox" id="critic" role="switch" checked><span class="knob"></span></span></label>
               <div id="tools-menu" class="tools-list"></div>
+            </div>
+            <div id="options-menu" class="popover options-menu" hidden>
+              <div class="menu-head">How it works</div>
+              <div id="preset-list" class="preset-list" role="radiogroup" aria-label="How it works"></div>
+              <details id="advanced-options" class="advanced">
+                <summary>Advanced</summary>
+                <label id="fast-opt" class="switch-row research-only"><span class="switch-text"><span>Fast</span><small class="muted">Skip review, gap check and learning</small></span>
+                  <span class="switch"><input type="checkbox" id="fast" role="switch"><span class="knob"></span></span></label>
+                <label id="quick-opt" class="switch-row research-only"><span class="switch-text"><span>Quick</span><small class="muted">Quick answer: one tool loop, no plan or report</small></span>
+                  <span class="switch"><input type="checkbox" id="quick" role="switch"><span class="knob"></span></span></label>
+                <label id="sources-opt" class="switch-row research-only"><span class="switch-text"><span>Sources</span><small class="muted">A quick answer names its sources and is checked with the tools; off: it may use your library but need not cite it</small></span>
+                  <span class="switch"><input type="checkbox" id="sources" role="switch" checked><span class="knob"></span></span></label>
+                <label id="short-thinking-opt" class="switch-row research-only"><span class="switch-text"><span>Short thinking</span><small class="muted">Each step thinks briefly and then acts: much faster, a little less careful</small></span>
+                  <span class="switch"><input type="checkbox" id="short-thinking" role="switch"><span class="knob"></span></span></label>
+                <label class="switch-row research-only"><span class="switch-text"><span>Depth</span><small class="muted">Deepening: after each step the findings are reflected on and what they opened is followed</small></span>
+                  <select id="depth" aria-label="Depth">
+                    <option value="0">Off</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  </select>
+                </label>
+                <label id="review-opt" class="switch-row research-only"><span class="switch-text"><span>Clarify and approve the plan</span><small class="muted">Asks a few questions first if needed, then shows the plan: change it and start the research</small></span>
+                  <span class="switch"><input type="checkbox" id="review" role="switch"><span class="knob"></span></span></label>
+                <label id="long-report-opt" class="switch-row research-only"><span class="switch-text"><span>Long report</span><small class="muted">An outline, then each section written and checked on its own: a much longer report, but slower</small></span>
+                  <span class="switch"><input type="checkbox" id="long-report" role="switch"><span class="knob"></span></span></label>
+                <label id="document-opt" class="switch-row research-only"><span class="switch-text"><span>Document (DOCX/PDF)</span><small class="muted">A chapter for the findings of each step, then the synthesis and the sources: a Word and PDF document</small></span>
+                  <span class="switch"><input type="checkbox" id="document" role="switch"><span class="knob"></span></span></label>
+                <label id="critic-opt" class="switch-row"><span class="switch-text"><span>Reviewer</span><small class="muted"></small></span>
+                  <span class="switch"><input type="checkbox" id="critic" role="switch" checked><span class="knob"></span></span></label>
+              </details>
             </div>
             <div class="ask-row code-only new-only folder-row" hidden>
               <input id="folder" placeholder="Project folder, absolute path (e.g. C:\Users\you\Github\test\app)">
@@ -141,6 +144,7 @@
               </div>
               <span class="spacer"></span>
               <span id="meter" class="meter" hidden></span>
+              <button id="options-toggle" class="pill agent-only" type="button" title="How the agent works: a ready set, or your own in Advanced" aria-expanded="false"></button>
               <button id="compact" class="pill" type="button" title="Shorten the conversation before the next reply: the model writes notes, the plan stays" hidden>Compact</button>
               <button id="settings-toggle" class="pill model-pill" type="button" title="Model and settings of this chat (Ctrl+,)" aria-expanded="false"></button>
               <button id="cancel" class="round stop" type="button" title="Stop" hidden></button>

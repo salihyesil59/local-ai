@@ -166,7 +166,7 @@ const sidebarHidden = () => (phone.matches ? !document.documentElement.classList
 function setPanelOpen(open, save = true) {
   document.documentElement.classList.toggle("no-panel", !open);
   $("#panel-toggle").setAttribute("aria-pressed", String(open));
-  if (save) remember("panel-hidden", open ? "0" : "1");
+  if (save) remember("panel-choice", open ? "open" : "closed");
   if (open) schedulePanel();
 }
 const togglePanel = () => setPanelOpen(document.documentElement.classList.contains("no-panel"));
@@ -268,8 +268,8 @@ async function loadToolCounts() {
   renderMcpSelectors();
 }
 
-// -- the menus above the message box: + (images, notebook, options, tools) and the model with its settings -----
-const POPOVERS = [["#plus-menu", "#plus"], ["#settings", "#settings-toggle"]];
+// -- the menus above the message box: + (files, notebook, tools), how the agent works, and the model ---------
+const POPOVERS = [["#plus-menu", "#plus"], ["#options-menu", "#options-toggle"], ["#settings", "#settings-toggle"]];
 
 function togglePopover(menu, open) {
   for (const [m, button] of POPOVERS) {
@@ -282,58 +282,64 @@ function togglePopover(menu, open) {
 const closePopovers = () => togglePopover(null, false);
 
 $("#plus").addEventListener("click", () => { if (togglePopover("#plus-menu")) loadToolCounts(); });
+$("#options-toggle").addEventListener("click", () => togglePopover("#options-menu"));
 document.addEventListener("click", (ev) => {
   for (const [m, button] of POPOVERS) if (!$(m).hidden && !ev.target.closest(`${m}, ${button}`)) togglePopover(m, false);
 });
 
-// What the + menu has set, as small chips beside it: seen at a glance, removed with one click.
+// What belongs to this message only, as small chips: the notebook; removed with one click. How the agent works
+// is the name on the options button.
 function renderChips() {
-  const code = state.mode === "code", chat = state.mode === "chat";
   const chip = (label, clear) => el("span", { class: "chip", title: label }, el("span", {}, label),
     el("button", { type: "button", title: t("Remove"), "aria-label": `${t("Remove")}: ${label}`, onclick: clear }, icon("x")));
-  const off = (id) => () => { $(id).checked = !$(id).checked; optionsChanged(); };
   $("#chips").replaceChildren(...[
-    !code && $("#notebook").value ? chip(`${t("Notebook")}: ${$("#notebook").value}`, () => setNotebook("")) : null,
-    !chat && $("#fast").checked ? chip(t("Fast"), off("#fast")) : null,
-    !chat && $("#quick").checked ? chip(t("Quick"), off("#quick")) : null,
-    state.mode === "research" && !$("#sources").checked ? chip(t("No sources"), off("#sources")) : null,
-    state.mode === "research" && $("#long-report").checked ? chip(t("Long report"), off("#long-report")) : null,
-    state.mode === "research" && $("#document").checked ? chip(t("Document"), off("#document")) : null,
-    state.mode === "research" && $("#short-thinking").checked ? chip(t("Short thinking"), off("#short-thinking")) : null,
-    state.mode === "research" && +$("#depth").value ? chip(`${t("Depth")} ${$("#depth").value}`, () => { $("#depth").value = "0"; optionsChanged(); }) : null,
-    state.mode === "research" && $("#review").checked ? chip(t("Plan review"), off("#review")) : null,
-    !chat && !$("#critic").checked ? chip(t("No reviewer"), off("#critic")) : null,
+    state.mode !== "code" && $("#notebook").value ? chip(`${t("Notebook")}: ${$("#notebook").value}`, () => setNotebook("")) : null,
   ].filter(Boolean));
 }
 
 function optionsChanged() {
   syncPreset();
   renderChips();
+  renderOptions();
   schedulePanel();
 }
 
-// Presets of the research options: one sets the switches; changing a switch afterwards makes it "custom" (and
-// switching back to a preset's values shows that preset again).
+// Ready sets of the options, per mode: one sets the switches; changing a switch in Advanced makes it "custom"
+// (and switching back to a set's values shows that set again). A custom set of a research is kept too.
 const PRESET_CONTROLS = { quick: "#quick", fast: "#fast", sources: "#sources", long_report: "#long-report",
   document: "#document", short_thinking: "#short-thinking", critic: "#critic", review: "#review", depth: "#depth" };
 const PRESET_BASE = { quick: false, fast: false, sources: true, long_report: false, document: false,
   short_thinking: false, critic: true, review: false, depth: 0 };
 const PRESETS = {
-  standard: PRESET_BASE,
-  quick: { ...PRESET_BASE, quick: true }, // one tool loop with sources: a minute or two
-  fast: { ...PRESET_BASE, fast: true, short_thinking: true, critic: false }, // draft, a few checks, short thinking
-  deep: { ...PRESET_BASE, depth: 1, review: true }, // clarify and approve the plan, follow what the checks open
-  document: { ...PRESET_BASE, fast: true, short_thinking: true, critic: false, document: true }, // also Word and PDF
+  research: {
+    quick: { label: "Quick answer", time: "~1–3 min", note: "One tool loop with sources, no plan or report",
+      values: { ...PRESET_BASE, quick: true } },
+    fast: { label: "Fast research", time: "~5–15 min", note: "A draft, a few checks of it with sources, short thinking",
+      values: { ...PRESET_BASE, fast: true, short_thinking: true, critic: false } },
+    standard: { label: "Standard", time: "~15–40 min", note: "Draft, checks, a gap check and a reviewer for the report",
+      values: PRESET_BASE },
+    deep: { label: "Deep research", time: "~1 h+", note: "Asks first, shows the plan to approve, follows what the checks open",
+      values: { ...PRESET_BASE, depth: 1, review: true } },
+    document: { label: "Document", time: "~10–20 min", note: "Fast research written up as a Word and PDF document",
+      values: { ...PRESET_BASE, fast: true, short_thinking: true, critic: false, document: true } },
+  },
+  code: {
+    normal: { label: "Normal", note: "Plan, verify, a project map and a review at the end", values: { fast: false, quick: false } },
+    fast: { label: "Fast", note: "Plan and verify, but no review at the end and no project map; shorter thinking",
+      values: { fast: true, quick: false } },
+    quick: { label: "Quick", note: "A small mechanical change (a rename): no plan, the tests run once at the end",
+      values: { fast: false, quick: true } },
+  },
 };
+const DEFAULT_PRESET = { research: "standard", code: "normal" };
+state.preset = {};
 
 function controlValue(key) {
   const node = $(PRESET_CONTROLS[key]);
   return key === "depth" ? +node.value : node.checked;
 }
 
-function applyPreset(name) {
-  const values = PRESETS[name];
-  if (!values) return;
+function setControls(values) {
   for (const [key, value] of Object.entries(values)) {
     const node = $(PRESET_CONTROLS[key]);
     if (key === "depth") node.value = String(value);
@@ -341,19 +347,41 @@ function applyPreset(name) {
   }
 }
 
-function syncPreset() {
-  if (state.mode !== "research") return;
-  const match = Object.entries(PRESETS).find(([, values]) => Object.entries(values).every(([k, v]) => controlValue(k) === v));
-  $("#preset").value = match ? match[0] : "custom";
-  remember("research_preset", $("#preset").value);
+function applyPreset(mode, name) {
+  if (PRESETS[mode]?.[name]) setControls(PRESETS[mode][name].values);
+  else if (mode === "research" && name === "custom") {
+    try { setControls(JSON.parse(recall("research_custom") || "{}")); } catch {}
+  }
 }
 
-$("#preset").addEventListener("change", () => {
-  applyPreset($("#preset").value); // "custom" keeps the switches as they are
-  optionsChanged();
-});
-applyPreset(recall("research_preset")); // the preset chosen last time (a custom set starts from the switches' defaults)
-for (const id of ["#fast", "#quick", "#sources", "#long-report", "#document", "#short-thinking", "#critic", "#depth", "#review"]) $(id).addEventListener("change", optionsChanged);
+function syncPreset() {
+  const mode = state.mode;
+  if (!PRESETS[mode]) return;
+  const match = Object.entries(PRESETS[mode]).find(([, p]) => Object.entries(p.values).every(([k, v]) => controlValue(k) === v));
+  state.preset[mode] = match ? match[0] : "custom";
+  remember(`${mode}_preset`, state.preset[mode]);
+  if (mode === "research" && !match) remember("research_custom", JSON.stringify(Object.fromEntries(Object.keys(PRESET_BASE).map((k) => [k, controlValue(k)]))));
+}
+
+// The options button names the set in use; its menu lists the sets, the switches folded under Advanced.
+function renderOptions() {
+  const sets = PRESETS[state.mode];
+  $("#options-toggle").hidden = !sets;
+  if (!sets) return;
+  const chosen = state.preset[state.mode] || DEFAULT_PRESET[state.mode];
+  $("#options-toggle").replaceChildren(t(sets[chosen]?.label || "Custom"), icon("down"));
+  const option = (name, p) => el("button", { class: "preset-option" + (name === chosen ? " active" : ""), type: "button", role: "radio",
+    "aria-checked": String(name === chosen), onclick: () => { applyPreset(state.mode, name); optionsChanged(); } },
+    el("span", { class: "preset-dot" }),
+    el("span", { class: "preset-text" }, el("span", {}, t(p.label), p.time ? el("small", { class: "muted" }, ` · ${t(p.time)}`) : null),
+      el("small", { class: "muted" }, t(p.note))));
+  const custom = el("div", { class: "preset-option active custom" }, el("span", { class: "preset-dot" }),
+    el("span", { class: "preset-text" }, el("span", {}, t("Custom")), el("small", { class: "muted" }, t("Your own set of the switches under Advanced"))));
+  $("#preset-list").replaceChildren(...Object.entries(sets).map(([name, p]) => option(name, p)), ...(chosen === "custom" ? [custom] : []));
+}
+
+applyPreset("research", recall("research_preset")); // the set chosen last time
+for (const id of Object.values(PRESET_CONTROLS)) $(id).addEventListener("change", optionsChanged);
 
 // -- the Tools view: the MCP servers, with their tools; add, switch off, restart, remove ----------
 async function loadTools() {
@@ -844,6 +872,7 @@ const knownMode = (mode) => (MODES.includes(mode) ? mode : "research");
 
 function setMode(mode) {
   state.mode = knownMode(mode);
+  if (PRESETS[state.mode]) applyPreset(state.mode, recall(`${state.mode}_preset`) || DEFAULT_PRESET[state.mode]); // the switches are shared
   document.querySelectorAll(".mode[data-mode]").forEach((b) => b.classList.toggle("active", b.dataset.mode === state.mode));
   renderMcpSelectors();
   updateComposer();
@@ -859,19 +888,12 @@ function updateComposer() {
     n.hidden = (n.classList.contains("code-only") && !code) || (n.classList.contains("research-only") && state.mode !== "research")
       || (n.classList.contains("agent-only") && chat) || (n.classList.contains("not-code") && code) || (n.classList.contains("new-only") && !!run);
   }
-  const info = $("#chat-info");
-  info.hidden = !run;
-  if (run) info.textContent = code ? `${t("Code")} · ${run.project}` : chat ? t("Chat") : t("Research · follow-up in this chat");
   const steer = state.running && !!run; // a running chat takes a message: code reads it, chat and research queue it
   const action = steer && code ? t("Steer") : run || chat ? t("Send") : code ? t("Code") : t("Research");
   $("#run").replaceChildren(icon("up"));
   $("#run").title = `${action} (Ctrl+Enter)`;
   $("#run").setAttribute("aria-label", action);
   renderTitle();
-  $("#fast-opt small").textContent = code ? t("Plan and verify, but no review at the end and no project map; shorter thinking")
-    : t("Skip review, gap check and learning");
-  $("#quick-opt small").textContent = code ? t("A small mechanical change (a rename): no plan, the tests run once at the end")
-    : t("Quick answer: one tool loop, no plan or report");
   $("#critic-opt small").textContent = code ? t("A judge checks a finished task against the request and may send it back (normal speed only)")
     : t("A reviewer reads the report against the findings and sends real problems back to be fixed");
   $("#run").disabled = state.running && !steer;
@@ -1630,57 +1652,31 @@ function roundSummary(r, number) {
 // The panel is drawn at most once per frame, for the chat that is shown.
 function drawPanel() { renderPanel(state.ctx); }
 function schedulePanel() {
-  if (!document.documentElement.classList.contains("no-panel")) later(drawPanel);
-}
-
-// What the chat works with: mode, model, folder or notebook, the options and the tools; a click changes them.
-function environmentCard() {
-  const run = state.runs[state.currentRun];
-  const mode = state.mode, settings = getSettings();
-  const offered = offeredServers(), chosen = chosenServers();
-  const options = [mode !== "chat" && $("#fast").checked && t("Fast"), mode !== "chat" && $("#quick").checked && t("Quick"),
-    mode === "research" && $("#long-report").checked && t("Long report"),
-    mode === "research" && $("#document").checked && t("Document"),
-    mode === "research" && $("#short-thinking").checked && t("Short thinking"),
-    mode === "research" && +$("#depth").value && `${t("Depth")} ${$("#depth").value}`,
-    mode === "research" && $("#review").checked && t("Plan review"),
-    mode !== "chat" && !$("#critic").checked && t("No reviewer")].filter(Boolean);
-  const folder = run ? run.project : $("#folder").value.trim(); // the last part of the path; all of it in the tooltip
-  const rows = [
-    [t("Mode"), t(mode === "chat" ? "Chat" : mode === "code" ? "Code" : "Research")],
-    [t("Model"), settings.model || state.defaultModel || t("model: auto")],
-    mode === "code" ? [t("Folder"), folder ? folder.split(/[\\/]/).filter(Boolean).pop() : "—", folder] : [t("Notebook"), $("#notebook").value || t("No notebook")],
-    mode === "research" ? [t("Sources"), $("#sources").checked ? t("required") : t("not required")] : null,
-    mode !== "chat" ? [t("Options"), options.join(", ") || "—"] : null,
-    [t("Tools"), offered.length ? `${chosen.length}/${offered.length} ${t("servers")}` : t("no servers")],
-  ].filter(Boolean);
-  const open = (id) => (ev) => { ev.stopPropagation(); togglePopover(id, true); if (id === "#settings") loadModels(); else loadToolCounts(); };
-  return el("section", { class: "pcard" },
-    el("h4", {}, t("Environment"), el("span", {},
-      el("button", { class: "ghost small", type: "button", title: t("Model and settings of this chat"), onclick: open("#settings") }, t("Settings")), " ",
-      el("button", { class: "ghost small", type: "button", title: t("Images, notebook, options and tools"), onclick: open("#plus-menu") }, t("Options")))),
-    el("dl", { class: "facts" }, rows.flatMap(([k, v, full]) => [el("dt", {}, k), el("dd", { title: full || v }, v)])));
+  if (!document.documentElement.classList.contains("no-panel") || !recall("panel-choice")) later(drawPanel);
 }
 
 // How far the current reply is: its turn, the speed of the model and how full the context is.
 function contextCard() {
   const e = state.meter;
   if (!e) return null;
-  const speed = e.tokens && e.seconds > 0.05 ? `${Math.round(e.tokens / e.seconds)} tok/s` : "—";
+  const speed = e.tokens && e.seconds > 0.05 ? `${Math.round(e.tokens / e.seconds)} tok/s` : null;
   const full = e.context_limit ? contextFull(e) : null;
-  return el("section", { class: "pcard", title: e.context_limit ? contextTitle(e) : "" },
-    el("h4", {}, t("Context"), full != null ? el("span", {}, `${full}%`) : null),
-    full != null ? el("div", { class: "context-line" }, contextGauge(full)) : null,
-    el("dl", { class: "facts" },
-      el("dt", {}, t("Turn")), el("dd", {}, `${e.turn}${e.max_turns ? ` / ${e.max_turns}` : ""}`),
-      el("dt", {}, t("Speed")), el("dd", {}, speed),
-      e.context_limit ? [el("dt", {}, t("Used")), el("dd", {}, `${Math.round(e.context / 1000)}k / ${Math.round(e.context_limit / 1000)}k ${t("chars")}`)] : null));
+  const turn = `${t("Turn")} ${e.turn}${e.max_turns ? `/${e.max_turns}` : ""}`;
+  return el("section", { class: "pcard context-card", title: e.context_limit ? contextTitle(e) : "" },
+    el("div", { class: "context-line" }, el("span", { class: "muted" }, t("Context")), full != null ? contextGauge(full) : el("span", { class: "spacer" }),
+      full != null ? el("span", {}, `${full}%`) : null),
+    el("div", { class: "context-facts muted" }, [turn, speed].filter(Boolean).join(" · ")));
 }
 
+// The panel shows how far the open chat is: the context, the plan or the steps, the sources, the files. Until it
+// is opened or closed by hand it opens by itself when there is progress to show, and closes when there is none.
 function renderPanel(ctx) {
-  const parts = [environmentCard(), contextCard()].filter(Boolean);
-  if (ctx) parts.push(...progressParts(ctx));
-  $("#side-panel").replaceChildren(...parts);
+  const progress = ctx ? progressParts(ctx) : [];
+  $("#side-panel").replaceChildren(...[contextCard(), ...progress].filter(Boolean));
+  if (!recall("panel-choice") && !phone.matches) {
+    const open = progress.length > 0 && window.innerWidth > 1100;
+    if (open === document.documentElement.classList.contains("no-panel")) setPanelOpen(open, false);
+  }
 }
 
 // What the messages of the chat led to: the newest open, the earlier ones folded; the files of a code project.
@@ -2181,7 +2177,7 @@ state.targetFolder = recall("target") || null;
 translatePage(document.body);
 applyTheme(currentTheme());
 // the panel starts open where there is room for it, unless the user closed it
-setPanelOpen(recall("panel-hidden") ? recall("panel-hidden") !== "1" : window.innerWidth > 1100, false);
+setPanelOpen(recall("panel-choice") === "open", false); // without a choice it opens when there is progress to show
 loadStatus();
 setInterval(() => { if (!document.hidden) loadStatus(); }, 15000); // a page in the background does not ask
 document.addEventListener("visibilitychange", () => { if (!document.hidden) loadStatus(); });

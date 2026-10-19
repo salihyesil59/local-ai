@@ -91,18 +91,18 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); cur
 .new-chat .ic { color: var(--accent); width: 1.15em; height: 1.15em; }
 .new-chat > span:not(.ic) { flex: 1; }
 .new-chat:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-.tabs { display: grid; gap: 1px; }
-.tab { display: flex; align-items: center; gap: 10px; text-align: left; border: 0; background: transparent; padding: 6px 10px; font-size: 14px;
-  color: var(--fg); border-radius: 8px; cursor: pointer; }
-.tab .ic { color: var(--muted); width: 1.15em; height: 1.15em; }
-.tab:hover { background: var(--surface-2); }
-.tab.active { background: var(--surface-2); font-weight: 600; }
-.tab.active .ic { color: var(--accent); }
-.side-head-row { margin: 10px 0 4px; }
+/* the pages (projects, memory, skills, tools, offline): a row of icons at the foot, the chats keep the height */
+.side-nav { display: flex; gap: 2px; border-top: 1px solid var(--border); margin: 0 -10px; padding: 6px 10px 2px; }
+.tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; padding: 6px 0;
+  color: var(--muted); border-radius: 8px; cursor: pointer; }
+.tab .ic { width: 17px; height: 17px; }
+.tab:hover { background: var(--surface-2); color: var(--fg); }
+.tab.active { background: var(--surface-2); color: var(--accent); }
+.side-head-row { margin: 4px 0; }
 #chat-search { width: 100%; font-size: 13px; padding: 6px 10px; background: var(--surface); }
 .side-list { flex: 1; min-height: 0; overflow: hidden auto; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 1px;
   margin: 0 -6px; padding: 0 6px 8px; }
-.side-foot { display: flex; align-items: center; gap: 2px; border-top: 1px solid var(--border); margin: 0 -10px; padding: 8px 10px; }
+.side-foot { display: flex; align-items: center; gap: 2px; margin: 0 -10px; padding: 2px 10px 8px; }
 .status { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0; font-size: 12.5px; color: var(--muted); cursor: default; }
 .status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status.err { color: var(--err); }
@@ -271,8 +271,7 @@ details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
   font-size: 15.5px; min-height: 30px; max-height: 30vh; padding: 2px 2px 6px; }
 .ask-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .folder-row { margin-bottom: 8px; }
-.target, .chat-info { font-size: 12.5px; margin-bottom: 6px; }
-.chat-info { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.target { font-size: 12.5px; margin-bottom: 6px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .chips:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 2px 4px 2px 10px; border-radius: 99px;
@@ -332,6 +331,27 @@ details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
 .tools-list { display: grid; gap: 2px; }
 .tools-list > .ghost { justify-self: start; margin: 4px 8px; }
 .tools-list p { margin: 4px 8px; font-size: 13px; }
+/* how the agent works: the ready sets as a list to choose one from, the switches folded under Advanced */
+.options-menu { right: 0; width: min(380px, 100%); display: grid; gap: 2px; }
+.preset-list { display: grid; gap: 2px; }
+.preset-option { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; background: transparent; padding: 7px 8px;
+  border-radius: 8px; cursor: pointer; text-align: left; color: inherit; }
+.preset-option:hover { background: var(--surface-2); }
+.preset-option.custom { cursor: default; }
+.preset-dot { flex: none; width: 14px; height: 14px; margin-top: 4px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.preset-option.active .preset-dot { border: 4px solid var(--accent); }
+.preset-text { display: grid; min-width: 0; font-size: 14px; }
+.preset-text small { font-size: 12px; line-height: 1.4; }
+details.advanced { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+details.advanced > summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 8px; list-style: none; }
+details.advanced > summary::-webkit-details-marker { display: none; }
+details.advanced > summary::before { content: "▸ "; }
+details.advanced[open] > summary::before { content: "▾ "; }
+.switch-row select { flex: none; font-size: 13px; padding: 3px 8px; }
+.settings details.advanced { margin-top: 0; }
+.settings details.advanced > summary { padding-left: 0; }
+.advanced-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding-top: 6px; }
+.advanced-grid .wide { grid-column: 1 / -1; }
 .settings { right: 0; width: min(460px, 100%); display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; padding: 4px 12px 12px; }
 .settings .menu-head { grid-column: 1 / -1; padding-left: 0; }
 .settings label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
@@ -355,6 +375,8 @@ details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
 .side-panel ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
 .context-line { display: flex; align-items: center; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .context-line .gauge { flex: 1; width: auto; }
+.context-card { gap: 2px; padding: 8px 12px; }
+.context-facts { font-size: 12px; font-variant-numeric: tabular-nums; }
 .progress { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin-bottom: 8px; }
 .progress > div { height: 100%; background: var(--ok); border-radius: 99px; transition: width .3s ease; }
 .steps { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; }
