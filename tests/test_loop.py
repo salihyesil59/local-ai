@@ -544,6 +544,31 @@ async def test_a_source_is_registered_only_after_reading_it(mcp_config):
     assert [s["origin"] for s in listed] == ["python", "pdf"]
 
 
+async def test_what_was_read_before_the_request_to_register_counts_as_read(mcp_config):
+    client = ScriptedClient(
+        {
+            "draft": [reply("A draft from memory.")],
+            "plan": [reply('{"language": "en", "sub_questions": [{"question": "c?"}]}')],
+            "research": [
+                reply(calls=[("library__read_library", {"source": "speed_of_light.md"})]),
+                reply("- c = 299792458 m/s"),  # read, but registered and cited nothing: asked to register
+                reply(calls=[("notebook__add_source", {"project": "again", "source_id": "speed_of_light.md",
+                                                       "title": "c", "origin": "pdf", "quote": "c = 299792458"})]),
+                reply("- c = 299792458 m/s [1]"),
+            ],
+            "write": [reply("c = 299792458 m/s [1].")],
+        }
+    )  # fmt: skip
+    events = []
+    settings = AgentSettings(model="test", gap_check=False, critic=False, learn=False)
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, settings, on_event=events.append)
+        await agent.run("What is c?", project="again")
+
+    (result,) = [e for e in events if e["kind"] == "tool_result" and e["name"] == "notebook__add_source"]
+    assert result["error"] is False  # the page read before the request still counts
+
+
 def test_internet_search_and_page_reading_are_research_roles():
     from local_ai.research.tools import ToolRoles
 

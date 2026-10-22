@@ -94,6 +94,7 @@ class ResearchAgent:
         self.language = ""  # of the question, from the plan
         self.draft = ""  # the answer from the model's own knowledge, which the research checks and revises
         self.registered = 0  # sources registered in this run
+        self.reads = 0  # successful calls of a reading tool in this run (read_before_cite)
         self.nb = settings.notebook_server
         if not bridge.has(f"{self.nb}__write_note"):
             raise RuntimeError(f"The '{self.nb}' MCP server is required (see config/lmstudio/mcp.json.example).")
@@ -197,6 +198,7 @@ class ResearchAgent:
         max_steps: int | None = None,
         max_tokens: int | None = None,
         max_tool_chars: int | None = None,
+        has_read: bool = False,
     ) -> tuple[str, list[str]]:
         """Let the model call tools until it answers in plain text (or hits the step limit).
 
@@ -209,7 +211,8 @@ class ResearchAgent:
             ]
         outputs: list[str] = []
         readers = {self.roles.get(r) for r in READ_ROLES} - {None}
-        has_read = False  # a source is registered only after a tool read a part of one (not from a search hit)
+        # a source is registered only after a tool read a part of one (not from a search hit); has_read=True when
+        # the loop goes on a step that already read, e.g. the request to register what it found
         for _ in range(max_steps or self.settings.max_steps):
             message = await self._complete(messages, tools, index=index, max_tokens=max_tokens)
             content = strip_think(message.content)
@@ -233,6 +236,7 @@ class ResearchAgent:
                     outputs.append(output)
                     self.evidence.append(output)
                     has_read = has_read or name in readers
+                    self.reads += name in readers
                     self.registered += name == f"{self.nb}__add_source"
                 if name == self.roles.get("python"):
                     self._record_python(args, output, is_error)
@@ -454,13 +458,15 @@ class ResearchAgent:
             },
         ]
         # Fresh message list per sub-question: earlier work enters only as its summary.
-        before = self.registered
+        before, reads = self.registered, self.reads
         findings, outputs = await self._tool_loop(messages, prompts.FINALIZE_FINDINGS, index=i, **limits)
         cited = cited_numbers(findings or "")  # a source registered earlier may be cited again
         if outputs and self.registered == before and not cited and self._has_nb("add_source"):  # read, cited nothing
             self._log("No source was registered for these findings; asking for them.", "warning")
             messages += [{"role": "assistant", "content": findings or ""}, {"role": "user", "content": prompts.REGISTER}]
-            again, more = await self._tool_loop(messages, prompts.FINALIZE_FINDINGS, index=i, max_steps=6)
+            again, more = await self._tool_loop(
+                messages, prompts.FINALIZE_FINDINGS, index=i, max_steps=6, has_read=self.reads > reads
+            )
             findings, outputs = again or findings, outputs + more
         sub.findings = findings
         await self._notebook(

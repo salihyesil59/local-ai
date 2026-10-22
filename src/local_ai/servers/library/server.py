@@ -504,6 +504,15 @@ class Library:
             raise ValueError(f"Unknown chunk id {chunk_id}")
         return dict(row)
 
+    def read_chunk_pages(self, chunk_id: int, page: int, pages: int) -> str:
+        """The pages of a chunk's PDF counted from the chunk's own page (page 1 = that page); for anything else
+        (a text file, a ZIM article) the passage with the passages around it."""
+        hit = self._chunk(chunk_id)
+        number = re.fullmatch(r"page (\d+)", hit["locator"] or "")
+        if hit["kind"] != "pdf" or not number:
+            return format_hit(self.read_chunk(chunk_id, neighbors=1), max_chars=None)
+        return self.read_file(hit["path"], int(number.group(1)) + max(page, 1) - 1, pages)
+
     def read_chunk(self, chunk_id: int, neighbors: int = 1) -> dict:
         hit = self._chunk(chunk_id)
         rows = self.conn.execute(
@@ -602,11 +611,15 @@ def build_server(library: Library | None = None) -> FastMCP:
 
         source: a chunk id from a search hit (e.g. 123) to read that passage with the passages around it, or a
         file as shown after "source:" (e.g. "tong/cosmology.pdf") to read its pages page .. page + pages - 1.
+        A chunk id of a PDF with page or pages reads that PDF from the chunk's page on (page 1 = the chunk's page,
+        page 3 = two pages further), so a passage can be read on.
         """
         ref = str(source).strip().removeprefix("chunk").strip()
         try:
             if ref.isdigit():
-                return format_hit(lib.read_chunk(int(ref), neighbors=1), max_chars=None)
+                if (page, pages) == (1, 2):
+                    return format_hit(lib.read_chunk(int(ref), neighbors=1), max_chars=None)
+                return lib.read_chunk_pages(int(ref), page, pages)
             return lib.read_file(str(source), page, pages)
         except (FileNotFoundError, ValueError):
             return f"Not found: {source}. Pass a chunk id or a source path exactly as search shows it."

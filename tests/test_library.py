@@ -117,6 +117,19 @@ def test_read_chunk_with_neighbors(lib):
     assert "Schrodinger" in full["text"] and "13.6" in full["text"]
 
 
+def test_a_chunk_id_with_a_page_reads_its_pdf_on_from_the_chunks_page(tmp_path):
+    papers = tmp_path / "papers"
+    papers.mkdir()
+    make_pdf(papers / "book.pdf", ["Contents.", "Pauli matrices are Hermitian.", "Their eigenvalues are plus and minus one."])
+    library = Library(tmp_path / "pages.sqlite", zim_paths=[], embedder=HashEmbedder())
+    library.index_folder(papers)
+    hit = library.search("Pauli matrices Hermitian", sources="pdf")[0]
+    assert hit["locator"] == "page 2"
+    on = library.read_chunk_pages(hit["id"], page=2, pages=1)  # one page further than the chunk's
+    assert "eigenvalues" in on and "Hermitian" not in on
+    assert "Hermitian" in library.read_chunk_pages(hit["id"], page=1, pages=1)
+
+
 def test_keyword_only_without_embeddings(tmp_path, lib):
     _, papers = lib
     no_embed = HashEmbedder()
