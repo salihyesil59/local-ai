@@ -781,7 +781,9 @@ class ResearchAgent:
             checked, _ = await self._tool_loop(
                 messages, prompts.FINALIZE_QUICK, tools=tools, max_steps=self.settings.quick_steps
             )
-            answer = checked or answer
+            # a reply much shorter than the answer is a note on the check, not the answer again: the answer stays
+            if checked and len(checked) >= len(answer) / 2:
+                answer = checked
             numbers = unverified_numbers(answer, "\n".join([question, *self.evidence]))
         if numbers:
             answer += "\n\n> **Unverified:** Numbers not found in any tool output: " + ", ".join(numbers)

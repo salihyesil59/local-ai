@@ -110,8 +110,9 @@ From memory (earlier research and user preferences; re-check before relying on i
 
 QUICK_CHECK = (
     "{what} Check it now with the tools: search the library or Wikipedia, or compute with the Python tool. Then "
-    "answer again, briefly, with the source of each fact in parentheses. Keep what a tool confirms; correct what it "
-    "contradicts; for what no tool has, say that you could not check it."
+    "write your whole answer again, in the language of the question, with the source of each fact in parentheses: "
+    "it replaces the first one, so leave nothing out. Keep what a tool confirms; correct what it contradicts; for "
+    "what no tool has, say that you could not check it."
 )
 CHECK_NUMBERS = "Your answer states numbers that no tool output shows: {numbers}."
 CHECK_NOTHING_LOOKED_UP = "You answered without looking anything up."

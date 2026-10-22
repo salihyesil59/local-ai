@@ -745,6 +745,24 @@ async def test_a_quick_answer_from_memory_is_checked_with_the_tools(mcp_config):
     assert answer.startswith("Sıvı azot 1 atm'de 77.15 K") and "Unverified" not in answer
 
 
+async def test_a_short_note_after_the_check_does_not_replace_the_answer(mcp_config):
+    solution = "## Çözüm\n\n|ψ₁⟩ normalize değil: normu √(2/3) ≈ 0.816. " + "Ayrıntılı adımlar. " * 20
+    client = ScriptedClient(
+        {
+            "quick": [
+                reply(solution),  # 0.816 is in no tool output: sent back
+                reply(calls=[("compute__python", {"code": "import math; print(math.sqrt(2/3))"})]),
+                reply("The Python calculation confirms 0.8165."),  # a note, not the answer again
+            ]
+        }
+    )
+    async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
+        agent = ResearchAgent(client, bridge, AgentSettings(model="test"), on_event=lambda e: None)
+        answer = await agent.quick("ψ₁ normalize mi?")
+    assert not client.left() and answer.startswith("## Çözüm") and "Unverified" not in answer
+    assert "write your whole answer again" in client.requests["quick"][1]["messages"][-1]["content"]
+
+
 async def test_a_quick_answer_that_used_its_tools_is_not_sent_back(mcp_config):
     client = ScriptedClient(
         {
