@@ -760,7 +760,8 @@ async def test_a_short_note_after_the_check_does_not_replace_the_answer(mcp_conf
         agent = ResearchAgent(client, bridge, AgentSettings(model="test"), on_event=lambda e: None)
         answer = await agent.quick("ψ₁ normalize mi?")
     assert not client.left() and answer.startswith("## Çözüm") and "Unverified" not in answer
-    assert "write your whole answer again" in client.requests["quick"][1]["messages"][-1]["content"]
+    sent = [m["content"] for m in client.requests["quick"][1]["messages"] if m["role"] == "user"]
+    assert "write your whole answer again" in sent[-1]
 
 
 async def test_a_quick_answer_that_used_its_tools_is_not_sent_back(mcp_config):
