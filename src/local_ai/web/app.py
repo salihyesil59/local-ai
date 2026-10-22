@@ -199,6 +199,7 @@ def create_app(
         "slots": asyncio.Semaphore(MAX_RUNS), "folders": {}, "active": 0,
     }  # fmt: skip
     zim_job = offline.ZimJob()
+    index_job = offline.IndexJob()
 
     def where() -> offline.Places:
         return offline.places(config_path)
@@ -981,7 +982,15 @@ def create_app(
         listing = await asyncio.to_thread(offline.library_listing, places)
         archives = await asyncio.to_thread(offline.zim_listing, places)
         zims = {"dirs": [str(d) for d in places.zim_dirs], "archives": archives}
-        return JSONResponse({"library": listing, "zim": zims, "job": zim_job.state})
+        return JSONResponse({"library": listing, "zim": zims, "job": zim_job.state, "index": index_job.state})
+
+    async def offline_index(request: Request) -> Response:
+        """Index the library for search now (new, changed and deleted files), in the background."""
+        try:
+            index_job.start(where())
+        except RuntimeError as e:
+            return JSONResponse({"error": str(e)}, status_code=409)
+        return JSONResponse(index_job.state, status_code=202)
 
     async def offline_upload(request: Request) -> Response:
         """A file into the library: the body is the file, folder and name are in the query."""
@@ -1085,6 +1094,7 @@ def create_app(
         Route("/api/offline", offline_state),
         Route("/api/offline/files", offline_upload, methods=["POST"]),
         Route("/api/offline/files", offline_delete, methods=["DELETE"]),
+        Route("/api/offline/index", offline_index, methods=["POST"]),
         Route("/api/offline/notebooks", create_notebook, methods=["POST"]),
         Route("/api/offline/notebooks/{name}", delete_notebook, methods=["DELETE"]),
         Route("/api/offline/zim/updates", zim_updates),

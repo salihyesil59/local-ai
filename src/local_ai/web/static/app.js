@@ -617,6 +617,30 @@ $("#notebook-add").addEventListener("submit", async (ev) => {
   } catch (e) { fail(e); }
 });
 
+// Indexing the library now: a bar while it runs, then what it did.
+function renderIndex(job) {
+  const box = $("#index-job");
+  $("#library-index").disabled = job.running;
+  if (job.running) {
+    const pct = job.total ? Math.round((100 * job.done) / job.total) : 0;
+    box.replaceChildren(el("div", { class: "log" }, job.total ? `${t("Indexing")} ${job.done}/${job.total}: ${job.file}` : t("Indexing…")),
+      el("div", { class: "bar" }, el("span", { style: `width:${pct}%` })));
+    clearTimeout(state.indexPoll);
+    state.indexPoll = setTimeout(() => state.view === "offline" && loadOffline(), 1500);
+  } else if (job.error) {
+    box.replaceChildren(el("div", { class: "log warning" }, job.error));
+  } else if (job.result) {
+    const r = job.result;
+    box.replaceChildren(el("div", { class: "log success" }, t("Indexed: {n} new or changed, {u} unchanged, {d} removed, {f} failed",
+      { n: r.indexed, u: r.unchanged, d: r.removed, f: r.failed })),
+      job.embeddings ? null : el("div", { class: "log" }, t("Keyword search only: the embeddings are off for the library server.")));
+  } else box.replaceChildren();
+}
+
+$("#library-index").addEventListener("click", async () => {
+  try { renderIndex(await api("/api/offline/index", { method: "POST" })); } catch (e) { fail(e); }
+});
+
 $("#library-pick").addEventListener("click", () => $("#library-input").click());
 fileDropTarget($("#library-drop"), () => "", $("#library-input"));
 
@@ -632,6 +656,7 @@ async function loadOffline() {
     $("#library-files").replaceChildren(...(lib.files.length ? lib.files.map((f) => fileRow(f)) : [el("p", { class: "muted" }, t("No files yet."))]),
       ...(lib.more ? [el("p", { class: "muted note" }, t("{n} more files not shown", { n: lib.more }))] : []));
     renderZims(data.zim, data.job);
+    renderIndex(data.index);
   } catch (e) { fail(e); }
 }
 

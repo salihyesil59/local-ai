@@ -14,6 +14,13 @@ const TR = {
   "File ready: ": "Dosya hazır: ", "Draft answer (not verified yet)": "Taslak cevap (henüz doğrulanmadı)",
   "Preset": "Hazır ayar", "Standard": "Standart", "Quick answer": "Kısa yanıt", "Fast research": "Hızlı araştırma",
   "Deep research": "Derin araştırma", "Custom": "Özel",
+  "Index now": "Şimdi indeksle", "Indexing": "İndeksleniyor", "Indexing…": "İndeksleniyor…",
+  "Reads the new and changed files into the search index and drops deleted ones. A search also does it, a little at a time.":
+    "Yeni ve değişen dosyaları arama indeksine ekler, silinenleri çıkarır. Bir arama da bunu azar azar yapar.",
+  "Indexed: {n} new or changed, {u} unchanged, {d} removed, {f} failed":
+    "İndekslendi: {n} yeni ya da değişmiş, {u} değişmemiş, {d} çıkarıldı, {f} okunamadı",
+  "Keyword search only: the embeddings are off for the library server.":
+    "Yalnızca kelime araması: kütüphane sunucusunda embedding kapalı.",
   "How it works": "Nasıl çalışsın", "Advanced": "Gelişmiş", "Normal": "Normal",
   "How the agent works: a ready set, or your own in Advanced": "Ajanın nasıl çalışacağı: hazır bir ayar ya da Gelişmiş'te kendi ayarın",
   "Your own set of the switches under Advanced": "Gelişmiş'teki anahtarlarla kendi ayarın",

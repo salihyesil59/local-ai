@@ -226,6 +226,11 @@
           <p id="library-dir" class="muted note"></p>
           <div id="library-drop" class="drop" tabindex="0">Drop PDF, Markdown or text files here, or <button id="library-pick" class="link" type="button">choose files</button>. They are copied into the library and indexed on the next search.</div>
           <input id="library-input" type="file" accept=".pdf,.md,.txt" multiple hidden>
+          <div class="row">
+            <button id="library-index" class="ghost" type="button" data-icon="layers">Index now</button>
+            <span class="muted note">Reads the new and changed files into the search index and drops deleted ones. A search also does it, a little at a time.</span>
+          </div>
+          <div id="index-job"></div>
           <div id="library-files" class="file-rows"></div>
         </div>
         <div class="offline-card">

@@ -199,18 +199,20 @@ class Library:
 
     # -- PDFs and text files -------------------------------------------------
 
-    def index_folder(self, folder: str, force: bool = False, budget: float | None = None) -> dict:
+    def index_folder(self, folder: str, force: bool = False, budget: float | None = None, progress=None) -> dict:
         """Index new and changed files under a folder; unchanged files are skipped, deleted ones removed.
-        With `budget` (seconds) it stops after the first file that exceeds it and reports the rest as `pending`."""
+        With `budget` (seconds) it stops after the first file that exceeds it and reports the rest as `pending`.
+        `progress(done, total, name)` is called before each file."""
         root = Path(folder).expanduser().resolve()
         if not root.is_dir():
             raise ValueError(f"Not a folder: {folder}")
         stats = {"indexed": 0, "unchanged": 0, "failed": 0, "chunks": 0, "removed": 0, "pending": 0}
         started = time.monotonic()
         seen = set()
-        for path in sorted(root.rglob("*")):
-            if path.suffix.lower() not in TEXT_SUFFIXES or not path.is_file():
-                continue
+        files = [p for p in sorted(root.rglob("*")) if p.suffix.lower() in TEXT_SUFFIXES and p.is_file()]
+        for done, path in enumerate(files):
+            if progress:
+                progress(done, len(files), path.relative_to(root).as_posix())
             seen.add(str(path))
             st = path.stat()
             row = self.conn.execute("SELECT mtime, size FROM docs WHERE path = ?", (str(path),)).fetchone()

@@ -214,7 +214,8 @@ The **Offline** view of the sidebar manages what the agents read without the int
   answer from them and name file and page. Asked to look further ("search the whole library"), it passes
   `scope=""`. Less to search, less to read: the answer comes faster than from the whole library.
 - **Library**: drop PDF, Markdown or text files to copy them into `LOCAL_AI_LIBRARY`; the list shows which files
-  the search index has. Files can be deleted here.
+  the search index has. Files can be deleted here. **Index now** reads the new and changed files into the index and
+  drops deleted ones at once, with the library server's settings (otherwise a search does it, 20 seconds at a time).
 - **ZIM archives**: the archives of `LOCAL_AI_ZIM_DIR`; **Check for updates** asks the Kiwix catalog for newer
   releases (needs the internet) and downloads the chosen ones, with progress and Cancel (a cancelled download goes
   on where it stopped next time). The old file is deleted after the new one is complete, unless you keep it.

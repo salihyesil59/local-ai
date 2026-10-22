@@ -1,6 +1,7 @@
 """The Offline view: library files, notebooks and ZIM archives, and a chat that uses a notebook."""
 
 import json
+import time
 
 import pytest
 
@@ -30,6 +31,30 @@ def test_the_places_come_from_the_library_server_of_the_mcp_json(tmp_path):
     config.write_text(json.dumps({"mcpServers": {"library": {"command": "x", "env": env}}}), encoding="utf-8")
     places = offline.places(config)
     assert places.library == tmp_path / "mine" and places.zim_dirs == [tmp_path / "z"]
+
+
+def test_the_index_button_indexes_the_library_in_the_background(library, monkeypatch):
+    monkeypatch.setenv("LOCAL_AI_EMBED_BACKEND", "hash")
+    library.mkdir()
+    (library / "friedmann.md").write_text("# Friedmann\n\nThe scale factor obeys the Friedmann equations.", "utf-8")
+    with TestClient(create_app([], AgentSettings(model="test"), client=ScriptedClient([]))) as ui:
+        assert ui.post("/api/offline/index").status_code == 202
+        for _ in range(100):
+            state = ui.get("/api/offline").json()
+            if not state["index"]["running"]:
+                break
+            time.sleep(0.05)
+        job = state["index"]
+        assert job["error"] == "" and job["result"]["indexed"] == 1 and job["embeddings"] is True
+        assert state["library"]["files"][0]["indexed"]
+        (library / "friedmann.md").unlink()
+        assert ui.post("/api/offline/index").status_code == 202
+        for _ in range(100):
+            job = ui.get("/api/offline").json()["index"]
+            if not job["running"]:
+                break
+            time.sleep(0.05)
+        assert job["result"]["removed"] == 1
 
 
 def test_files_and_notebooks_are_managed_in_the_library(library):

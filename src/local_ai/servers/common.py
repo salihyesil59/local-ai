@@ -196,15 +196,16 @@ def normalize(m: np.ndarray) -> np.ndarray:
     return m / norms
 
 
-def make_embedder() -> Embedder:
-    backend = os.environ.get("LOCAL_AI_EMBED_BACKEND", "lmstudio").lower()
+def make_embedder(env: dict[str, str] | None = None) -> Embedder:
+    """The embedder this process's environment asks for; `env` (e.g. the library server's of an mcp.json) wins."""
+    env = {**os.environ, **(env or {})}
+    backend = env.get("LOCAL_AI_EMBED_BACKEND", "lmstudio").lower()
     if backend == "hash":
         return HashEmbedder()
+    e = Embedder(env.get("LOCAL_AI_BASE_URL"), env.get("LOCAL_AI_EMBED_MODEL"))
     if backend == "none":
-        e = Embedder()
         e.available = False
-        return e
-    return Embedder()
+    return e
 
 
 def stored_embedding_model(conn: sqlite3.Connection, embedder: Embedder) -> str | None:

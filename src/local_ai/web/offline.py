@@ -18,7 +18,7 @@ from pathlib import Path
 
 from local_ai.core.mcp_bridge import read_servers
 from local_ai.research import data
-from local_ai.servers.common import NOTEBOOKS, library_dir, slugify, workspace_root, zim_paths
+from local_ai.servers.common import NOTEBOOKS, library_dir, make_embedder, slugify, workspace_root, zim_paths
 
 LIBRARY_SUFFIXES = {".pdf", ".md", ".txt"}
 MAX_UPLOAD = 512 * 1024 * 1024  # bytes of one file
@@ -31,6 +31,7 @@ class Places:
     library: Path
     zim_dirs: list[Path]
     workspace: Path
+    env: dict = field(default_factory=dict)  # the library server's environment in the mcp.json
 
 
 def places(config_path: Path | None) -> Places:
@@ -44,10 +45,44 @@ def places(config_path: Path | None) -> Places:
     else:
         zims = zim_paths()
     workspace = Path(env["LOCAL_AI_WORKSPACE"]).expanduser() if env.get("LOCAL_AI_WORKSPACE") else workspace_root()
-    return Places(library, zims, workspace)
+    return Places(library, zims, workspace, env)
 
 
 # -- the library -----------------------------------------------------------------------------------
+
+
+@dataclass
+class IndexJob:
+    """Indexing of the library for search, in a thread of its own with the library server's settings (its database
+    and embedder); the view polls `state`. The library server also indexes on its own, a little at every search."""
+
+    state: dict = field(default_factory=lambda: {"running": False, "file": "", "done": 0, "total": 0, "result": None,
+                                                 "error": "", "embeddings": False})  # fmt: skip
+
+    def start(self, where: Places) -> None:
+        if self.state["running"]:
+            raise RuntimeError("the library is being indexed already")
+        self.state.update(running=True, file="", done=0, total=0, result=None, error="")
+        threading.Thread(target=self.run, args=(where,), daemon=True).start()
+
+    def progress(self, done: int, total: int, name: str) -> None:
+        self.state.update(done=done, total=total, file=name)
+
+    def run(self, where: Places) -> None:
+        from local_ai.servers.library.server import Library  # the PDF readers load only when they are needed
+
+        lib = None
+        try:
+            lib = Library(where.workspace / "library.sqlite", zim_paths=[], embedder=make_embedder(where.env))
+            self.state["embeddings"] = lib.embedder.available and not lib.stale_model
+            self.state["result"] = lib.index_folder(str(where.library), progress=self.progress)
+        except Exception as e:  # a missing folder, a locked database
+            self.state["error"] = str(e)
+        finally:
+            if lib:
+                lib.conn.close()
+            self.state.update(running=False, file="", finished=time.time())
+
 
 
 def indexed_paths(workspace: Path) -> set[str]:
