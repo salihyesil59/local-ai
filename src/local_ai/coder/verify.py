@@ -45,6 +45,11 @@ class Result:
 
 def detect_command(root: Path) -> str | None:
     """The usual test command for the project in `root`, or None when there is nothing to run yet."""
+    from local_ai.coder import profiles  # a project with a profile (a Gradle mod) is verified its way
+
+    profile = profiles.detect(root)
+    if profile:
+        return profiles.verify_command(profile, root)
     python_markers = ("pyproject.toml", "pytest.ini", "setup.py", "setup.cfg", "tox.ini", "tests", "test")
     if any((root / m).exists() for m in python_markers) or any(root.glob("test_*.py")):
         return f"{project_python(root)} -m pytest -x -q --tb=short"

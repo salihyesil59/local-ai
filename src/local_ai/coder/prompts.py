@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from local_ai.coder.workflow import INSTRUCTIONS
+from local_ai.coder.workflow import INSTRUCTIONS, TESTS_OPTIONAL
 
 SYSTEM = (
     "You are a coding agent. Your project folder is {root}. Reply to the user in Turkish; keep code, identifiers "
@@ -65,7 +65,7 @@ AUTO_VERIFY = "You made {edits} edits without calling verify, so verify was run 
 STOPPED = "You stopped, but the task is not finished. verify was run for you:\n{result}"
 NEEDS_PLAN = "You stopped, but there is no plan yet. Call plan first, then implement the task."
 EARLIER_PLAN = (
-    "\n\nAn earlier task in {root} is finished and its plan has been put aside. This is a new task. Look at the code, "
+    "\n\nThe plan of an earlier task in {root} has been put aside. This is a new task. Look at the code, "
     "then call plan for it (a small change is a plan with one step) and work through it until verify reports "
     "ALL DONE."
 )
@@ -169,8 +169,10 @@ def next_message(task: str, root: Path, status: str | None, earlier_plan: bool, 
     return text + (EARLIER_PLAN.format(root=root) if earlier_plan else "")
 
 
-def system_prompt(root: Path, skills: str = "", extra_tools: list[str] | None = None) -> str:
+def system_prompt(root: Path, skills: str = "", extra_tools: list[str] | None = None, tests: bool = True) -> str:
     prompt = SYSTEM.format(root=root, instructions=INSTRUCTIONS, skills=SKILLS.format(list=skills) if skills else "")
+    if not tests:
+        prompt += TESTS_OPTIONAL
     if extra_tools:
         prompt += (
             f"\n\nAdditional tools available: {', '.join(sorted(extra_tools))}. "

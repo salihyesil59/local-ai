@@ -21,6 +21,9 @@ const TR = {
     "İndekslendi: {n} yeni ya da değişmiş, {u} değişmemiş, {d} çıkarıldı, {f} okunamadı",
   "Keyword search only: the embeddings are off for the library server.":
     "Yalnızca kelime araması: kütüphane sunucusunda embedding kapalı.",
+  "Tests with every step": "Her adımda test", "Required": "Zorunlu", "Optional": "İsteğe bağlı", "Auto": "Otomatik",
+  "Auto: not for a game mod, where the build verifies; otherwise every step is tested":
+    "Otomatik: oyun modunda yok, derleme doğrular; diğer projelerde her adım test edilir",
   "How it works": "Nasıl çalışsın", "Advanced": "Gelişmiş", "Normal": "Normal",
   "How the agent works: a ready set, or your own in Advanced": "Ajanın nasıl çalışacağı: hazır bir ayar ya da Gelişmiş'te kendi ayarın",
   "Your own set of the switches under Advanced": "Gelişmiş'teki anahtarlarla kendi ayarın",

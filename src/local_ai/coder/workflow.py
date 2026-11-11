@@ -51,11 +51,28 @@ NO_COMMAND = (
     "CANNOT VERIFY: no test command found in {root}. Write tests for the current step first "
     "(Python: tests/test_*.py for pytest), or call plan again with verify_command."
 )
+# Added to the instructions when a step does not need a test of its own (see tests_required).
+TESTS_OPTIONAL = (
+    "\n\nIn this project a step does NOT need a test of its own: where the instructions above say to write tests, "
+    "write one only for logic that can run in a unit test (a calculation, a parser), and only when it checks a real "
+    "result. Code that needs the game, the engine, a window or a device to run is verified by building the project: "
+    "call verify after the change. Never write a test that asserts nothing or cannot run; say in your summary what "
+    "the user has to check by hand."
+)
+REVIEW_WITHOUT_TESTS = (
+    "REVIEW before you finish. Re-read the user's request and check every acceptance criterion against the code "
+    "you changed:\n{criteria}\n"
+    "Read each change once more: is it what the request asks, in the right place, and nothing else changed? Add a "
+    "test only for logic that runs in a unit test. Then call verify with a note that names the files that "
+    "implement the criteria and says what must be checked by hand."
+)
 ALL_DONE = "ALL DONE: the steps and the review are finished and verification passes."
 
 
 def review_text(state: dict) -> str:
     criteria = "\n".join(f"  {i}. {c}" for i, c in enumerate(state["criteria"], 1))
+    if not state.get("tests", True):
+        return REVIEW_WITHOUT_TESTS.format(criteria=criteria)
     return (
         "REVIEW before you finish. Re-read the user's request and check every acceptance criterion against the "
         f"tests:\n{criteria}\n"
@@ -73,9 +90,21 @@ def review_text(state: dict) -> str:
     )
 
 
+def tests_required(root: Path, choice: str = "auto") -> bool:
+    """Whether every step needs its tests: "required", "optional", or "auto" for what the project's profile says
+    (a game mod: optional; a project without a profile: required)."""
+    if choice in ("required", "optional"):
+        return choice == "required"
+    from local_ai.coder import profiles
+
+    profile = profiles.detect(root)
+    return profile.tests_required if profile else True
+
+
 def make_plan(
-    root: Path, goal: str, steps: list[str], criteria: list[str], verify_command: str = "", review: bool = True
-) -> str:
+    root: Path, goal: str, steps: list[str], criteria: list[str], verify_command: str = "", review: bool = True,
+    tests: bool | None = None,
+) -> str:  # fmt: skip
     steps = [s.strip() for s in steps if s.strip()]
     criteria = [c.strip() for c in criteria if c.strip()]
     if not goal.strip() or not steps or not criteria:
@@ -89,8 +118,11 @@ def make_plan(
                 "they check: every step is a change to the code and includes its tests. Remove the step or merge "
                 "it into the step that implements what it tests, then call plan again."
             )
-    chosen = vf.in_project_env(verify_command.strip(), root)
+    from local_ai.coder import profiles
+
+    chosen = profiles.own_command(root, vf.in_project_env(verify_command.strip(), root))
     state = st.new_state(goal.strip(), steps, criteria, chosen or vf.detect_command(root) or "", review)
+    state["tests"] = tests_required(root) if tests is None else tests
     # A command chosen for the task names the tests of the task: none of their failures is somebody else's.
     before = "" if chosen else failing_before(root, state)
     state["snapshot"] = vf.snapshot(root)  # after the run: tests may write files
@@ -98,7 +130,8 @@ def make_plan(
     st.log_event(root, event="plan", goal=state["goal"], steps=len(steps), criteria=len(criteria))
     return (
         f"Plan saved ({len(steps)} steps, {len(criteria)} criteria).\n{st.render(root, state)}{before}\n\n"
-        f"Now implement step 1: {steps[0]}\nWrite its tests at the same time, then call verify."
+        f"Now implement step 1: {steps[0]}\n"
+        + ("Write its tests at the same time, then call verify." if state["tests"] else "Then call verify.")
     )
 
 
@@ -133,6 +166,15 @@ def run_tests(state: dict, root: Path, command: str, timeout: float) -> tuple[bo
     """Run the command. Passed also when the only failures are tests that failed before the work began:
     (passed, result, those tests)."""
     result = vf.run(command, root, timeout)
+    from local_ai.coder import profiles
+
+    if result.passed and profiles.failed_anyway(root, result.output):  # exit code 0 but an error printed (Godot)
+        result = vf.Result(False, result.output, result.seconds)
+    if result.passed:  # the build is fine: the files it does not compile (a mod's models, textures, lang) next
+        checked = profiles.check_files(root)
+        if checked and checked[0]:
+            report = profiles.check_report(*checked)
+            result = vf.Result(False, f"{result.output}\n{report}".strip(), result.seconds)
     if result.passed or result.timed_out or not state.get("baseline"):
         return result.passed, result, []
     failing = vf.failed_tests(result.output)
@@ -197,6 +239,12 @@ def run_verify(root: Path, note: str = "", timeout: float = 300, tests: str = ""
                 "call verify with a note that names the file that implements it and the test that covers it "
                 "(for example engine.py and test_cycle in tests/test_engine.py)."
             )
+            if not state.get("tests", True):  # the change may have been made before the plan: naming it is enough
+                message = (
+                    f"PASSED ({took}), but no file has changed since the plan, so step {index + 1}/{total} stays "
+                    f"open: {state['steps'][index]['text']}\nIf you already made the change, call verify once "
+                    "more with a note that names the file you changed (for example Guard.java); no test is needed."
+                )
         else:
             step = state["steps"][index]
             step["done"] = True

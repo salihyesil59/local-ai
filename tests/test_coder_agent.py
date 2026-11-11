@@ -233,6 +233,20 @@ async def test_resumes_an_unfinished_plan(project):
     await again.run("task")
     first = client2.requests[0]["messages"][1]["content"]
     assert "continue it instead of starting over" in first and "[ ] 1. only" in first
+    other, client3, _ = make_agent(project, [say("ok")], max_nudges=0)
+    await other.run("another task")  # the plan was cut off on a different request: put aside, not continued
+    first = client3.requests[0]["messages"][1]["content"]
+    assert "has been put aside" in first and "[ ] 1. only" not in first
+    assert not (project / ".local-coder" / "state.json").exists()
+
+
+@pytest.mark.anyio
+async def test_a_request_to_go_on_continues_the_unfinished_plan(project):
+    agent, _, _ = make_agent(project, [say(calls=[plan_call()]), say("stop")], max_nudges=0)
+    await agent.run("task")
+    again, client2, _ = make_agent(project, [say("ok")], max_nudges=0)
+    await again.run("Kaldığın yerden devam et")
+    assert "continue it instead of starting over" in client2.requests[0]["messages"][1]["content"]
 
 
 def test_inline_tool_calls_are_found():
@@ -552,7 +566,7 @@ async def test_a_finished_plan_does_not_end_the_next_task(project):
     )
     outcome = await agent.run("Change it")
     assert outcome.finished and outcome.summary == "Simdi bitti."
-    assert "An earlier task in" in client.requests[0]["messages"][1]["content"]
+    assert "The plan of an earlier task in" in client.requests[0]["messages"][1]["content"]
     assert len(list((project / ".local-coder").glob("state-*.json"))) == 1  # the old plan was put aside
     assert "tools" in client.requests[1]  # after read_file the model still has its tools: no early wrap-up
     assert client.requests[2]["messages"][-1]["content"] == prompts.NEEDS_NEW_PLAN

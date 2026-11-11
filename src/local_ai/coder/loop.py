@@ -54,6 +54,8 @@ LOOKUPS = ("read_file", "list_files", *MAP_TOOLS)
 UNSTICK_AFTER = 3  # cut-off replies in a row after which the next one is sampled more freely
 TRANSCRIPT_CHARS = 24_000  # of the dropped messages shown to the model that writes the notes
 RESTART_DIFF_CHARS = 8000  # of the changes so far, given with a fresh start
+# A request that asks to go on with the unfinished plan (Turkish and English).
+CONTINUE = re.compile(r"\b(?:devam|sürdür|surdur|kaldığ|kaldig|continue|resume|go on|carry on)", re.IGNORECASE)
 
 
 @dataclass
@@ -72,6 +74,9 @@ class Settings:
     # normal: plan, verify every step, review. fast: no review and no project map. quick: a small mechanical task
     # (a rename): no plan, the model changes the files and answers, then the program runs the tests once.
     speed: str = "normal"
+    # a test with every step: "required", "optional" (the build verifies; tests only for logic that can run in
+    # one), or "auto": what the project's profile says (optional for a game mod, required otherwise)
+    tests: str = "auto"
     judge_rounds: int = 2  # times the judge may send a finished task back (normal speed only); 0 = no judge
     restart_after: int = 4  # stuck replies (cut off or in circles) before a fresh start; 0 = never
     max_restarts: int = 2  # fresh starts in one run
@@ -122,7 +127,8 @@ class CoderAgent:
         self.compact_requested = False
         self.messages: list[dict] = []  # the conversation; it goes on with the next run
         self.interrupted = False  # the last run did not return: the user stopped it
-        self.earlier_plan = False  # the plan on disk was finished before this run: it is not this task's
+        self.earlier_plan = False  # the plan on disk was finished before this run, or is another task's
+        self.task = ""  # the request of this run
         # messages of the user that the model has not seen yet, with the images that came with them
         self.steering: list[tuple[str, list[Path]]] = []
         self.looked: dict[tuple[str, str], int] = {}  # look-up -> the number of edits when it was made
@@ -139,7 +145,8 @@ class CoderAgent:
 
     def own_tools(self, require_skill: bool) -> dict[str, Tool]:
         """The coder's own tools for this run's speed; a quick task has no plan, so no tools of the plan."""
-        tools = coder_tools(self.root, require_skill, review=self.settings.speed == "normal", plan_first=not self.quick)
+        tools = coder_tools(self.root, require_skill, review=self.settings.speed == "normal", plan_first=not self.quick,
+                            tests=wf.tests_required(self.root, self.settings.tests))  # fmt: skip
         if self.quick:
             for name in ("plan", "verify", "status", "load_skill"):
                 tools.pop(name)
@@ -186,6 +193,10 @@ class CoderAgent:
             self.edits_made += 1  # what was looked up before may read differently now
         if name == "plan" and output.startswith("Plan saved"):
             self.earlier_plan = False  # this task has its own plan now
+            state = st.load(self.root)
+            if state is not None:  # the request it belongs to: only that request goes on with it later
+                state["task"] = self.task
+                st.save(self.root, state)
         self.emit_state()
         return output
 
@@ -364,10 +375,15 @@ class CoderAgent:
         return outcome
 
     async def work(self, task: str, stopped: bool, images: list[Path] | None = None) -> Outcome:
+        self.task = task
         state = None if self.quick else st.load(self.root)  # a quick task leaves a plan on disk alone
-        status = st.render(self.root, state) if state and not st.finished(state) else None
-        # A finished plan is the earlier task's: this task is done only after a plan of its own.
-        self.earlier_plan = state is not None and st.finished(state)
+        # An unfinished plan goes on only for its own task: the same request, one that asks to go on, or the next
+        # message after the user stopped the run. A plan of another task (cut off at the turn limit) is put aside.
+        resumes = stopped or bool(CONTINUE.search(task)) or (state or {}).get("task") == task
+        unfinished = state is not None and not st.finished(state) and resumes
+        status = st.render(self.root, state) if unfinished else None
+        # A finished plan, or one of another task, is the earlier task's: this task is done only after its own.
+        self.earlier_plan = state is not None and not unfinished
         if self.earlier_plan:  # put it aside: verify and status must not answer for the old task
             st.archive(self.root)
         if self.messages:
@@ -526,6 +542,13 @@ class CoderAgent:
         if given:  # the skill comes with the task, so the first plan needs no gate
             self.tools.update(self.own_tools(require_skill=False))
             self.emit("log", text=f"Skill given with the task: {given}")
+        from local_ai.coder import profiles
+
+        profile = profiles.detect(self.root)
+        if profile:  # the kind of project decides how it is verified and which tools there are
+            tests = "a test with every step" if wf.tests_required(self.root, self.settings.tests) else "tests optional"
+            command = profiles.verify_command(profile, self.root)
+            self.emit("log", text=f"Project profile: {profile.name} ({tests}); verify: {command}")
         overview = ""
         # a fast run goes without the map: it looks places up with search
         project_map = await asyncio.to_thread(nav.task_map, self.root, task) if self.settings.speed == "normal" else ""
@@ -534,7 +557,8 @@ class CoderAgent:
             overview = prompts.LARGE_PROJECT.format(skill=how, map=project_map)
             self.emit("log", text="Large project: its map is given with the task")
         return [
-            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names)},
+            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names,
+                                                                  wf.tests_required(self.root, self.settings.tests))},
             {
                 "role": "user",
                 "content": with_images(

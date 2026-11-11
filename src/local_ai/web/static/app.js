@@ -1071,6 +1071,7 @@ $("#ask").addEventListener("submit", async (ev) => {
   const options = { question, images, files, servers: getSelectedMcpServers(), settings: getSettings() };
   if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
   if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, critic: $("#critic").checked });
+  if (state.mode === "code") options.tests = $("#tests").value;
   if (state.mode === "research") Object.assign(options, researchOptions());
   try {
     let run;

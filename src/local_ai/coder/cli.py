@@ -29,6 +29,12 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--max-turns", type=int, default=80, help="model replies in one run")
     p.add_argument(
+        "--tests",
+        choices=["auto", "required", "optional"],
+        default="auto",
+        help="a test with every step: required, optional (the build verifies), or auto: by the kind of project",
+    )
+    p.add_argument(
         "--context-chars",
         type=int,
         default=Settings.context_chars,
@@ -93,7 +99,7 @@ async def run(args: argparse.Namespace) -> int:
         presence_penalty=args.presence_penalty,
         max_thinking_chars=args.max_thinking_chars,
     )
-    agent = CoderAgent(llm, root, Settings(max_turns=args.max_turns, context_chars=args.context_chars), emit=Printer(args.verbose))
+    agent = CoderAgent(llm, root, Settings(max_turns=args.max_turns, context_chars=args.context_chars, tests=args.tests), emit=Printer(args.verbose))
     outcome = await agent.run(task)
     print(f"\n{'FINISHED' if outcome.finished else 'NOT FINISHED'}: {outcome.reason}")
     if outcome.summary:

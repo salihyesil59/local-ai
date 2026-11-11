@@ -26,6 +26,12 @@ DEFINITION = re.compile(
     r"^(\s*)(?:export\s+|default\s+|public\s+|private\s+|protected\s+|static\s+|async\s+|pub(?:\([a-z]+\))?\s+|abstract\s+)*"
     r"(function|class|def|fn|func|struct|interface|enum|trait|impl|type|module)\s+([A-Za-z_$][\w$]*)"
 )
+# Java: a type, or a method or constructor that starts with a modifier (so a call in a statement is not taken)
+JAVA_TYPE = re.compile(r"^(\s*)(?:[\w@.()\"]+\s+)*?(class|interface|enum|record)\s+([A-Za-z_]\w*)")
+JAVA_METHOD = re.compile(
+    r"^(\s*)(?:(?:public|private|protected|static|final|abstract|synchronized|default|native)\s+)+"
+    r"(?:<[^>]+>\s+)?(?:[\w<>\[\],.?]+\s+)?([A-Za-z_]\w*)\s*\("
+)
 WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
 # Words of a task that say nothing about where in the project it is.
 COMMON = set(
@@ -98,6 +104,14 @@ def definitions(path: str, text: str) -> list[Definition]:
         if parsed is not None:
             return parsed
     found = []
+    if path.endswith(".java"):
+        for number, line in enumerate(text.splitlines(), 1):
+            t, m = JAVA_TYPE.match(line), JAVA_METHOD.match(line)
+            if t:
+                found.append(Definition(t.group(2), t.group(3), "", number, None, len(t.group(1)) // 4))
+            elif m:
+                found.append(Definition("method", m.group(2), "", number, None, len(m.group(1)) // 4))
+        return found
     for number, line in enumerate(text.splitlines(), 1):
         m = DEFINITION.match(line)
         if m:

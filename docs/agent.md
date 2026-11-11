@@ -287,6 +287,22 @@ the ones selected with the MCP chips. It can run beside a research or a chat (se
 
 ### Working in an existing repository
 
+**Project profiles** (`coder/profiles.py`) teach the agent a kind of project that is not plain Python. A NeoForge
+Minecraft mod (a `build.gradle` with `net.neoforged`) is verified with `gradlew compileJava test`, its Java files get
+an outline with their methods, and `search_sources` / `read_source` look a Minecraft or NeoForge API up in the
+sources jar the build keeps, instead of guessing it; the `neoforge-mod` skill says how to follow the mod's own
+patterns. Verify also checks the mod's resource files, which the compiler does not see (`coder/minecraft.py`): broken
+JSON, models and textures a blockstate or model names but that are missing, and translation keys the code uses but
+`en_us.json` lacks; `check_files` runs the same check alone. `read_game_log` reads the newest crash report, or the
+error lines of `run/logs/latest.log` (each message once, with its count), after the user ran the game. A profile
+can also offer longer commands as tools when the project has what they need: `run_game_tests` (`runGameTestServer`,
+when the mod has `@GameTest`s) and `run_datagen` (`runData`, when it has a `GatherDataEvent`). A Fabric mod
+(`fabric-loom`) gets the same; a Godot project (`project.godot`) is verified with `godot --headless --import`, where
+a printed script error fails verify although Godot exits with 0, and GUT tests run with `run_gut_tests`; a pygame
+project runs its tests, or compiles every file when it has none. The run's log names the profile it found. Any other
+project with a Gradle wrapper is built with `gradlew build`. Another toolchain is one more
+`Profile` in that file: how to recognise it, its verify command and where its library sources are.
+
 A project that does not fit into the context (a library with dozens of files) is not read from top to bottom.
 From 12 source files on, the task comes with a map of the project (files, classes, functions; the files the
 task's words point to first and in detail) and the `existing-code` skill. The agent then looks places up:

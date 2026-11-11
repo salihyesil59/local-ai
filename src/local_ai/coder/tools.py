@@ -6,6 +6,7 @@ from pathlib import Path
 
 from local_ai.coder import files as fl
 from local_ai.coder import navigate as nav
+from local_ai.coder import profiles as pf
 from local_ai.coder import skills as sk
 from local_ai.coder import state as st
 from local_ai.coder import verify as vf
@@ -36,7 +37,7 @@ EDIT_TOOLS = ("write_file", "edit_file", "replace_in_files")
 
 
 def coder_tools(
-    root: Path, require_skill: bool = True, review: bool = True, plan_first: bool = True
+    root: Path, require_skill: bool = True, review: bool = True, plan_first: bool = True, tests: bool | None = None
 ) -> dict[str, Tool]:
     """The tools of the coding agent. review: a plan ends with a review (False: with its last step); plan_first:
     files are changed only after a plan (False: a quick task, which has none)."""
@@ -80,7 +81,7 @@ def coder_tools(
                 f"Error: the plan was not saved. Before planning, read the skill for this kind of task ({name}) "
                 f"and plan according to it, then call plan again:\n\n{skills[name]['body']}"
             )
-        return wf.make_plan(root, goal, steps, criteria, verify_command, review)
+        return wf.make_plan(root, goal, steps, criteria, verify_command, review, tests)
 
     def verify(note: str = "", tests: str = "") -> str:
         return wf.run_verify(root, note, VERIFY_TIMEOUT, tests)
@@ -232,4 +233,44 @@ def coder_tools(
             outline,
         ),
     ]
+    if pf.source_archives(root):  # the project's profile has the sources of its libraries: look an API up there
+        tools += [
+            Tool(
+                "search_sources",
+                "Find lines in the sources of the project's libraries (for a Minecraft mod: Minecraft and NeoForge): "
+                "how a class, method or constructor is declared. Use it before calling an API you are not sure of. "
+                "pattern: a regular expression or a name; glob: file names like 'ItemStack.java'.",
+                _schema({"pattern": STR, "glob": STR}, ["pattern"]),
+                lambda pattern, glob="": pf.search_sources(root, pattern, glob),
+            ),
+            Tool(
+                "read_source",
+                "Read lines start..end of a library source file, with the path as search_sources shows it.",
+                _schema({"path": STR, "start": INT, "end": INT}, ["path"]),
+                lambda path, start=1, end=0: pf.read_source(root, path, start, end),
+            ),
+        ]
+    profile = pf.detect(root)
+    if profile and profile.logs:  # the game writes logs: read what went wrong in the user's run
+        tools.append(
+            Tool(
+                "read_game_log",
+                "Read what went wrong when the user last ran the game or program: the newest crash report, or the "
+                "error lines and stack traces of the newest log. Use it when the user says it crashed or misbehaves.",
+                _schema({}, []),
+                lambda: pf.read_game_log(root),
+            )
+        )
+    for task in pf.available_tasks(root):  # longer commands of the project: the game's own tests, data generators
+        tools.append(Tool(task.tool, task.description, _schema({}, []), lambda task=task: pf.run_task(root, task)))
+    if profile and profile.check:  # resource files the compiler does not see
+        tools.append(
+            Tool(
+                "check_files",
+                "Check the files the compiler does not see (for a Minecraft mod: JSON validity, models and textures "
+                "that blockstates and models name, translation keys the code uses). verify runs it too.",
+                _schema({}, []),
+                lambda: pf.check_report(*pf.check_files(root)),
+            )
+        )
     return {t.name: t for t in tools}

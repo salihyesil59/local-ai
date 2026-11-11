@@ -5,6 +5,7 @@ from local_ai.coder.tools import coder_tools
 BUILTIN = {
     "bug-fix",
     "new-feature",
+    "neoforge-mod",
     "refactor",
     "from-paper",
     "edge-cases",
