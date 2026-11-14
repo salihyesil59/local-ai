@@ -31,7 +31,7 @@ def zipped(files: dict[str, str]) -> bytes:
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w") as z:
         for name, text in files.items():
-            z.writestr(name, text)
+            z.writestr(zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0)), text)  # the same bytes every call
     return out.getvalue()
 
 
