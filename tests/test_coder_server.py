@@ -278,7 +278,9 @@ def test_a_failing_test_the_plan_names_is_the_task_not_the_past(project, detecte
 def test_a_command_chosen_for_the_task_sets_no_failing_test_aside(project, detected):
     """The tests of a chosen command are the task: a program with a short name (lis) was left unfixed."""
     write_tests(project, lis="def test_lis():\n    assert 1 == 2\n")
-    out = make_plan(project, "Fix the programs", ["Find the bug and fix it"], ["the tests pass"], PYTEST + " test_lis.py")
+    out = make_plan(
+        project, "Fix the programs", ["Find the bug and fix it"], ["the tests pass"], PYTEST + " test_lis.py"
+    )
     assert "fail already" not in out and "baseline" not in st.load(project)
     assert run_verify(project, note="nothing to fix").startswith("FAILED")
     assert vf.test_mentioned("python_testcases/test_lis.py::test_lis[input_data8-3]", "lis.py: fix the bug")
@@ -308,4 +310,3 @@ def test_tests_that_cannot_be_chosen_run_everything(project):
     assert vf.test_mentioned("tests/test_bitcount.py::test_bitcount[n0]", "fix the loop in bitcount")
     assert vf.test_mentioned("tests/test_x.py::test1", "make test_x.py pass")
     assert not vf.test_mentioned("tests/test_bitcount.py::test1", "fix gcd for negative numbers")
-

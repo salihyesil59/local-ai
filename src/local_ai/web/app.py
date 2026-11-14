@@ -566,7 +566,9 @@ def create_app(
             folder = str(body.get("folder", "")).strip()
             if not folder or not Path(folder).expanduser().is_absolute():
                 return JSONResponse({"error": "give the project folder as an absolute path"}, status_code=400)
-            return await start(Run(id=uuid.uuid4().hex[:12], question=question or "(continue the plan)", project=folder))
+            return await start(
+                Run(id=uuid.uuid4().hex[:12], question=question or "(continue the plan)", project=folder)
+            )
         if body.get("mode") == "chat":
             if not question:
                 return JSONResponse({"error": "write a message"}, status_code=400)
@@ -869,9 +871,7 @@ def create_app(
             body, refs = render_body((pdir / "report.md").read_text(encoding="utf-8"), sources, pdir)
             report_html = body + refs
         exports = sorted(f.name for f in (pdir / "exports").glob("report.*")) if (pdir / "exports").is_dir() else []
-        documents = (
-            sorted(f.name for f in (pdir / "exports").glob("document.*")) if (pdir / "exports").is_dir() else []
-        )
+        documents = sorted(f.name for f in (pdir / "exports").glob("document.*")) if (pdir / "exports").is_dir() else []
         return JSONResponse(
             {
                 "name": pdir.name,

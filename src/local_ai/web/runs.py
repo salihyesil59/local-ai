@@ -168,7 +168,9 @@ class Run:
         answer = next((e["text"] for e in reversed(self.events) if e["kind"] in ("answer", "report")), "")
         asked = next((e for e in reversed(self.last_message()) if e["kind"] == "clarify"), None)
         if asked:  # the message answers the questions asked before the research
-            answer = "Before researching, these questions were asked:\n" + "\n".join(f"- {q}" for q in asked["questions"])
+            answer = "Before researching, these questions were asked:\n" + "\n".join(
+                f"- {q}" for q in asked["questions"]
+            )
         if not answer:
             return message
         return FOLLOW_UP.format(message=message, question=trim(question, 600), answer=trim(answer, EARLIER_CHARS))

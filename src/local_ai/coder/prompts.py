@@ -38,9 +38,7 @@ CUT_OFF = (
     "run_python with a few lines that print it; to find a bug, call verify and read what fails. Then change one "
     "thing and call verify."
 )
-THOUGHT_SO_FAR = (
-    "\nThis is where your thinking stood when it was cut off; go on from it, do not start again:\n{tail}"
-)
+THOUGHT_SO_FAR = "\nThis is where your thinking stood when it was cut off; go on from it, do not start again:\n{tail}"
 LOOPING = (
     "Your last reply was stopped: its thinking went in circles, the same sentences again and again. More thinking "
     "will not settle it. Do not weigh it up again: choose the reading that fits the task and the code you have "
@@ -185,4 +183,3 @@ def system_prompt(root: Path, skills: str = "", extra_tools: list[str] | None = 
             "- library__search_library / library__read_library: read offline library and documentation."
         )
     return prompt
-

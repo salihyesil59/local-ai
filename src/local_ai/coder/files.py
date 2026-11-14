@@ -116,6 +116,7 @@ def replace_in_files(
 def walk(root: Path, base: Path | None = None) -> list[str]:
     """Files and folders (with a trailing /) under base, relative to root; caches and virtual environments
     are skipped."""
+
     def skipped(name: str) -> bool:
         return name in SKIP_DIRS or name.endswith(".egg-info")
 

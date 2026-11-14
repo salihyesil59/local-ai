@@ -83,7 +83,11 @@ def in_project_env(command: str, root: Path) -> str:
     python = project_python(root)
     if python == "python":
         return command
-    for start, replacement in (("python -m ", f"{python} -m "), ("python3 -m ", f"{python} -m "), ("pytest", f"{python} -m pytest")):
+    for start, replacement in (
+        ("python -m ", f"{python} -m "),
+        ("python3 -m ", f"{python} -m "),
+        ("pytest", f"{python} -m pytest"),
+    ):
         if command.startswith(start):
             return replacement + command[len(start) :]
     return command
@@ -161,7 +165,9 @@ def has_tests(root: Path) -> bool:
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.endswith(".egg-info")]
         for name in names:
             stem = name.rsplit(".", 1)[0]
-            if Path(name).suffix in CODE_SUFFIXES and (stem.startswith("test_") or stem.endswith(("_test", ".test", ".spec"))):
+            if Path(name).suffix in CODE_SUFFIXES and (
+                stem.startswith("test_") or stem.endswith(("_test", ".test", ".spec"))
+            ):
                 return True
     return False
 

@@ -41,7 +41,7 @@ INSTRUCTIONS = (
     "tests, fix what they uncover, call verify again.\n"
     "5. The task is finished only when verify reports ALL DONE. Never tell the user it works before that. Never "
     "weaken, skip or delete a test to make verify pass; a test that accepts several different results is weakened.\n"
-    "In a large project give verify the tests of the step (tests=\"tests/test_x.py\"): only they run; the review "
+    'In a large project give verify the tests of the step (tests="tests/test_x.py"): only they run; the review '
     "at the end runs everything. Tests that already failed when the plan was saved are not counted.\n"
     "Call status when you are unsure where you are."
 )

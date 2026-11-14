@@ -59,4 +59,3 @@ def project(tmp_path, monkeypatch):
 
 def write_test(root, body):
     (root / "test_it.py").write_text(body, encoding="utf-8")
-

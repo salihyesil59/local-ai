@@ -45,7 +45,9 @@ def test_search_finds_definitions_and_uses(project):
     assert "pkg/engine.py:6: return compute_total(key)" in found and "pkg/engine.py:12: def compute_total" in found
     assert "tests/test_engine.py:1:" in found
     assert nav.search(project, "compute_total", path="tests").startswith("2 matches in 1 files")
-    assert nav.search(project, "render", glob="*.js").startswith("1 matches") and "web.js:1:" in nav.search(project, "render")
+    assert nav.search(project, "render", glob="*.js").startswith("1 matches") and "web.js:1:" in nav.search(
+        project, "render"
+    )
     assert nav.search(project, "engine").count("class Engine") == 1  # lower case ignores case
     assert nav.search(project, "Engine(").startswith("1 matches")  # not a regular expression: taken as text
     assert nav.search(project, "nothing_like_this").startswith("No matches")
@@ -114,6 +116,8 @@ async def test_in_a_large_project_the_map_and_the_way_to_work_come_with_the_task
 
     small = project.parent / "small"
     small.mkdir()
-    agent, client, _ = make_agent(small, [say(calls=[call("write_file", path="x.py", content=PASSING)]), say("stop")], max_nudges=0)
+    agent, client, _ = make_agent(
+        small, [say(calls=[call("write_file", path="x.py", content=PASSING)]), say("stop")], max_nudges=0
+    )
     await agent.run("task")
     assert "This is a large project" not in json.dumps(client.requests[0]["messages"])

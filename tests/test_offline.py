@@ -61,17 +61,25 @@ def test_the_index_button_indexes_the_library_in_the_background(library, monkeyp
 def test_files_and_notebooks_are_managed_in_the_library(library):
     with TestClient(create_app([], AgentSettings(model="test"), client=ScriptedClient([]))) as ui:
         assert ui.get("/api/offline").json()["library"] == {
-            "dir": str(library), "exists": False, "files": [], "notebooks": [], "more": 0
+            "dir": str(library),
+            "exists": False,
+            "files": [],
+            "notebooks": [],
+            "more": 0,
         }
         added = ui.post("/api/offline/files", params={"name": "notes.md"}, content=b"# Notes").json()
         assert added["path"] == "notes.md" and (library / "notes.md").read_bytes() == b"# Notes"
         again = ui.post("/api/offline/files", params={"name": "notes.md"}, content=b"# Two").json()
         assert again["path"] == "notes (2).md"  # a name that is taken gets a number
         assert ui.post("/api/offline/files", params={"name": "run.exe"}, content=b"x").status_code == 400
-        assert ui.post("/api/offline/files", params={"name": "a.md", "folder": "../out"}, content=b"x").status_code == 400
+        assert (
+            ui.post("/api/offline/files", params={"name": "a.md", "folder": "../out"}, content=b"x").status_code == 400
+        )
         assert ui.post("/api/offline/files", params={"name": "a.md"}, content=b"").status_code == 400
 
-        assert ui.post("/api/offline/notebooks", json={"name": "Kozmoloji Notları"}).json() == {"name": "kozmoloji-notlari"}
+        assert ui.post("/api/offline/notebooks", json={"name": "Kozmoloji Notları"}).json() == {
+            "name": "kozmoloji-notlari"
+        }
         assert ui.post("/api/offline/notebooks", json={"name": "kozmoloji notlari"}).status_code == 400  # exists
         params = {"name": "friedmann.pdf", "folder": "notebooks/kozmoloji-notlari"}
         assert ui.post("/api/offline/files", params=params, content=b"%PDF-1.4").status_code == 201

@@ -223,11 +223,14 @@ def test_a_code_chat_keeps_its_conversation_with_the_model(tmp_path):
         client.post(f"/api/runs/{run_id}/messages", json={"question": "Check it again"})
         assert read_events(client, run_id)[-1] == {"kind": "end", "status": "done"}
         messages = client.app.state.store.load_messages(run_id)["messages"]
-        tasks = [m["content"] for m in messages if m["role"] == "user" and not m["content"].startswith(("Verification", "REVIEW"))]
+        tasks = [
+            m["content"]
+            for m in messages
+            if m["role"] == "user" and not m["content"].startswith(("Verification", "REVIEW"))
+        ]
         assert tasks[0].startswith("Add things") and tasks[-1].startswith("Check it again")
         assert "Earlier in this chat" not in tasks[-1]  # the conversation itself is there, no retelling needed
         assert len(messages) > len(first["messages"]) + 4
 
         assert client.delete(f"/api/runs/{run_id}").json() == {"ok": True}
         assert client.app.state.store.load_messages(run_id) == {}
-

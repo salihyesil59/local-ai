@@ -40,7 +40,9 @@ async def test_a_chat_may_call_the_tools_that_are_switched_on():
     async def search(query: str) -> str:
         return f"3 papers about {query}"
 
-    tool = Tool("library__search", "Search papers", {"type": "object", "properties": {"query": {"type": "string"}}}, search)
+    tool = Tool(
+        "library__search", "Search papers", {"type": "object", "properties": {"query": {"type": "string"}}}, search
+    )
     calls = [{"name": "library__search", "arguments": json.dumps({"query": "dark energy"})}]
     client = ScriptedClient([("", calls), ("Üç makale buldum.", [])])
     agent = ChatAgent(LLM(client, "m"), tools={tool.name: tool})
@@ -170,6 +172,7 @@ def test_chats_of_every_mode_work_at_the_same_time_but_not_in_one_folder(tmp_pat
 
     client = Busy([("Hemen.", [])])
     with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
+
         def code(folder):
             body = {"mode": "code", "question": "x", "folder": str(tmp_path / folder)}
             return ui.app.state.runs[ui.post("/api/runs", json=body).json()["id"]]

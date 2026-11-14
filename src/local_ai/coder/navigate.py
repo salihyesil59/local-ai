@@ -85,12 +85,18 @@ def _python_definitions(text: str) -> list[Definition] | None:
     def add(node, depth: int) -> None:
         if isinstance(node, ast.ClassDef):
             bases = ", ".join(ast.unparse(b) for b in node.bases)
-            found.append(Definition("class", node.name, f"({_short(bases)})" if bases else "", node.lineno, node.end_lineno, depth))
+            found.append(
+                Definition(
+                    "class", node.name, f"({_short(bases)})" if bases else "", node.lineno, node.end_lineno, depth
+                )
+            )
             if depth == 0:
                 for child in node.body:
                     add(child, 1)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            found.append(Definition("def", node.name, f"({_short(ast.unparse(node.args))})", node.lineno, node.end_lineno, depth))
+            found.append(
+                Definition("def", node.name, f"({_short(ast.unparse(node.args))})", node.lineno, node.end_lineno, depth)
+            )
 
     for node in tree.body:
         add(node, 0)
@@ -176,7 +182,11 @@ def search(root: Path, pattern: str, path: str = ".", glob: str = "", max_result
         files_with += total > before
     if not hits:
         return f"No matches for {pattern!r} in {searched} files. Try a shorter pattern or another name."
-    more = f"\n[{total - len(hits)} more matches not shown; narrow the pattern or pass path or glob]" if total > len(hits) else ""
+    more = (
+        f"\n[{total - len(hits)} more matches not shown; narrow the pattern or pass path or glob]"
+        if total > len(hits)
+        else ""
+    )
     return f"{total} matches in {files_with} files for {pattern!r}:\n" + "\n".join(hits) + more
 
 

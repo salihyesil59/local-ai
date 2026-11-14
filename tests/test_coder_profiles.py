@@ -98,7 +98,12 @@ def test_the_last_crash_or_log_errors_are_read(tmp_path):
 
 def test_a_verify_command_the_model_writes_runs_the_gradle_wrapper_and_a_tool_name_is_not_a_command(tmp_path):
     root = mod(tmp_path)
-    for written in ("./gradlew compileJava", "gradlew compileJava", "gradlew.bat compileJava", ".\\gradlew compileJava"):
+    for written in (
+        "./gradlew compileJava",
+        "gradlew compileJava",
+        "gradlew.bat compileJava",
+        ".\\gradlew compileJava",
+    ):
         assert pf.own_command(root, written) == f"{pf.GRADLE} compileJava"
     assert pf.own_command(root, "check_files") == "" and pf.own_command(root, "echo ok") == "echo ok"
     assert pf.own_command(tmp_path / "build", "./gradlew x") == "./gradlew x"  # no profile: as written

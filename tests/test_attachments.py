@@ -132,7 +132,12 @@ def test_a_chat_gets_the_text_and_a_large_file_goes_into_the_library(tmp_path, m
     big = ("Kara delikler hakkında uzun bir kitap. " * 2000).encode()
     with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
         files = [{"name": "rapor.docx", "data": url(docx())}, {"name": "kitap.txt", "data": url(big)}]
-        assert ui.post("/api/runs", json={"mode": "chat", "question": "x", "files": [files[0] | {"name": "a.exe"}]}).status_code == 400
+        assert (
+            ui.post(
+                "/api/runs", json={"mode": "chat", "question": "x", "files": [files[0] | {"name": "a.exe"}]}
+            ).status_code
+            == 400
+        )
         run = ui.post("/api/runs", json={"mode": "chat", "question": "Özetle", "files": files}).json()
         events = read_events(ui, run["id"])
 
@@ -156,8 +161,12 @@ def test_a_chat_gets_the_text_and_a_large_file_goes_into_the_library(tmp_path, m
 def test_a_code_chat_and_a_steering_message_get_the_text(tmp_path):
     client = ScriptedClient(list(FINISHING))
     with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
-        body = {"mode": "code", "question": "", "folder": str(tmp_path / "app"),
-                "files": [{"name": "slides.pptx", "data": url(pptx())}]}
+        body = {
+            "mode": "code",
+            "question": "",
+            "folder": str(tmp_path / "app"),
+            "files": [{"name": "slides.pptx", "data": url(pptx())}],
+        }
         run = ui.post("/api/runs", json=body).json()
         read_events(ui, run["id"])
         assert run["question"].startswith("Look at the attached file")
@@ -167,7 +176,7 @@ def test_a_code_chat_and_a_steering_message_get_the_text(tmp_path):
         chat.status = "running"
         message = {"question": "Bunu da kullan", "files": [{"name": "tablo.xlsx", "data": url(xlsx())}]}
         assert ui.post(f"/api/runs/{run['id']}/messages", json=message).status_code == 202
-        (text, _), = chat.agent.steering
+        ((text, _),) = chat.agent.steering
         assert text.startswith("Bunu da kullan") and "kütle\t2.5" in text
         assert chat.events[-1]["text"] == "Bunu da kullan" and len(chat.events[-1]["files"]) == 1
         chat.status = "done"
@@ -177,8 +186,12 @@ def test_a_research_gets_the_text_with_its_question(mcp_config):
     client = StreamingClient({"quick": [reply("Cevap.")]})
     settings = AgentSettings(model="test", critic=False, gap_check=False)
     with TestClient(create_app(load_mcp_config(mcp_config), settings, client=client)) as ui:
-        body = {"question": "Bu ne diyor?", "quick": True, "sources": False,
-                "files": [{"name": "makale.pdf", "data": url(pdf(), "application/pdf")}]}
+        body = {
+            "question": "Bu ne diyor?",
+            "quick": True,
+            "sources": False,
+            "files": [{"name": "makale.pdf", "data": url(pdf(), "application/pdf")}],
+        }
         run = ui.post("/api/runs", json=body).json()
         read_events(ui, run["id"])
     asked = client.requests["quick"][0]["messages"][1]["content"]

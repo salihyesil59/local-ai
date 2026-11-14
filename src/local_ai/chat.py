@@ -101,7 +101,11 @@ class ChatAgent:
                 self.messages.append({"role": "assistant", "content": answer or None, "tool_calls": calls})
                 for call in calls:
                     self.messages.append(
-                        {"role": "tool", "tool_call_id": call["id"], "content": trim(await self.call(call), MAX_TOOL_CHARS)}
+                        {
+                            "role": "tool",
+                            "tool_call_id": call["id"],
+                            "content": trim(await self.call(call), MAX_TOOL_CHARS),
+                        }
                     )
                 continue
             if reply.finish_reason == "length" and not answer and nudge is None:

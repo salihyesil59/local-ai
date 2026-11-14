@@ -79,11 +79,13 @@ def test_chosen_tests_replace_the_paths_of_the_command(tmp_path):
     assert vf.focused(command, "tests/test_b.py::test_x", tmp_path) == (
         f"{python} -m pytest -q -p no:cacheprovider tests/test_b.py::test_x"
     )
-    assert vf.focused("pytest -x", "tests/test_a.py, tests/test_b.py", tmp_path) == "pytest -x tests/test_a.py tests/test_b.py"
+    assert (
+        vf.focused("pytest -x", "tests/test_a.py, tests/test_b.py", tmp_path)
+        == "pytest -x tests/test_a.py tests/test_b.py"
+    )
     for bad in ("tests/nope.py", "tests/test_a.py; echo x"):
         try:
             vf.focused("pytest", bad, tmp_path)
         except ValueError:
             continue
         raise AssertionError(bad)
-

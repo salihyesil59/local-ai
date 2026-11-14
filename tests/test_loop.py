@@ -250,8 +250,13 @@ async def test_parallel_research_cache_and_events(mcp_config):
 async def test_a_long_report_is_written_and_verified_section_by_section(mcp_config):
     source = (
         "notebook__add_source",
-        {"project": "long", "source_id": "Speed of light", "title": "Speed of light", "origin": "wikipedia",
-         "quote": "c = 299792458 m/s"},
+        {
+            "project": "long",
+            "source_id": "Speed of light",
+            "title": "Speed of light",
+            "origin": "wikipedia",
+            "quote": "c = 299792458 m/s",
+        },
     )
     client = ScriptedClient(
         {
@@ -316,8 +321,13 @@ async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_th
     monkeypatch.setattr(loop, "pdf_engine", lambda: None)
     source = (
         "notebook__add_source",
-        {"project": "doc", "source_id": "Speed of light", "title": "Speed of light", "origin": "wikipedia",
-         "quote": "c = 299792458 m/s"},
+        {
+            "project": "doc",
+            "source_id": "Speed of light",
+            "title": "Speed of light",
+            "origin": "wikipedia",
+            "quote": "c = 299792458 m/s",
+        },
     )
     client = ScriptedClient(
         {
@@ -350,8 +360,17 @@ async def test_document_mode_adds_a_chapter_after_each_step_and_the_report_at_th
         [done] = [e for e in events if e["kind"] == "document"]
         assert set(done) >= {"md", "docx"} and "pdf" not in done
         text = (tmp_path / "workspace" / "doc" / "document.md").read_text(encoding="utf-8")
-        order = ["# Bölüm I", "## 1. A?", "- c = 299792458 m/s [1]", "## 2. B?", "- B: nothing more", "# Bölüm II",
-                 "## Sentez", "# Kaynakça", "[1] *Speed of light*"]
+        order = [
+            "# Bölüm I",
+            "## 1. A?",
+            "- c = 299792458 m/s [1]",
+            "## 2. B?",
+            "- B: nothing more",
+            "# Bölüm II",
+            "## Sentez",
+            "# Kaynakça",
+            "[1] *Speed of light*",
+        ]
         positions = [text.index(s) for s in order]
         assert positions == sorted(positions)
 
@@ -481,7 +500,9 @@ async def test_clarifying_questions_and_a_plan_to_approve(mcp_config):
     async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
         asking = ScriptedClient({"clarify": [reply('{"questions": ["Which metric signature?", "  "]}')]})
         events = []
-        settings = AgentSettings(model="test", clarify=True, review_plan=True, learn=False, gap_check=False, critic=False)
+        settings = AgentSettings(
+            model="test", clarify=True, review_plan=True, learn=False, gap_check=False, critic=False
+        )
         agent = ResearchAgent(asking, bridge, settings, on_event=events.append)
         assert await agent.run("Derive the field equations") == ""
         assert [e["questions"] for e in events if e["kind"] == "clarify"] == [["Which metric signature?"]]
@@ -499,7 +520,10 @@ async def test_clarifying_questions_and_a_plan_to_approve(mcp_config):
         agent = ResearchAgent(planning, bridge, settings, on_event=events.append)
         assert await agent.run("Derive (-,+,+,+)", project="review") == ""
         [shown] = [e for e in events if e["kind"] == "plan_review"]
-        assert shown == {**shown, "project": "review", "sub_questions": ["A?", "B?"]} and "research" not in planning.requests
+        assert (
+            shown == {**shown, "project": "review", "sub_questions": ["A?", "B?"]}
+            and "research" not in planning.requests
+        )
 
         # the user kept only B: the research goes on from the changed plan
         plan = json.loads((await bridge.call("notebook__read_note", {"project": "review", "title": "plan"}))[0])
@@ -613,6 +637,7 @@ async def test_an_empty_report_or_section_is_replaced_by_the_findings(mcp_config
 
     monkeypatch.setattr(loop, "export_document", lambda project_dir, fmt: project_dir / "document.md")
     monkeypatch.setattr(loop, "pdf_engine", lambda: None)
+
     def script(**more):
         return {
             "draft": [reply("The draft from memory: δ√-g = ½√-g g^μν δg_μν.")],
@@ -648,14 +673,19 @@ async def test_a_call_written_as_text_at_the_step_limit_is_no_answer(mcp_config)
         {
             "research": [
                 reply(calls=[("library__search_library", {"query": "speed of light"})]),
-                reply("<tool_call>\n<function=notebook__add_source>\n<parameter=title>\nX\n</parameter>\n</function>"
-                      "\n</tool_call>\n- c = 299792458 m/s"),  # fmt: skip
+                reply(
+                    "<tool_call>\n<function=notebook__add_source>\n<parameter=title>\nX\n</parameter>\n</function>"
+                    "\n</tool_call>\n- c = 299792458 m/s"
+                ),  # fmt: skip
             ]
         }
     )
     async with MCPBridge(load_mcp_config(mcp_config)) as bridge:
         agent = ResearchAgent(client, bridge, AgentSettings(model="test"), console=Console(quiet=True))
-        messages = [{"role": "system", "content": "You are an offline research agent working"}, {"role": "user", "content": "c?"}]
+        messages = [
+            {"role": "system", "content": "You are an offline research agent working"},
+            {"role": "user", "content": "c?"},
+        ]
         answer, _ = await agent._tool_loop(messages, "Finish.", max_steps=1)
     assert answer == "- c = 299792458 m/s"
 
@@ -679,7 +709,10 @@ async def test_a_research_drafts_the_answer_then_checks_and_revises_it(mcp_confi
         kinds = [e["kind"] for e in events]
         assert kinds.index("draft") < kinds.index("plan") < kinds.index("findings") < kinds.index("report")
         assert next(e for e in events if e["kind"] == "draft")["text"] == draft  # shown at once, as a chat would
-        assert client.requests["draft"][0]["max_tokens"] == settings.report_tokens and "tools" not in client.requests["draft"][0]
+        assert (
+            client.requests["draft"][0]["max_tokens"] == settings.report_tokens
+            and "tools" not in client.requests["draft"][0]
+        )
         assert draft in client.requests["plan"][0]["messages"][1]["content"]  # the checks are of the draft
         written = client.requests["write"][0]["messages"][1]["content"]
         assert draft in written and "c = 299792458 m/s" in written  # the report revises the draft with the findings

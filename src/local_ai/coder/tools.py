@@ -200,9 +200,7 @@ def coder_tools(
             "Replace a text everywhere in the project in one call (a rename): every file under path, or only those "
             "matching glob ('*.py'). word: whole words only (use it for a name, so total is not changed inside "
             "subtotal); regex: old is a regular expression and new may use \\1. Returns the files and counts.",
-            _schema(
-                {"old": STR, "new": STR, "path": STR, "glob": STR, "word": BOOL, "regex": BOOL}, ["old", "new"]
-            ),
+            _schema({"old": STR, "new": STR, "path": STR, "glob": STR, "word": BOOL, "regex": BOOL}, ["old", "new"]),
             replace_in_files,
         ),
         Tool(

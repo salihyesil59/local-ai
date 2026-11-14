@@ -46,7 +46,10 @@ def test_a_pdf(tmp_path, monkeypatch):
     assert docs.make_pdf(MARKDOWN, title="Kara delik").startswith("Saved PDF: ")
     assert (tmp_path / "outputs" / "kara-delik.pdf").read_bytes()[:4] == b"%PDF"
     both = docs.make_pdf(MARKDOWN, title="Kara delik", filename="ikisi", also_docx=True).splitlines()
-    assert both == [f"Saved PDF: {tmp_path / 'outputs' / 'ikisi.pdf'}", f"Saved DOCX: {tmp_path / 'outputs' / 'ikisi.docx'}"]
+    assert both == [
+        f"Saved PDF: {tmp_path / 'outputs' / 'ikisi.pdf'}",
+        f"Saved DOCX: {tmp_path / 'outputs' / 'ikisi.docx'}",
+    ]
     assert zipfile.is_zipfile(tmp_path / "outputs" / "ikisi.docx")
 
 

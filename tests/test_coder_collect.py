@@ -19,14 +19,33 @@ def args(tmp_path, tasks, **over):
     path.write_text("".join(json.dumps(t) + "\n" for t in tasks), encoding="utf-8")
     parser = argparse.ArgumentParser()
     cl.add_parser(parser.add_subparsers())
-    a = parser.parse_args(["collect", str(path), "--out", str(tmp_path / "out"), "--model", "fake", "--samples", "1",
-                           "--judge-rounds", "0", "--concurrency", "1"])
+    a = parser.parse_args(
+        [
+            "collect",
+            str(path),
+            "--out",
+            str(tmp_path / "out"),
+            "--model",
+            "fake",
+            "--samples",
+            "1",
+            "--judge-rounds",
+            "0",
+            "--concurrency",
+            "1",
+        ]
+    )
     return argparse.Namespace(**{**vars(a), **over})
 
 
 def task(id_="add"):
-    return {"id": id_, "prompt": "Write add(a, b) in solution.py.", "grade": GRADE,
-            "files": {"solution.py": STUB, "test_solution.py": TESTS}, "protected": ["test_solution.py"]}
+    return {
+        "id": id_,
+        "prompt": "Write add(a, b) in solution.py.",
+        "grade": GRADE,
+        "files": {"solution.py": STUB, "test_solution.py": TESTS},
+        "protected": ["test_solution.py"],
+    }
 
 
 def solving(solution):

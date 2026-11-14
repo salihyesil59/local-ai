@@ -152,7 +152,9 @@ class ResearchAgent:
         reply = await read_stream(stream, batch.add, limit)
         batch.flush()
         self.emit("stream_end", index=index)
-        cut = reply.finish_reason == "length" and not reply.looping and not reply.content.strip() and not reply.tool_calls
+        cut = (
+            reply.finish_reason == "length" and not reply.looping and not reply.content.strip() and not reply.tool_calls
+        )
         return SimpleNamespace(
             content=reply.content or None,
             tool_calls=reply.tool_calls or None,
@@ -463,7 +465,10 @@ class ResearchAgent:
         cited = cited_numbers(findings or "")  # a source registered earlier may be cited again
         if outputs and self.registered == before and not cited and self._has_nb("add_source"):  # read, cited nothing
             self._log("No source was registered for these findings; asking for them.", "warning")
-            messages += [{"role": "assistant", "content": findings or ""}, {"role": "user", "content": prompts.REGISTER}]
+            messages += [
+                {"role": "assistant", "content": findings or ""},
+                {"role": "user", "content": prompts.REGISTER},
+            ]
             again, more = await self._tool_loop(
                 messages, prompts.FINALIZE_FINDINGS, index=i, max_steps=6, has_read=self.reads > reads
             )
@@ -550,12 +555,13 @@ class ResearchAgent:
             )
         if not sections:  # no usable outline: one section per sub-question
             sections = [
-                {"title": title_of(s.question), "covers": s.question, "subs": [i]}
-                for i, s in enumerate(subs, 1)
+                {"title": title_of(s.question), "covers": s.question, "subs": [i]} for i, s in enumerate(subs, 1)
             ]
         return sections[: self.settings.max_sections]
 
-    async def write_sections(self, question: str, subs: list[SubQuestion], sources: str) -> tuple[list[dict], list[str]]:
+    async def write_sections(
+        self, question: str, subs: list[SubQuestion], sources: str
+    ) -> tuple[list[dict], list[str]]:
         """A long report: an outline, then every section in its own completion (one after the other), so each
         section has the whole token budget for itself."""
         self._phase("Outline")
@@ -588,7 +594,9 @@ class ResearchAgent:
             [{"role": "system", "content": prompts.SECTION_WRITER}, {"role": "user", "content": task}],
             max_tokens=self.settings.report_tokens,
         )
-        return self._or_findings(self._headed(strip_think(message.content or ""), section["title"]), section["title"], subs)
+        return self._or_findings(
+            self._headed(strip_think(message.content or ""), section["title"]), section["title"], subs
+        )
 
     async def chapter(self, project: str, question: str, subs: list[SubQuestion], i: int) -> None:
         """Document mode: the chapter of check i, its findings as soon as they are in (already detailed and cited:
@@ -653,7 +661,9 @@ class ResearchAgent:
         texts = list(texts)
         for i, (section, text) in enumerate(zip(sections, texts, strict=True)):
             own = [subs[n - 1] for n in section["subs"]]
-            texts[i] = await self._review_section(project, question, own, section, text, f"section {i + 1}/{len(sections)}")
+            texts[i] = await self._review_section(
+                project, question, own, section, text, f"section {i + 1}/{len(sections)}"
+            )
         return await self._flag_remaining(project, "\n\n".join(texts))
 
     async def _review_section(

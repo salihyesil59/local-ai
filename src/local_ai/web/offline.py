@@ -84,7 +84,6 @@ class IndexJob:
             self.state.update(running=False, file="", finished=time.time())
 
 
-
 def indexed_paths(workspace: Path) -> set[str]:
     """The library files the search index has (read only; empty before the first index)."""
     db = workspace / "library.sqlite"
@@ -211,13 +210,15 @@ def zim_listing(where: Places) -> list[dict]:
         found = [folder] if folder.suffix == ".zim" and folder.is_file() else sorted(folder.glob("*.zim"))
         for path in found if folder.exists() else []:
             m = data.ZIM_NAME_RE.match(path.name)
-            archives.append({
-                "file": path.name,
-                "folder": str(path.parent),
-                "name": m["prefix"] if m else path.stem,
-                "date": m["date"] if m else "",
-                "size": path.stat().st_size,
-            })
+            archives.append(
+                {
+                    "file": path.name,
+                    "folder": str(path.parent),
+                    "name": m["prefix"] if m else path.stem,
+                    "date": m["date"] if m else "",
+                    "size": path.stat().st_size,
+                }
+            )
     return archives
 
 
@@ -228,13 +229,15 @@ def zim_updates(where: Places) -> list[dict]:
         for z in data.local_zims(folder):
             newest = data.newer_release(z) if z["date"] else None
             if newest:
-                found.append({
-                    "file": z["path"].name,
-                    "folder": str(folder),
-                    "new_file": newest["file"],
-                    "url": newest["url"],
-                    "size": newest["size"],
-                })
+                found.append(
+                    {
+                        "file": z["path"].name,
+                        "folder": str(folder),
+                        "new_file": newest["file"],
+                        "url": newest["url"],
+                        "size": newest["size"],
+                    }
+                )
     return found
 
 

@@ -75,7 +75,7 @@ def test_a_code_chat_takes_images_with_its_messages(tmp_path):
         chat = ui.app.state.runs[run["id"]]
         chat.status = "running"
         assert ui.post(f"/api/runs/{run['id']}/messages", json={"question": "", "images": [URL]}).status_code == 202
-        (message, paths), = chat.agent.steering
+        ((message, paths),) = chat.agent.steering
         assert message.startswith("Look at the attached image") and paths[0].read_bytes() == PNG
         assert chat.events[-1]["kind"] == "steer" and len(chat.events[-1]["images"]) == 1
         chat.status = "done"

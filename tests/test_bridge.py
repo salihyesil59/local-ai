@@ -80,4 +80,3 @@ async def test_servers_can_be_started_and_stopped_while_others_run(mcp_config):
     assert "extra" not in {s.name for s in load_mcp_config(mcp_config)}
     write_server(mcp_config, "extra", None)
     assert set(read_servers(mcp_config)) == {"library", "notebook", "compute"}
-

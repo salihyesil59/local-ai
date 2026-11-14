@@ -13,10 +13,20 @@ from local_ai.servers.export import REFERENCES_RE
 HEADING_RE = re.compile(r"^(#{1,6})([ \t])", re.MULTILINE)
 FENCE_RE = re.compile(r"(```.*?```)", re.DOTALL)
 TEXTS = {
-    "tr": {"findings": "Bölüm I — Araştırma bulguları", "synthesis": "Bölüm II — Sentez", "references": "Kaynakça",
-           "toc": "İçindekiler", "lang": "tr-TR"},
-    "en": {"findings": "Part I — Findings", "synthesis": "Part II — Synthesis", "references": "References",
-           "toc": "Contents", "lang": "en-US"},
+    "tr": {
+        "findings": "Bölüm I — Araştırma bulguları",
+        "synthesis": "Bölüm II — Sentez",
+        "references": "Kaynakça",
+        "toc": "İçindekiler",
+        "lang": "tr-TR",
+    },
+    "en": {
+        "findings": "Part I — Findings",
+        "synthesis": "Part II — Synthesis",
+        "references": "References",
+        "toc": "Contents",
+        "lang": "en-US",
+    },
 }
 # Each format keeps its own raw block and drops the other one.
 PAGE_BREAK = '```{=openxml}\n<w:p><w:r><w:br w:type="page"/></w:r></w:p>\n```\n\n```{=latex}\n\\newpage\n```'

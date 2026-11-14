@@ -99,7 +99,12 @@ async def run(args: argparse.Namespace) -> int:
         presence_penalty=args.presence_penalty,
         max_thinking_chars=args.max_thinking_chars,
     )
-    agent = CoderAgent(llm, root, Settings(max_turns=args.max_turns, context_chars=args.context_chars, tests=args.tests), emit=Printer(args.verbose))
+    agent = CoderAgent(
+        llm,
+        root,
+        Settings(max_turns=args.max_turns, context_chars=args.context_chars, tests=args.tests),
+        emit=Printer(args.verbose),
+    )
     outcome = await agent.run(task)
     print(f"\n{'FINISHED' if outcome.finished else 'NOT FINISHED'}: {outcome.reason}")
     if outcome.summary:

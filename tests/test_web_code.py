@@ -224,12 +224,10 @@ def test_code_mode_integrates_mcp_bridge_tools(tmp_path, monkeypatch):
         app = create_app([], AgentSettings(model="test"), client=ScriptedClient(replies))
         with TestClient(app) as c:
             run = c.post(
-                "/api/runs",
-                json={"mode": "code", "question": "Build", "folder": str(folder), "servers": ["web"]}
+                "/api/runs", json={"mode": "code", "question": "Build", "folder": str(folder), "servers": ["web"]}
             ).json()
             events = read_events(c, run["id"])
             tool_calls = [e for e in events if e.get("kind") == "tool_call"]
             assert any(call_item["name"] == "web__search" for call_item in tool_calls)
             assert len(mock_inst.called) == 1
             assert mock_inst.called[0][0] == "web__search"
-

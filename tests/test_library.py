@@ -120,7 +120,9 @@ def test_read_chunk_with_neighbors(lib):
 def test_a_chunk_id_with_a_page_reads_its_pdf_on_from_the_chunks_page(tmp_path):
     papers = tmp_path / "papers"
     papers.mkdir()
-    make_pdf(papers / "book.pdf", ["Contents.", "Pauli matrices are Hermitian.", "Their eigenvalues are plus and minus one."])
+    make_pdf(
+        papers / "book.pdf", ["Contents.", "Pauli matrices are Hermitian.", "Their eigenvalues are plus and minus one."]
+    )
     library = Library(tmp_path / "pages.sqlite", zim_paths=[], embedder=HashEmbedder())
     library.index_folder(papers)
     hit = library.search("Pauli matrices Hermitian", sources="pdf")[0]
@@ -172,7 +174,9 @@ def test_read_arxiv_extracts_id_and_searches_query(tmp_path, monkeypatch):
     from local_ai.servers.library import arxiv
 
     pdf_path = tmp_path / "2401.01234.pdf"
-    make_pdf(pdf_path, ["Title and abstract", "Algorithm 1: Quantum phase estimation steps...", "Discussion and results."])
+    make_pdf(
+        pdf_path, ["Title and abstract", "Algorithm 1: Quantum phase estimation steps...", "Discussion and results."]
+    )
     monkeypatch.setattr(arxiv, "cache_dir", lambda name: tmp_path)
     monkeypatch.setattr(arxiv, "http_get", lambda url, timeout=60: b"dummy")
 
@@ -220,7 +224,6 @@ def test_reading_returns_whole_pages_and_says_where_to_go_on(tmp_path):
     assert reply.endswith(f"Go on with page={last + 1}.]") and f"Pages {last + 1}," in reply
     rest = arxiv.read_pdf(str(paper), page=last + 1, pages=1)
     assert f"Page {last + 1} ends." in rest and "Go on with" not in rest
-
 
 
 def test_a_search_with_a_scope_looks_only_into_that_folder(tmp_path, monkeypatch):

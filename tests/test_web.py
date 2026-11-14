@@ -187,7 +187,10 @@ def test_mcp_servers_are_listed_added_disabled_and_removed(mcp_config):
         assert client.post("/api/mcp", json={"name": "bad name!", "command": "x"}).status_code == 400
         assert client.post("/api/mcp", json={"name": "x"}).status_code == 400
 
-    assert parse_mcp_server({"name": "web", "url": "https://example.org/mcp"}) == ("web", {"url": "https://example.org/mcp"})
+    assert parse_mcp_server({"name": "web", "url": "https://example.org/mcp"}) == (
+        "web",
+        {"url": "https://example.org/mcp"},
+    )
     assert parse_mcp_server({"name": "n", "json": '{"command": "uvx", "args": ["pkg"]}'})[1]["args"] == ["pkg"]
     assert parse_mcp_server({"name": "e", "command": "srv", "env": {"KEY": 1}})[1]["env"] == {"KEY": "1"}
     with TestClient(create_app([], AgentSettings(model="test"), client=StreamingClient({}))) as client:
@@ -228,7 +231,9 @@ def test_the_answer_to_clarifying_questions_is_researched_with_them():
     run = Run(id="r", question="Derive the field equations", project="")
     run.events = [{"kind": "user", "text": run.question}, {"kind": "clarify", "questions": ["Which signature?"]}]
     task = run.follow_up("(-,+,+,+), advanced")
-    assert task.startswith("(-,+,+,+), advanced") and "Derive the field equations" in task and "Which signature?" in task
+    assert (
+        task.startswith("(-,+,+,+), advanced") and "Derive the field equations" in task and "Which signature?" in task
+    )
 
 
 def test_a_stopped_research_keeps_what_it_found(mcp_config):
@@ -256,12 +261,16 @@ def test_a_stopped_research_keeps_what_it_found(mcp_config):
     replies["write"] *= 2
     replies["learn"] *= 2
     servers = load_mcp_config(mcp_config)
-    app = create_app(servers, AgentSettings(model="test", critic=False, gap_check=False), client=StreamingClient(replies))
+    app = create_app(
+        servers, AgentSettings(model="test", critic=False, gap_check=False), client=StreamingClient(replies)
+    )
     with TestClient(app) as client:
         started = client.post("/api/runs", json={"question": "What is the speed of light?", "project": "light"}).json()
         events = read_events(client, started["id"])
         assert {"kind": "project", "name": "light"}.items() <= next(e for e in events if e["kind"] == "project").items()
-        assert client.post(f"/api/runs/{started['id']}/messages", json={"question": ""}).status_code == 400  # it has its report
+        assert (
+            client.post(f"/api/runs/{started['id']}/messages", json={"question": ""}).status_code == 400
+        )  # it has its report
 
         stopped = app.state.runs[started["id"]]  # as if the user had stopped it before the report
         stopped.events = [e for e in stopped.events if e["kind"] not in ("report", "end", "notebook")]
@@ -274,4 +283,3 @@ def test_a_stopped_research_keeps_what_it_found(mcp_config):
         assert {"kind": "user", "text": "(continue the research)"}.items() <= resumed[kinds.index("user")].items()
         after = kinds[kinds.index("user") :]
         assert "report" in after and "subquestion" not in after  # the findings were there: only the report was written
-

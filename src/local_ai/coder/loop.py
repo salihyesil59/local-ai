@@ -159,7 +159,9 @@ class CoderAgent:
             return ""
         result = await asyncio.to_thread(vf.run, vf.in_project_env(command, self.root), self.root, VERIFY_TIMEOUT)
         line = "PASSED" if result.passed else f"FAILED: {vf.first_error(result.output)}"
-        self.emit("log", text=f"Tests after the change ({command}): {line}", level="info" if result.passed else "warning")
+        self.emit(
+            "log", text=f"Tests after the change ({command}): {line}", level="info" if result.passed else "warning"
+        )
         return line
 
     async def call_tool(self, call: dict) -> str:
@@ -321,7 +323,9 @@ class CoderAgent:
         change = await asyncio.to_thread(jd.diff, self.root)
         restarted = prompts.RESTARTED.format(
             status=st.render(self.root, state) if state else "(no plan yet)",
-            diff=trim(change, RESTART_DIFF_CHARS) if change else "(no change yet, or the folder is not a git repository)",
+            diff=trim(change, RESTART_DIFF_CHARS)
+            if change
+            else "(no change yet, or the folder is not a git repository)",
             notes=prompts.NOTES.format(note=notes) if notes else "",
         )
         self.emit("restart", stuck=stuck, noted=bool(notes), dropped=len(messages) - 2)
@@ -557,8 +561,12 @@ class CoderAgent:
             overview = prompts.LARGE_PROJECT.format(skill=how, map=project_map)
             self.emit("log", text="Large project: its map is given with the task")
         return [
-            {"role": "system", "content": prompts.system_prompt(self.root, sk.skill_list(skills), extra_names,
-                                                                  wf.tests_required(self.root, self.settings.tests))},
+            {
+                "role": "system",
+                "content": prompts.system_prompt(
+                    self.root, sk.skill_list(skills), extra_names, wf.tests_required(self.root, self.settings.tests)
+                ),
+            },
             {
                 "role": "user",
                 "content": with_images(

@@ -112,7 +112,9 @@ def test_existing_tests_are_kept_once(project):
     tools = {name: t.fn for name, t in coder_tools(project).items()}
     path = "tests/test_shapes.py"
 
-    added = tools["edit_file"](path, "    assert area(0) == 0\n", "    assert area(0) == 0\n\n\ndef test_one():\n    assert area(1) == 3\n")
+    added = tools["edit_file"](
+        path, "    assert area(0) == 0\n", "    assert area(0) == 0\n\n\ndef test_one():\n    assert area(1) == 3\n"
+    )
     assert added == f"Edited {path}."  # adding a test is fine
     refused = tools["edit_file"](path, "12\n", "13\n")
     assert refused.startswith("Error: not changed") and "test_area" in refused and "test_zero" not in refused

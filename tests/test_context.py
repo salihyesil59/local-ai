@@ -18,7 +18,7 @@ def test_extract_json_from_fenced_reply():
 
 
 def test_extract_json_with_latex_in_its_strings():
-    reply = r'```json' '\n' r'{"q": "Varyasyon $T_{\mu\nu}$ ve $\sqrt{-g}$, \"tırnak\" ç"}' '\n```'
+    reply = r"```json" "\n" r'{"q": "Varyasyon $T_{\mu\nu}$ ve $\sqrt{-g}$, \"tırnak\" ç"}' "\n```"
     assert extract_json(reply) == {"q": r'Varyasyon $T_{\mu\nu}$ ve $\sqrt{-g}$, "tırnak" ç'}
 
 
