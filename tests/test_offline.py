@@ -33,27 +33,28 @@ def test_the_places_come_from_the_library_server_of_the_mcp_json(tmp_path):
     assert places.library == tmp_path / "mine" and places.zim_dirs == [tmp_path / "z"]
 
 
+def finished_index(ui, timeout=60.0):
+    """The Offline state once the index job is done; the first job imports the library server, slow under load."""
+    deadline = time.monotonic() + timeout
+    while (state := ui.get("/api/offline").json())["index"]["running"]:
+        assert time.monotonic() < deadline, "the index job did not finish"
+        time.sleep(0.05)
+    return state
+
+
 def test_the_index_button_indexes_the_library_in_the_background(library, monkeypatch):
     monkeypatch.setenv("LOCAL_AI_EMBED_BACKEND", "hash")
     library.mkdir()
     (library / "friedmann.md").write_text("# Friedmann\n\nThe scale factor obeys the Friedmann equations.", "utf-8")
     with TestClient(create_app([], AgentSettings(model="test"), client=ScriptedClient([]))) as ui:
         assert ui.post("/api/offline/index").status_code == 202
-        for _ in range(100):
-            state = ui.get("/api/offline").json()
-            if not state["index"]["running"]:
-                break
-            time.sleep(0.05)
+        state = finished_index(ui)
         job = state["index"]
         assert job["error"] == "" and job["result"]["indexed"] == 1 and job["embeddings"] is True
         assert state["library"]["files"][0]["indexed"]
         (library / "friedmann.md").unlink()
         assert ui.post("/api/offline/index").status_code == 202
-        for _ in range(100):
-            job = ui.get("/api/offline").json()["index"]
-            if not job["running"]:
-                break
-            time.sleep(0.05)
+        job = finished_index(ui)["index"]
         assert job["result"]["removed"] == 1
 
 
