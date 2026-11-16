@@ -120,11 +120,19 @@ def test_run_project_export_memory(client):
     skills = client.get("/api/skills").json()
     assert any(s["name"] == "derivation" for s in skills)
 
+    # the delete button of the Projects view: the folder goes, the chat that made it stays
+    assert client.delete("/api/projects/light").json() == {"ok": True}
+    assert all(p["name"] != "light" for p in client.get("/api/projects").json())
+    assert client.get("/api/projects/light").status_code == 404
+    assert client.delete("/api/projects/light").status_code == 404
+    assert any(r["id"] == run["id"] for r in client.get("/api/runs").json())
+
 
 def test_files_cannot_escape_workspace(client):
     assert client.get("/files/../../etc/passwd").status_code == 404
     assert client.get("/files/%2e%2e/%2e%2e/etc/passwd").status_code == 404
     assert client.get("/api/projects/..").status_code == 404
+    assert client.delete("/api/projects/..").status_code == 404
 
 
 def test_validation(client):

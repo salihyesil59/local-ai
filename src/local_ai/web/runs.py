@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from local_ai.chat import ChatAgent
+from local_ai.coder import changes as coder_changes
 from local_ai.coder import state as coder_state
 from local_ai.coder.loop import CoderAgent, Settings
 from local_ai.core import images as img
@@ -205,6 +206,8 @@ async def run_code(
     if not task or task.startswith("(continue"):
         task = "Continue the existing plan and finish the task."
     run.push({"kind": "log", "text": f"Project folder: {root}"})
+    if coder_changes.is_repo(root):  # what was changed before the run is never undone in the Changes panel
+        run.push({"kind": "git_baseline", "dirty": coder_changes.dirty(root)})
 
     extra_tools = {}
     if bridge:

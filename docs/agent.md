@@ -148,7 +148,8 @@ citation tooltips and export buttons (HTML, MD, BibTeX, TeX, DOCX, PDF). Code bl
 The page has three parts:
 
 - the **sidebar** on the left: **New chat**, a search and the chats with their folders; at its foot a row of icons
-  for the pages (Projects: report, sources with quotes, findings, computations notebook, resume; Memory, with
+  for the pages (Projects: report, sources with quotes, findings, computations notebook, resume, and **Delete**, which
+  removes a project's folder after a confirmation but keeps the chat that made it; Memory, with
   search and forget; Skills; Tools; Offline). Its foot shows whether LM Studio answers, the model and the number of tools,
   and switches the language and the theme. **Ctrl+B** hides it; on a phone it is a drawer opened from the top bar;
 - the **chat** in the middle, with the message box at its foot. The title in the top bar opens the menu of the chat
@@ -282,6 +283,11 @@ What the chat set in its settings (thinking limit, max turns) wins over these. I
 `replace_in_files(old, new, path, glob, word, regex)` changes a text in all files in one call, so a rename does not
 need a read and an edit per file.
 
+After every edit of a Python file the program checks the changed files for mistakes that are nearly always real:
+syntax errors, undefined names and redefinitions (`coder/lint.py`, ruff with the rules `E9,F63,F7,F82,F821,F811`,
+without its cache; without ruff the file is only compiled). What it finds is added to the edit's result, so the
+model fixes a broken file in the same turn instead of after a slow test run.
+
 Code mode uses the model, `temperature` and `top_p` of the UI; it needs none of the MCP servers, and can use
 the ones selected with the MCP chips. It can run beside a research or a chat (see below).
 
@@ -345,6 +351,12 @@ The panel on the right follows the run: in a code chat the plan with its steps, 
 changed; in a research chat the sub-questions and the registered sources. File edits are shown as a diff and
 verify as a test result (PASSED / FAILED). **Project files** in the panel of a code chat lists the files of the
 project folder; a click shows a file.
+
+When the project folder is a git repository, **Changes** lists every file that differs from the last commit, with
+its added and removed lines; a click shows the whole diff. **Undo** puts one file back as it is in the last commit
+(a new file is deleted), after a confirmation and only while the run is stopped. Files that had already changed
+before the chat's first run are listed but cannot be undone there, so the user's own uncommitted work stays. Nothing
+is committed or staged and no branch is made.
 
 A chat takes messages while it works. A code run reads one before its next reply (**Steer**), so the reply it
 is writing and its tool calls still finish first. A chat answers it when the current answer is done (between tool

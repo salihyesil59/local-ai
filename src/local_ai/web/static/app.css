@@ -390,6 +390,11 @@ details.advanced[open] > summary::before { content: "▾ "; }
 .file-list .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-list .counts { flex: none; }
 .source-list li { overflow-wrap: anywhere; }
+.file-list.changes li { align-items: center; justify-content: flex-start; }
+.file-list.changes .path { flex: 1; min-width: 0; text-align: left; text-decoration: none; color: var(--fg); }
+.file-list.changes .path:hover { text-decoration: underline; }
+.file-list.changes .badge, .file-list.changes button.small { flex: none; font-family: system-ui, sans-serif; }
+.change-view { margin: 0; border: 0; border-radius: 0; max-height: 72vh; }
 .source-list .n { color: var(--muted); font-family: var(--mono); font-size: 12px; margin-right: 4px; }
 .history-head { margin: 0; }
 details.round { width: auto; height: auto; border-radius: var(--radius); border: 1px solid var(--border); padding: 8px 10px; display: grid; gap: 14px; cursor: auto;
@@ -455,6 +460,10 @@ details.call > .md { padding: 6px 0 2px; font-family: system-ui, -apple-system, 
 .project-item:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 .project-item strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-item small { color: var(--muted); }
+.project-row { display: flex; gap: 8px; align-items: center; }
+.project-row .project-item { flex: 1; min-width: 0; }
+.project-row > .ghost { flex: none; opacity: .55; }
+.project-row:hover > .ghost, .project-row > .ghost:focus-visible { opacity: 1; }
 .back { margin-bottom: 12px; }
 .memory-list { list-style: none; padding: 0; display: grid; gap: 8px; margin-top: 12px; }
 .memory-list li { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px;

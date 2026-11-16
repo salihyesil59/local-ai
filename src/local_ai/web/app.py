@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sqlite3
 import sys
 import uuid
@@ -27,6 +28,7 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from local_ai.coder import changes as coder_changes
 from local_ai.coder import files as coder_files
 from local_ai.core import attachments as att
 from local_ai.core import images as img
@@ -814,6 +816,40 @@ def create_app(
             return JSONResponse({"error": "not a text file"}, status_code=415)
         return JSONResponse({"path": path, "content": content})
 
+    def changed_before(run: Run) -> set[str]:
+        """The files that differed from the last commit when the chat's first code run started."""
+        load_events(run)
+        first = next((e for e in run.events if e["kind"] == "git_baseline"), None)
+        return set(first["dirty"]) if first else set()
+
+    async def run_changes(request: Request) -> Response:
+        """What the code chat changed in its git project, file by file, with the diffs."""
+        root = code_root(request)
+        if root is None:
+            return JSONResponse({"error": "not a code chat"}, status_code=404)
+        run = state["runs"][request.path_params["run_id"]]
+        if not await asyncio.to_thread(coder_changes.is_repo, root):
+            return JSONResponse({"git": False, "files": []})
+        found = await asyncio.to_thread(coder_changes.changes, root, changed_before(run))
+        return JSONResponse({"git": True, "files": found, "running": run.status in ACTIVE})
+
+    async def undo_change(request: Request) -> Response:
+        """Put one file of a code chat's project back as it is in the last commit."""
+        root = code_root(request)
+        if root is None:
+            return JSONResponse({"error": "not a code chat"}, status_code=404)
+        run = state["runs"][request.path_params["run_id"]]
+        if run.status in ACTIVE:
+            return JSONResponse({"error": "wait until the run has stopped"}, status_code=409)
+        body = await request.json()
+        path = str(body.get("path", "")).strip()
+        if not path or not await asyncio.to_thread(coder_changes.is_repo, root):
+            return JSONResponse({"error": "nothing to undo"}, status_code=400)
+        problem = await asyncio.to_thread(coder_changes.undo, root, path, changed_before(run))
+        if problem:
+            return JSONResponse({"error": problem}, status_code=409)
+        return JSONResponse({"ok": True})
+
     async def compact_run(request: Request) -> Response:
         run = state["runs"].get(request.path_params["run_id"])
         if run is None:
@@ -850,6 +886,19 @@ def create_app(
                     }
                 )
         return JSONResponse(projects)
+
+    async def delete_project(request: Request) -> Response:
+        """Delete a research project folder (plan, findings, sources, report, exports). The chats that made it stay."""
+        try:
+            pdir = project_dir(request.path_params["name"])
+        except FileNotFoundError:
+            return JSONResponse({"error": "unknown project"}, status_code=404)
+        if pdir == workspace or not (pdir / "notes").is_dir():  # only what the Projects view lists
+            return JSONResponse({"error": "unknown project"}, status_code=404)
+        if any(r.status in ACTIVE and r.project == pdir.name for r in state["runs"].values()):
+            return JSONResponse({"error": "a research is working on this project; stop it first"}, status_code=409)
+        await asyncio.to_thread(shutil.rmtree, pdir)
+        return JSONResponse({"ok": True})
 
     async def get_project(request: Request) -> Response:
         try:
@@ -1110,8 +1159,11 @@ def create_app(
         Route("/api/runs/{run_id}/compact", compact_run, methods=["POST"]),
         Route("/api/runs/{run_id}/files", run_files),
         Route("/api/runs/{run_id}/file", run_file),
+        Route("/api/runs/{run_id}/changes", run_changes),
+        Route("/api/runs/{run_id}/changes/undo", undo_change, methods=["POST"]),
         Route("/api/projects", list_projects),
         Route("/api/projects/{name}", get_project),
+        Route("/api/projects/{name}", delete_project, methods=["DELETE"]),
         Route("/api/projects/{name}/plan", update_plan, methods=["PUT"]),
         Route("/api/projects/{name}/export", export_project, methods=["POST"]),
         Route("/api/projects/{name}/sources/{n:int}/passages", source_passages),

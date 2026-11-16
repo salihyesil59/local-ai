@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from local_ai.coder import files as fl
+from local_ai.coder import lint
 from local_ai.coder import navigate as nav
 from local_ai.coder import profiles as pf
 from local_ai.coder import skills as sk
@@ -33,6 +35,7 @@ STRS = {"type": "array", "items": {"type": "string"}}
 INT = {"type": "integer"}
 BOOL = {"type": "boolean"}
 
+CHANGED_FILE = re.compile(r"^  (.+): \d+$", re.MULTILINE)  # a file in replace_in_files' result
 EDIT_TOOLS = ("write_file", "edit_file", "replace_in_files")
 
 
@@ -111,7 +114,7 @@ def coder_tools(
             refused = keeps_tests(path, {line.strip() for line in before.splitlines()} - kept)
             if refused:
                 return refused
-        return fl.write_file(root, path, content)
+        return lint.with_problems(root, fl.write_file(root, path, content), [path])
 
     def edit_file(path: str, old: str, new: str) -> str:
         if plan_first and st.load(root) is None:
@@ -119,14 +122,15 @@ def coder_tools(
         original(path)
         kept = {line.strip() for line in new.splitlines()}
         refused = keeps_tests(path, {line.strip() for line in old.splitlines()} - kept)
-        return refused or fl.edit_file(root, path, old, new)
+        return refused or lint.with_problems(root, fl.edit_file(root, path, old, new), [path])
 
     def replace_in_files(
         old: str, new: str, path: str = ".", glob: str = "", word: bool = False, regex: bool = False
     ) -> str:
         if plan_first and st.load(root) is None:
             return NO_PLAN_YET
-        return fl.replace_in_files(root, old, new, path, glob, word, regex)
+        output = fl.replace_in_files(root, old, new, path, glob, word, regex)
+        return lint.with_problems(root, output, CHANGED_FILE.findall(output))
 
     def load_skill(name: str) -> str:
         found = sk.load_skills()

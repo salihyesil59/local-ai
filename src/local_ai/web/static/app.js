@@ -1225,7 +1225,7 @@ function newContext(title) {
   // cards, calls, live: what the current message has put on the timeline; panel: what the progress panel shows;
   // contents: the files the agent has written in this chat, to show what a later write changes
   return { cards: {}, calls: {}, live: {}, current: null, contents: new Map(),
-    panel: { rounds: [newRound(title)], openRounds: {}, tree: null, dirs: {}, treeOpen: false } };
+    panel: { rounds: [newRound(title)], openRounds: {}, tree: null, dirs: {}, treeOpen: false, changes: null } };
 }
 
 // A new message of the user: its turns start counting again, and the panel opens a new entry for it.
@@ -1540,6 +1540,70 @@ function refreshFiles(ctx) {
     if (tree && state.currentRun === run.id) { ctx.panel.tree = tree; schedulePanel(); }
     if (ctx.filesAgain) { ctx.filesAgain = false; refreshFiles(ctx); }
   });
+  refreshChanges(ctx);
+}
+
+// -- what a code chat changed in its git project, file by file: a diff to read and an Undo per file ----
+function refreshChanges(ctx) {
+  const run = state.runs[state.currentRun];
+  if (!run || run.mode !== "code") return;
+  if (ctx.changesBusy) { ctx.changesAgain = true; return; }
+  ctx.changesBusy = true;
+  api(`/api/runs/${run.id}/changes`).catch(() => null).then((changes) => {
+    ctx.changesBusy = false;
+    if (changes && state.currentRun === run.id) { ctx.panel.changes = changes; schedulePanel(); }
+    if (ctx.changesAgain) { ctx.changesAgain = false; refreshChanges(ctx); }
+  });
+}
+
+const CHANGE_KIND = { added: "new", deleted: "deleted", modified: "changed" };
+
+function changesSection(ctx) {
+  const { changes } = ctx.panel;
+  if (!changes.git) return section(t("Changes"), null, el("div", { class: "muted" }, t("Changes need a git repository.")));
+  const sum = changes.files.reduce((s, f) => ({ added: s.added + f.added, removed: s.removed + f.removed }), { added: 0, removed: 0 });
+  return section(t("Changes"), counts(sum.added, sum.removed),
+    el("ul", { class: "file-list changes" }, changes.files.map((f) => {
+      const why = changes.running ? t("Wait until the run has stopped.") : f.before_run ? t("Changed before this chat: kept as it is.") : "";
+      return el("li", {},
+        el("button", { type: "button", class: "path link", title: f.path, onclick: () => showChange(f) }, f.path),
+        el("span", { class: "badge" }, t(CHANGE_KIND[f.status])),
+        counts(f.added, f.removed),
+        el("button", { type: "button", class: "ghost small", disabled: Boolean(why), title: why || t("Undo the change of this file"),
+          onclick: () => undoChange(ctx, f) }, t("Undo")));
+    })));
+}
+
+function showChange(f) {
+  const rows = f.diff.split("\n").filter((line) => !/^(diff --git|index |--- |\+\+\+ |new file mode|deleted file mode)/.test(line));
+  const kind = (line) => line.startsWith("@@") ? "gap" : line[0] === "+" ? "add" : line[0] === "-" ? "del" : "ctx";
+  const body = el("div", { class: "diff-body change-view" }, rows.map((line) => kind(line) === "gap"
+    ? el("div", { class: "dl more" }, line)
+    : el("div", { class: `dl ${kind(line)}` }, el("span", { class: "sign" }, SIGN[kind(line)]), el("span", {}, line.slice(1)))));
+  if (!f.diff) body.append(el("div", { class: "dl more" }, t("No text to show (a binary or very large file).")));
+  if (f.cut) body.append(el("div", { class: "dl more" }, t("The rest of the diff is cut off.")));
+  const close = () => { dialog.close(); dialog.remove(); };
+  const dialog = el("dialog", { class: "dialog file-view" },
+    el("div", { class: "file-head" }, icon("file"), el("strong", {}, f.path), counts(f.added, f.removed),
+      el("button", { class: "icon", type: "button", title: t("Close"), onclick: close }, icon("x"))),
+    body);
+  dialog.addEventListener("click", (ev) => { if (ev.target === dialog) close(); }); // a click on the backdrop
+  dialog.addEventListener("close", () => dialog.remove()); // closed with Escape
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+async function undoChange(ctx, f) {
+  const run = state.runs[state.currentRun];
+  if (!run) return;
+  const text = f.status === "added" ? t("Delete the new file {path}?", { path: f.path })
+    : t("Put {path} back as it is in the last commit? Its changes are lost.", { path: f.path });
+  if (!(await confirmDialog(text, t("Undo")))) return;
+  try {
+    await api(`/api/runs/${run.id}/changes/undo`, { method: "POST", body: JSON.stringify({ path: f.path }) });
+    toast(t("Undone: {path}", { path: f.path }));
+  } catch (e) { fail(e); }
+  refreshFiles(ctx);
 }
 
 function fileTree(ctx) {
@@ -1721,6 +1785,8 @@ function progressParts(ctx) {
       parts.push(entry);
     }
   }
+  const { changes } = ctx.panel;
+  if (changes && (changes.files.length || !changes.git)) parts.push(changesSection(ctx));
   if (tree && tree.files.length) parts.push(fileTree(ctx));
   return parts;
 }
@@ -1901,6 +1967,7 @@ function renderEvent(e, ctx) {
         : t("Nothing to compact yet.")));
       break;
     case "outcome":
+      refreshFiles(ctx);
       append(el("div", { class: `log ${e.finished ? "success" : "warning"}` }, e.finished ? t("Finished: verification passes.") : `${t("Stopped")}: ${e.reason}.`));
       break;
     case "error":
@@ -1967,10 +2034,23 @@ function exportBar(project, extra = []) {
 async function loadProjects() {
   const projects = await api("/api/projects").catch(() => []);
   $("#project-list").replaceChildren(
-    ...(projects.length ? projects.map((p) =>
+    ...(projects.length ? projects.map((p) => el("div", { class: "project-row" },
       el("button", { class: "project-item", type: "button", onclick: () => openProject(p.name) },
-        el("strong", { title: p.question || p.name }, p.question || p.name), el("small", {}, p.has_report ? p.name : `${p.name} · ${t("no report yet")}`))) : [el("p", { class: "muted" }, t("No projects yet."))])
+        el("strong", { title: p.question || p.name }, p.question || p.name), el("small", {}, p.has_report ? p.name : `${p.name} · ${t("no report yet")}`)),
+      el("button", { class: "ghost small danger", type: "button", title: t("Delete this project"), onclick: () => deleteProject(p) }, t("Delete"))))
+      : [el("p", { class: "muted" }, t("No projects yet."))])
   );
+}
+
+// The project's folder goes (plan, findings, sources, report, exports); the chats that made it stay.
+async function deleteProject(p) {
+  const text = t('Delete the project "{name}" with its plan, findings, sources and report? This cannot be undone.', { name: shortTitle(p.question || p.name, 80) });
+  if (!(await confirmDialog(text))) return;
+  try {
+    await api(`/api/projects/${encodeURIComponent(p.name)}`, { method: "DELETE" });
+    delete sourceCache[p.name];
+  } catch (e) { fail(e); }
+  loadProjects();
 }
 
 async function openProject(name) {

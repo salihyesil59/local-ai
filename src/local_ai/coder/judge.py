@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import ast
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from local_ai.coder import verify as vf
+from local_ai.coder.changes import git
 from local_ai.core.llm import LLM
 from local_ai.core.text import strip_think, trim
 
@@ -120,15 +120,10 @@ for source in {codes!r}:
 def diff(root: Path) -> str:
     """The change against the last commit with the new files; "" when the folder is not a git repository. The
     index is not touched: what the user staged stays staged."""
-
-    def git(*args: str) -> str:
-        done = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, errors="replace")
-        return done.stdout if done.returncode == 0 else ""
-
-    if not git("rev-parse", "--verify", "HEAD"):
+    if not git(root, "rev-parse", "--verify", "HEAD"):
         return ""
-    parts = [git("diff", "HEAD", "--", ".", ":(exclude).local-coder").strip()]
-    for name in git("ls-files", "--others", "--exclude-standard").splitlines()[:20]:
+    parts = [git(root, "diff", "HEAD", "--", ".", ":(exclude).local-coder").strip()]
+    for name in git(root, "ls-files", "--others", "--exclude-standard").splitlines()[:20]:
         path = root / name
         if name.startswith(".local-coder") or not path.is_file() or path.stat().st_size > 50_000:
             continue
