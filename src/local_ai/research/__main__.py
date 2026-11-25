@@ -5,8 +5,6 @@ local-ai --quick "your question"       fast answer: one tool loop, no report
 local-ai ui [--port 8765]               local web interface
 local-ai export <project> [--format html|md|bib|tex|docx|pdf]
 local-ai data ...                       download/update ZIM and arXiv data (online)
-local-ai bench setup|run|show           measure the assistant on a fixed set of tasks
-local-ai traces export                  the good coding runs as training data (JSONL)
 """
 
 from __future__ import annotations
@@ -30,16 +28,18 @@ from .loop import ResearchAgent
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="local-ai",
-        description="Research agent: LM Studio model + MCP tools (library, compute, notebook).",
+        description="Research agent: a local model on an OpenAI-compatible server + MCP tools (library, compute, notebook).",
     )
     p.add_argument("question", nargs="?", help="Research question (any language).")
     p.add_argument("--project", help="Notebook project name (default: derived from the question).")
     p.add_argument("--resume", action="store_true", help="Continue an existing --project from its saved notes.")
     p.add_argument("--out", type=Path, help="Also write the final report to this file.")
-    p.add_argument("--mcp-config", help="Path to mcp.json (default: LOCAL_AI_MCP_CONFIG, else ~/.lmstudio/mcp.json).")
+    p.add_argument("--mcp-config", help="Path to mcp.json (default: LOCAL_AI_MCP_CONFIG, else ~/.local-ai/mcp.json).")
     p.add_argument("--servers", help="Comma-separated subset of MCP servers to start (default: all).")
-    p.add_argument("--base-url", help="OpenAI-compatible endpoint (default: http://localhost:1234/v1).")
-    p.add_argument("--model", help="Model id as shown by LM Studio (default: first loaded LLM).")
+    p.add_argument(
+        "--base-url", help="OpenAI-compatible endpoint (default: LOCAL_AI_BASE_URL, else http://localhost:8888/v1)."
+    )
+    p.add_argument("--model", help="Model id as listed by the server's /v1/models (default: first loaded LLM).")
     p.add_argument("--max-steps", type=int, help="Tool-calling steps per sub-question (default: 12).")
     p.add_argument("--max-tool-chars", type=int, help="Characters of tool output kept in context (default: 6000).")
     p.add_argument("--temperature", type=float)
@@ -125,7 +125,7 @@ async def main(argv: list[str] | None = None) -> int:
     if not settings.model:
         settings.model = await pick_model(client)
         if not settings.model:
-            raise SystemExit("No model loaded in LM Studio. Load one or pass --model.")
+            raise SystemExit("No model loaded on the model server (LOCAL_AI_BASE_URL). Load one or pass --model.")
     console.print(f"Model: {settings.model} @ {settings.base_url}", style="dim")
 
     only = [s.strip() for s in args.servers.split(",")] if args.servers else None
@@ -180,14 +180,6 @@ def cli() -> None:
             from .data import main as data_main
 
             sys.exit(data_main(argv[1:]))
-        if argv and argv[0] == "bench":
-            from local_ai.bench.cli import main as bench_main
-
-            sys.exit(bench_main(argv[1:]))
-        if argv and argv[0] == "traces":
-            from local_ai.coder.trace import main as traces_main
-
-            sys.exit(traces_main(argv[1:]))
         sys.exit(asyncio.run(main(argv)))
     except KeyboardInterrupt:
         sys.exit(130)

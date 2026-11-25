@@ -58,7 +58,7 @@ async def test_a_chat_is_offered_the_documents_tools_and_told_how_to_use_them(tm
     from local_ai.core.mcp_bridge import MCPBridge, load_mcp_config
     from local_ai.research.config import AgentSettings
     from local_ai.web.runs import Run, run_chat
-    from test_web_code import ScriptedClient
+    from web_helpers import ScriptedClient
 
     env = {"LOCAL_AI_WORKSPACE": str(tmp_path)}
     config = tmp_path / "mcp.json"

@@ -2,7 +2,7 @@
 
 Stores verified facts (with their sources), lessons learned about how to research,
 and user preferences. Retrieval is hybrid: BM25 (SQLite FTS5) plus embeddings from
-LM Studio when available.
+the model server when available.
 """
 
 from __future__ import annotations
@@ -59,7 +59,9 @@ class Memory:
         rows = self.conn.execute("SELECT id, text FROM memories").fetchall()
         vectors = self.embedder.embed([r["text"] for r in rows]) if rows else None
         if rows and vectors is None:
-            raise RuntimeError(f"Embedding model {self.embedder.model!r} is not reachable; load it in LM Studio first.")
+            raise RuntimeError(
+                f"Embedding model {self.embedder.model!r} is not reachable; load it on the model server first."
+            )
         self.conn.executemany(
             "UPDATE memories SET embedding = ? WHERE id = ?",
             [(to_blob(v), r["id"]) for v, r in zip(vectors if rows else [], rows, strict=True)],

@@ -12,7 +12,7 @@ from local_ai.research.config import AgentSettings  # noqa: E402
 from local_ai.web import offline  # noqa: E402
 from local_ai.web.app import create_app  # noqa: E402
 from test_web import read_events  # noqa: E402
-from test_web_code import ScriptedClient, own_workspace  # noqa: E402,F401
+from web_helpers import ScriptedClient, own_workspace  # noqa: E402,F401
 
 
 @pytest.fixture

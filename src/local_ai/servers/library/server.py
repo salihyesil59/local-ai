@@ -9,7 +9,7 @@ Tools:
   search_arxiv  arXiv online search;  read_arxiv  pages of an arXiv paper
 
 Search index (SQLite in <workspace>/library.sqlite): text chunked per page with an FTS5 (BM25) index, plus
-embeddings from LM Studio when an embedding model is available (LOCAL_AI_EMBED_BACKEND=none turns them off).
+embeddings from the model server when it has an embedding model (LOCAL_AI_EMBED_BACKEND=none turns them off).
 LOCAL_AI_LIBRARY is indexed automatically: changed files are picked up on the next search (a large first index is
 spread over several searches; `local-ai-index` does it in one go). Zotero, BibTeX and arXiv metadata are added with
 `local-ai-index`. ZIM archives are too large to index fully: a search with sources=zim fetches candidate articles
@@ -20,8 +20,9 @@ Environment:
   LOCAL_AI_WORKSPACE         workspace root (default ~/local-ai-workspace)
   LOCAL_AI_LIBRARY           your PDF / .md / .txt files (default ~/local-ai-library)
   LOCAL_AI_ZIM_DIR           ZIM folders and/or files, separated by os.pathsep (default ~/wiki-zim)
-  LOCAL_AI_BASE_URL          LM Studio server (default http://localhost:1234/v1)
-  LOCAL_AI_EMBED_MODEL       embedding model id in LM Studio (default text-embedding-qwen3-embedding-0.6b)
+  LOCAL_AI_BASE_URL          model server (default http://localhost:8888/v1); LOCAL_AI_EMBED_BASE_URL for
+                             embeddings from another one; LOCAL_AI_API_KEY is sent with each request
+  LOCAL_AI_EMBED_MODEL       embedding model id on the server (default "default": Unsloth Studio's own)
   LOCAL_AI_EMBED_QUERY_TASK  instruction put before queries (default: one for Qwen3-Embedding models)
   LOCAL_AI_RERANK_MODEL      optional cross-encoder, e.g. BAAI/bge-reranker-v2-m3 (local path or cache)
 
@@ -293,7 +294,9 @@ class Library:
     def reembed(self) -> int:
         """Drop all vectors and embed every chunk again with the current model (after a model change)."""
         if self.embedder.embed(["ping"]) is None:
-            raise RuntimeError(f"Embedding model {self.embedder.model!r} is not reachable; load it in LM Studio first.")
+            raise RuntimeError(
+                f"Embedding model {self.embedder.model!r} is not reachable; load it on the model server first."
+            )
         self.conn.execute("UPDATE chunks SET embedding = NULL")
         set_embedding_model(self.conn, self.embedder.model)
         self.stale_model = None

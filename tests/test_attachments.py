@@ -18,8 +18,7 @@ from local_ai.research.config import AgentSettings  # noqa: E402
 from local_ai.web.app import create_app  # noqa: E402
 from test_loop import StreamingClient, reply  # noqa: E402
 from test_web import read_events  # noqa: E402
-from test_web_chats import FINISHING  # noqa: E402
-from test_web_code import ScriptedClient, own_workspace  # noqa: E402,F401
+from web_helpers import ScriptedClient, own_workspace  # noqa: E402,F401
 
 W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
 A = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
@@ -158,13 +157,12 @@ def test_a_chat_gets_the_text_and_a_large_file_goes_into_the_library(tmp_path, m
         assert not copy.parent.exists() and ui.get(f"/api/runs/{run['id']}/attachments/{name}").status_code == 404
 
 
-def test_a_code_chat_and_a_steering_message_get_the_text(tmp_path):
-    client = ScriptedClient(list(FINISHING))
+def test_a_chat_and_a_waiting_message_get_the_text(tmp_path):
+    client = ScriptedClient([("Hazır.", [])])
     with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
         body = {
-            "mode": "code",
+            "mode": "chat",
             "question": "",
-            "folder": str(tmp_path / "app"),
             "files": [{"name": "slides.pptx", "data": url(pptx())}],
         }
         run = ui.post("/api/runs", json=body).json()

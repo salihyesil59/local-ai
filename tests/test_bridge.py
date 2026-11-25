@@ -59,6 +59,24 @@ def test_load_config_filters(mcp_config):
     assert [s.name for s in load_mcp_config(mcp_config, only=["library"])] == ["library"]
 
 
+def test_the_server_list_is_found_in_its_own_folder_else_where_earlier_versions_kept_it(tmp_path, monkeypatch):
+    from local_ai.core import mcp_bridge
+
+    own, old = tmp_path / ".local-ai" / "mcp.json", tmp_path / ".lmstudio" / "mcp.json"
+    monkeypatch.setattr(mcp_bridge, "DEFAULT_MCP_CONFIG", own)
+    monkeypatch.setattr(mcp_bridge, "OLD_MCP_CONFIG", old)
+    monkeypatch.delenv("LOCAL_AI_MCP_CONFIG", raising=False)
+    assert mcp_bridge.config_path() == own  # neither exists: the new place, named in the error
+    old.parent.mkdir()
+    old.write_text("{}", encoding="utf-8")
+    assert mcp_bridge.config_path() == old
+    own.parent.mkdir()
+    own.write_text("{}", encoding="utf-8")
+    assert mcp_bridge.config_path() == own
+    monkeypatch.setenv("LOCAL_AI_MCP_CONFIG", str(tmp_path / "x.json"))
+    assert mcp_bridge.config_path() == tmp_path / "x.json"
+
+
 async def test_servers_can_be_started_and_stopped_while_others_run(mcp_config):
     from local_ai.core.mcp_bridge import ServerConfig, read_servers, write_server
 

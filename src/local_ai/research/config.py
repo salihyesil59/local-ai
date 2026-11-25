@@ -1,4 +1,4 @@
-"""Settings of the research agent: the LM Studio connection and the limits of a run."""
+"""Settings of the research agent: the model server connection and the limits of a run."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from local_ai.core.llm import DEFAULT_BASE_URL
 @dataclass
 class AgentSettings:
     base_url: str = field(default_factory=lambda: os.environ.get("LOCAL_AI_BASE_URL", DEFAULT_BASE_URL))
-    api_key: str = field(default_factory=lambda: os.environ.get("LOCAL_AI_API_KEY", "lm-studio"))
+    api_key: str = field(default_factory=lambda: os.environ.get("LOCAL_AI_API_KEY", "local"))
     model: str | None = field(default_factory=lambda: os.environ.get("LOCAL_AI_MODEL"))
     temperature: float = 0.6
     top_p: float = 0.95

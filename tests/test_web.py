@@ -1,4 +1,4 @@
-"""Web UI API with a scripted model (no LM Studio)."""
+"""Web UI API with a scripted model (no model server)."""
 
 import json
 

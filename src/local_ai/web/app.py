@@ -17,7 +17,6 @@ import re
 import shlex
 import shutil
 import sqlite3
-import sys
 import uuid
 import webbrowser
 from pathlib import Path
@@ -28,8 +27,6 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from local_ai.coder import changes as coder_changes
-from local_ai.coder import files as coder_files
 from local_ai.core import attachments as att
 from local_ai.core import images as img
 from local_ai.core.llm import pick_model
@@ -56,7 +53,6 @@ from .runs import (
     Run,
     clean_settings,
     run_chat,
-    run_code,
     run_research,
 )
 from .store import Store
@@ -65,7 +61,7 @@ STATIC = Path(__file__).parent / "static"
 # Characters of attached files that go into a message; a research repeats its question in every step.
 ATTACH_CHARS = 40_000
 ATTACH_RESEARCH_CHARS = 12_000
-MAX_RUNS = 4  # chats working at the same time, any mode: the parallel requests LM Studio serves by default
+MAX_RUNS = 4  # chats working at the same time, any mode: keep it at most the parallel slots of the model server
 REVALIDATE = {"Cache-Control": "no-cache"}  # the browser asks each time, so a new version of the UI is used at once
 
 
@@ -86,7 +82,6 @@ def resolve_workspace(servers: list[ServerConfig]) -> Path:
     return workspace_root()
 
 
-MAX_TREE = 500  # files of a project listed for the file tree
 PASSAGE_CHARS = 350  # of the tool output shown before and after a quote
 
 
@@ -114,34 +109,6 @@ def parse_memory_lines(text: str) -> list[dict]:
         if m:
             items.append({"id": int(m[1]), "kind": m[2], "text": m[3], "sources": m[4] or ""})
     return items
-
-
-PICK_FOLDER = (
-    "import sys, tkinter\n"
-    "from tkinter import filedialog\n"
-    "root = tkinter.Tk()\n"
-    "root.withdraw()\n"
-    "root.attributes('-topmost', True)\n"
-    "print(filedialog.askdirectory(initialdir=sys.argv[1] or None, title='Project folder'))\n"
-)
-
-
-async def pick_folder_dialog(initial: str = "") -> str:
-    """Open the operating system's folder dialog (the server runs on this computer) and return the chosen path,
-    or "" when cancelled. It runs in its own process because tkinter needs a main thread."""
-    initial_dir = initial if initial and Path(initial).expanduser().is_dir() else ""
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-c",
-        PICK_FOLDER,
-        initial_dir,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    out, err = await asyncio.wait_for(proc.communicate(), timeout=600)
-    if proc.returncode != 0:
-        raise RuntimeError(err.decode(errors="replace").strip().splitlines()[-1] if err.strip() else "dialog failed")
-    return str(Path(out.decode().strip())) if out.strip() else ""
 
 
 SERVER_NAME = re.compile(r"[A-Za-z0-9_-]{1,40}")
@@ -194,11 +161,11 @@ def create_app(
     workspace = resolve_workspace(servers)
     os.environ.setdefault("LOCAL_AI_WORKSPACE", str(workspace))
     store = Store(workspace)
-    # slots: runs that work at the same time, any mode (LM Studio answers that many requests at once; more wait);
-    # folders: a code run waits for another one in the same project folder; active: runs working now
+    # slots: runs that work at the same time, any mode (the model server answers that many requests at once; more
+    # wait); active: runs working now
     state: dict = {
         "bridge": None, "client": client, "runs": {}, "error": None,
-        "slots": asyncio.Semaphore(MAX_RUNS), "folders": {}, "active": 0,
+        "slots": asyncio.Semaphore(MAX_RUNS), "active": 0,
     }  # fmt: skip
     zim_job = offline.ZimJob()
     index_job = offline.IndexJob()
@@ -306,12 +273,8 @@ def create_app(
 
     async def execute(run: Run, options: dict, question: str, project: str = "") -> None:
         """Run one message of a chat: the first one, or a follow-up (project is the research project). Chats of any
-        mode work at the same time, up to MAX_RUNS; a code run waits for another one in the same project folder."""
-        folder = None
-        if options.get("mode") == "code":
-            key = str(Path(str(options.get("folder", ""))).expanduser().resolve()).lower()
-            folder = state["folders"].setdefault(key, asyncio.Lock())
-        async with state["slots"], folder or contextlib.nullcontext():
+        mode work at the same time, up to MAX_RUNS."""
+        async with state["slots"]:
             state["active"] += 1
             try:
                 await work(run, options, question, project)
@@ -327,7 +290,7 @@ def create_app(
             if not settings.model and "model" not in run.settings:
                 settings.model = await pick_model(state["client"])
                 if not settings.model:
-                    raise RuntimeError("No model loaded in LM Studio.")
+                    raise RuntimeError("No model loaded on the model server (LOCAL_AI_BASE_URL).")
             run_settings = AgentSettings(**{**settings.__dict__})
             run_settings.stream = True
             for key, value in run.settings.items():  # what this chat chose in the settings drawer
@@ -336,7 +299,7 @@ def create_app(
             if options.get("servers") is not None:
                 run_settings.servers = list(options["servers"])
             notebook, note = options.get("notebook") or "", ""
-            if notebook and options.get("mode") != "code":
+            if notebook:
                 # search_library looks only into the notebook's folder, unless the model asks for more
                 files = offline.notebook_files(where(), notebook)
                 # for this run's task only: runs at the same time have their own
@@ -351,9 +314,7 @@ def create_app(
                 servers = run_settings.servers
                 if options.get("attachment_library") and servers is not None and "library" not in servers:
                     run_settings.servers = [*servers, "library"]
-            if options.get("mode") == "code":
-                await run_code(run, question, options, run_settings, state["client"], state["bridge"], store)
-            elif options.get("mode") == "chat":
+            if options.get("mode") == "chat":
                 await run_chat(run, question, options, run_settings, state["client"], state["bridge"], store)
             else:
                 await run_research(
@@ -415,10 +376,10 @@ def create_app(
         )
 
     async def models(request: Request) -> Response:
-        """The models LM Studio can serve, for the settings drawer."""
+        """The models the model server can serve, for the settings drawer."""
         try:
             listed = (await state["client"].models.list()).data
-        except Exception as e:  # LM Studio's server is not running
+        except Exception as e:  # the model server is not running
             return JSONResponse({"models": [], "default": settings.model, "error": str(e)[:200]})
         ids = [m.id for m in listed if "embed" not in m.id.lower()]
         return JSONResponse({"models": ids, "default": settings.model})
@@ -521,7 +482,7 @@ def create_app(
 
     async def create_run(request: Request) -> Response:
         body = await request.json()
-        if body.get("mode") not in ("code", "chat") and state["bridge"] is None:
+        if body.get("mode") != "chat" and state["bridge"] is None:
             return JSONResponse({"error": state["error"] or "MCP servers not ready"}, status_code=503)
         question = str(body.get("question", "")).strip()
         project = str(body.get("project", "")).strip()
@@ -539,7 +500,7 @@ def create_app(
             question = FILES_ONLY
 
         async def start(run: Run) -> Response:
-            run.folder, run.mode = chat_folder, body.get("mode") if body.get("mode") in ("code", "chat") else "research"
+            run.folder, run.mode = chat_folder, "chat" if body.get("mode") == "chat" else "research"
             run.settings = clean_settings(body.get("settings"))
             run.images = [store.save_image(run.id, data, ext) for data, ext in pictures]
             run.files, attached = await take_files(run, uploads)
@@ -564,13 +525,6 @@ def create_app(
             run.task = asyncio.create_task(execute(run, options, run.question, run.project))
             return JSONResponse(run.summary(), status_code=201)
 
-        if body.get("mode") == "code":
-            folder = str(body.get("folder", "")).strip()
-            if not folder or not Path(folder).expanduser().is_absolute():
-                return JSONResponse({"error": "give the project folder as an absolute path"}, status_code=400)
-            return await start(
-                Run(id=uuid.uuid4().hex[:12], question=question or "(continue the plan)", project=folder)
-            )
         if body.get("mode") == "chat":
             if not question:
                 return JSONResponse({"error": "write a message"}, status_code=400)
@@ -626,11 +580,13 @@ def create_app(
                 shown, attached = await keep()
                 paths = [store.image_path(run.id, n) for n in shown.get("images", [])]
                 run.agent.steer(message + attached.get("attachment_text", ""), paths)
-                run.push({"kind": "steer", "text": message, **shown})  # a code or chat run takes it while it works
+                run.push({"kind": "steer", "text": message, **shown})  # a chat takes it while it works
                 return JSONResponse(run.summary(), status_code=202)
             return JSONResponse({"error": "wait until the run has ended, or cancel it"}, status_code=409)
         load_events(run)
         project = ""
+        if run.mode not in ("research", "chat"):  # a code chat of an earlier version: only kept to be read
+            return JSONResponse({"error": "this chat can no longer be continued"}, status_code=400)
         if run.mode == "chat" and not message:
             return JSONResponse({"error": "write a message"}, status_code=400)
         if run.mode == "research":
@@ -658,18 +614,18 @@ def create_app(
         options with the text of the files). shown=False: the message is on the page already (it was queued while
         the chat worked), the user event only starts its part."""
         paths = [store.image_path(run.id, n) for n in images]
-        options = {**body, "images": None, "files": None, "image_paths": paths, "mode": run.mode, "folder": run.project}
+        options = {**body, "images": None, "files": None, "image_paths": paths, "mode": run.mode}
         options.update(attached or {})
         options["resume"], options["follow_up"] = bool(project), True
-        task = run.follow_up(message) if message else ""  # an empty message continues the plan of a code chat
-        if run.mode in ("code", "chat"):  # the agent still has the conversation: the message alone is enough
+        task = run.follow_up(message) if message else ""
+        if run.mode == "chat":  # the agent still has the conversation: the message alone is enough
             options["with_earlier_answer"], task = task, message
         if "settings" in body:
             run.settings = clean_settings(body["settings"])
         run.notebook = str(body.get("notebook") or "")
         run.status = "queued"
         store.update_run(run.id, status="queued", settings=run.settings, notebook=run.notebook)
-        text = message or ("(continue the research)" if project else "(continue the plan)")
+        text = message or "(continue the research)"
         run.push(
             {
                 "kind": "user",
@@ -784,79 +740,6 @@ def create_app(
         for run in state["runs"].values():
             if run.folder == fid:
                 run.folder = None
-        return JSONResponse({"ok": True})
-
-    def code_root(request: Request) -> Path | None:
-        """The project folder of a code chat."""
-        run = state["runs"].get(request.path_params["run_id"])
-        return Path(run.project).expanduser().resolve() if run is not None and run.mode == "code" else None
-
-    async def run_files(request: Request) -> Response:
-        """The files of a code chat's project, for the file tree."""
-        root = code_root(request)
-        if root is None:
-            return JSONResponse({"error": "not a code chat"}, status_code=404)
-        names = [n for n in (coder_files.walk(root) if root.is_dir() else []) if not n.endswith("/")]
-        return JSONResponse({"root": str(root), "files": names[:MAX_TREE], "more": max(0, len(names) - MAX_TREE)})
-
-    async def run_file(request: Request) -> Response:
-        """One text file of a code chat's project (the start of a long one)."""
-        root = code_root(request)
-        path = request.query_params.get("path", "")
-        if root is None or not path:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        try:
-            target = coder_files.resolve(root, path)
-        except ValueError:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        if not target.is_file():
-            return JSONResponse({"error": "not found"}, status_code=404)
-        content = coder_files.read_file(root, path)
-        if content.startswith("Error: cannot read"):
-            return JSONResponse({"error": "not a text file"}, status_code=415)
-        return JSONResponse({"path": path, "content": content})
-
-    def changed_before(run: Run) -> set[str]:
-        """The files that differed from the last commit when the chat's first code run started."""
-        load_events(run)
-        first = next((e for e in run.events if e["kind"] == "git_baseline"), None)
-        return set(first["dirty"]) if first else set()
-
-    async def run_changes(request: Request) -> Response:
-        """What the code chat changed in its git project, file by file, with the diffs."""
-        root = code_root(request)
-        if root is None:
-            return JSONResponse({"error": "not a code chat"}, status_code=404)
-        run = state["runs"][request.path_params["run_id"]]
-        if not await asyncio.to_thread(coder_changes.is_repo, root):
-            return JSONResponse({"git": False, "files": []})
-        found = await asyncio.to_thread(coder_changes.changes, root, changed_before(run))
-        return JSONResponse({"git": True, "files": found, "running": run.status in ACTIVE})
-
-    async def undo_change(request: Request) -> Response:
-        """Put one file of a code chat's project back as it is in the last commit."""
-        root = code_root(request)
-        if root is None:
-            return JSONResponse({"error": "not a code chat"}, status_code=404)
-        run = state["runs"][request.path_params["run_id"]]
-        if run.status in ACTIVE:
-            return JSONResponse({"error": "wait until the run has stopped"}, status_code=409)
-        body = await request.json()
-        path = str(body.get("path", "")).strip()
-        if not path or not await asyncio.to_thread(coder_changes.is_repo, root):
-            return JSONResponse({"error": "nothing to undo"}, status_code=400)
-        problem = await asyncio.to_thread(coder_changes.undo, root, path, changed_before(run))
-        if problem:
-            return JSONResponse({"error": problem}, status_code=409)
-        return JSONResponse({"ok": True})
-
-    async def compact_run(request: Request) -> Response:
-        run = state["runs"].get(request.path_params["run_id"])
-        if run is None:
-            return JSONResponse({"error": "unknown run"}, status_code=404)
-        if run.agent is None or run.status != "running":
-            return JSONResponse({"error": "only a running code task can be compacted"}, status_code=409)
-        run.agent.request_compact()
         return JSONResponse({"ok": True})
 
     async def cancel_run(request: Request) -> Response:
@@ -1016,14 +899,6 @@ def create_app(
 
         return JSONResponse([{k: v for k, v in s.items() if k != "body"} for s in load_skills().values()])
 
-    async def pick_folder(request: Request) -> Response:
-        body = await request.json()
-        try:
-            path = await pick_folder_dialog(str(body.get("initial", "")).strip())
-        except (RuntimeError, TimeoutError, OSError) as e:
-            return JSONResponse({"error": f"Could not open the folder dialog ({e}). Type the path instead."}, 503)
-        return JSONResponse({"path": path})
-
     # -- the Offline view: library files, notebooks, ZIM archives ---------------------------------------
 
     async def offline_state(request: Request) -> Response:
@@ -1156,11 +1031,6 @@ def create_app(
         Route("/api/folders/{fid}", rename_folder, methods=["PATCH"]),
         Route("/api/folders/{fid}", delete_folder, methods=["DELETE"]),
         Route("/api/runs/{run_id}/cancel", cancel_run, methods=["POST"]),
-        Route("/api/runs/{run_id}/compact", compact_run, methods=["POST"]),
-        Route("/api/runs/{run_id}/files", run_files),
-        Route("/api/runs/{run_id}/file", run_file),
-        Route("/api/runs/{run_id}/changes", run_changes),
-        Route("/api/runs/{run_id}/changes/undo", undo_change, methods=["POST"]),
         Route("/api/projects", list_projects),
         Route("/api/projects/{name}", get_project),
         Route("/api/projects/{name}", delete_project, methods=["DELETE"]),
@@ -1170,7 +1040,6 @@ def create_app(
         Route("/api/memory", memory),
         Route("/api/memory/{mid:int}", forget, methods=["DELETE"]),
         Route("/api/skills", skills),
-        Route("/api/pick-folder", pick_folder, methods=["POST"]),
         Route("/files/{path:path}", files),
         Mount("/static", UIFiles(directory=STATIC), name="static"),
     ]
@@ -1187,7 +1056,7 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="local-ai ui", description="Local web interface (127.0.0.1 only).")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-browser", action="store_true")
-    p.add_argument("--mcp-config", help="Path to mcp.json (default: LOCAL_AI_MCP_CONFIG, else ~/.lmstudio/mcp.json).")
+    p.add_argument("--mcp-config", help="Path to mcp.json (default: LOCAL_AI_MCP_CONFIG, else ~/.local-ai/mcp.json).")
     p.add_argument("--servers", help="Comma-separated subset of MCP servers.")
     p.add_argument("--base-url")
     p.add_argument("--model")

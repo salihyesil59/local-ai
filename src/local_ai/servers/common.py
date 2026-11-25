@@ -16,6 +16,8 @@ from pathlib import Path
 
 import numpy as np
 
+from local_ai.core.llm import DEFAULT_BASE_URL
+
 try:
     from mcp.server.fastmcp import FastMCP  # noqa: F401  (re-exported)
 except ImportError:  # mcp >= 2 renamed FastMCP to MCPServer
@@ -125,28 +127,33 @@ def connect(path: Path) -> sqlite3.Connection:
 # -- embeddings -------------------------------------------------------------------
 
 
-DEFAULT_EMBED_MODEL = "text-embedding-qwen3-embedding-0.6b"
+DEFAULT_EMBED_MODEL = "default"  # Unsloth Studio: the embedding model set up in its settings
 DEFAULT_QUERY_TASK = "Given a search query, retrieve relevant passages that answer the query"
 
 
 def default_query_task(model: str) -> str:
-    """Qwen3-Embedding expects an instruction before queries (documents are embedded as they are)."""
-    return DEFAULT_QUERY_TASK if "qwen3-embedding" in model.lower() else ""
+    """Qwen3-Embedding expects an instruction before queries (documents are embedded as they are). The server's
+    "default" embedding model is taken to be the recommended Qwen3-Embedding too."""
+    return DEFAULT_QUERY_TASK if "qwen3-embedding" in model.lower() or model == DEFAULT_EMBED_MODEL else ""
 
 
 class Embedder:
-    """Embeddings from LM Studio's OpenAI-compatible /v1/embeddings endpoint.
+    """Embeddings from the /v1/embeddings endpoint of an OpenAI-compatible server.
 
-    Load a multilingual embedding model in LM Studio (default: Qwen3-Embedding-0.6B) so
-    Turkish queries match English passages. If the endpoint is unreachable,
-    `available` turns False and callers fall back to keyword (BM25) search.
+    The server is LOCAL_AI_EMBED_BASE_URL, else LOCAL_AI_BASE_URL; LOCAL_AI_API_KEY is sent with each request.
+    Use a multilingual embedding model (e.g. Qwen3-Embedding-0.6B) so Turkish queries match English passages.
+    If the endpoint is unreachable, `available` turns False and callers fall back to keyword (BM25) search.
 
     Queries get the instruction `LOCAL_AI_EMBED_QUERY_TASK` (default: a retrieval instruction for
     Qwen3-Embedding models, none for other models; set it to an empty string to turn it off).
     """
 
-    def __init__(self, base_url: str | None = None, model: str | None = None, timeout: float = 120):
-        self.base_url = (base_url or os.environ.get("LOCAL_AI_BASE_URL") or "http://localhost:1234/v1").rstrip("/")
+    def __init__(
+        self, base_url: str | None = None, model: str | None = None, timeout: float = 120, api_key: str | None = None
+    ):
+        base_url = base_url or os.environ.get("LOCAL_AI_EMBED_BASE_URL") or os.environ.get("LOCAL_AI_BASE_URL")
+        self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
+        self.api_key = api_key if api_key is not None else os.environ.get("LOCAL_AI_API_KEY", "")
         self.model = model or os.environ.get("LOCAL_AI_EMBED_MODEL") or DEFAULT_EMBED_MODEL
         task = os.environ.get("LOCAL_AI_EMBED_QUERY_TASK")
         self.query_task = default_query_task(self.model) if task is None else task
@@ -159,9 +166,10 @@ class Embedder:
         if query and self.query_task:
             texts = [f"Instruct: {self.query_task}\nQuery: {t}" for t in texts]
         body = json.dumps({"model": self.model, "input": texts}).encode()
-        req = urllib.request.Request(
-            f"{self.base_url}/embeddings", data=body, headers={"Content-Type": "application/json"}
-        )
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        req = urllib.request.Request(f"{self.base_url}/embeddings", data=body, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read())
@@ -199,10 +207,11 @@ def normalize(m: np.ndarray) -> np.ndarray:
 def make_embedder(env: dict[str, str] | None = None) -> Embedder:
     """The embedder this process's environment asks for; `env` (e.g. the library server's of an mcp.json) wins."""
     env = {**os.environ, **(env or {})}
-    backend = env.get("LOCAL_AI_EMBED_BACKEND", "lmstudio").lower()
+    backend = env.get("LOCAL_AI_EMBED_BACKEND", "server").lower()  # server (also the older "lmstudio"), none, hash
     if backend == "hash":
         return HashEmbedder()
-    e = Embedder(env.get("LOCAL_AI_BASE_URL"), env.get("LOCAL_AI_EMBED_MODEL"))
+    url = env.get("LOCAL_AI_EMBED_BASE_URL") or env.get("LOCAL_AI_BASE_URL")
+    e = Embedder(url, env.get("LOCAL_AI_EMBED_MODEL"), api_key=env.get("LOCAL_AI_API_KEY", ""))
     if backend == "none":
         e.available = False
     return e

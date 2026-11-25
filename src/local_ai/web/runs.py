@@ -1,4 +1,4 @@
-"""A run is one chat of the web UI: a research question or a coding task, the follow-up messages sent in the
+"""A run is one chat of the web UI: a research question or a conversation, the follow-up messages sent in the
 same chat, and the events they produced."""
 
 from __future__ import annotations
@@ -10,9 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from local_ai.chat import ChatAgent
-from local_ai.coder import changes as coder_changes
-from local_ai.coder import state as coder_state
-from local_ai.coder.loop import CoderAgent, Settings
 from local_ai.core import images as img
 from local_ai.core.llm import LLM
 from local_ai.core.mcp_bridge import MCPBridge
@@ -21,15 +18,13 @@ from local_ai.research.config import AgentSettings
 from local_ai.research.loop import ResearchAgent
 from local_ai.servers.export import render_markdown
 
-CODE_SERVERS = ("library", "compute", "web")  # MCP servers a code run may use when the browser names none
 ACTIVE = ("queued", "running")
 # Settings a chat may change, with the range the page may ask for: name -> (type, lowest, highest).
 LIMITS = {
     "temperature": (float, 0.0, 2.0),
     "max_tokens": (int, 256, 65536),  # per model reply, thinking included
-    "max_turns": (int, 1, 500),  # code: model replies in one run
-    "context_chars": (int, 20_000, 2_000_000),  # code: the conversation is compacted above this
-    "max_thinking_chars": (int, 1_000, 200_000),  # code: a reply that only thinks is stopped after this
+    "context_chars": (int, 20_000, 2_000_000),  # chat: older messages are dropped above this
+    "max_thinking_chars": (int, 1_000, 200_000),  # chat: a reply that only thinks is stopped after this
     "max_steps": (int, 1, 100),  # research: tool-calling steps per sub-question
 }
 
@@ -52,11 +47,6 @@ def clean_settings(raw) -> dict:
 
 EARLIER_CHARS = 3000  # of the last answer shown to the agent with a follow-up message
 STREAMED_THINKING = 30_000  # characters of a finished reply's thinking kept in the chat (its end)
-# The faster ways of a code run: what changes when the chat has not chosen otherwise in its settings.
-SPEEDS = {
-    "fast": {"max_thinking_chars": 5000},
-    "quick": {"max_thinking_chars": 3000, "max_turns": 25},
-}
 CHAT_THINKING_CHARS = 16_000  # about 5000 tokens of thinking in a chat reply
 NOTEBOOK_TOOLS = ("library__search_library", "library__read_library")
 NOTEBOOK_NOTE = (
@@ -79,7 +69,7 @@ class Run:
     question: str
     project: str
     status: str = "queued"  # queued | running | done | stopped | failed | cancelled | interrupted
-    mode: str = "research"  # research | code | chat
+    mode: str = "research"  # research | chat
     title: str = ""  # chosen by the user; empty = shortened from the question
     folder: str | None = None  # id of the chat folder it is sorted into
     pinned: bool = False  # kept at the top of the chat list
@@ -94,7 +84,7 @@ class Run:
     listeners: list[asyncio.Queue] = field(default_factory=list)
     live: dict[str, dict] = field(default_factory=dict)  # index -> text and thinking of the reply being written
     task: asyncio.Task | None = None
-    agent: object | None = None  # the code agent of a code run, for the Compact button
+    agent: object | None = None  # the chat agent of a chat, whose conversation the next message goes on with
     sink: Callable[[dict], None] | None = None  # saves events to disk
     loaded: bool = True  # False for a run read from disk whose events are not loaded yet
 
@@ -151,7 +141,7 @@ class Run:
 
     def resumable(self) -> str | None:
         """The research project of the last message when its run stopped before the report: it can go on."""
-        if self.mode == "code" or self.status in ACTIVE:
+        if self.status in ACTIVE:
             return None
         events = self.last_message()
         if any(e["kind"] in ("answer", "report") for e in events):
@@ -195,84 +185,13 @@ class Run:
         }
 
 
-async def run_code(
-    run: Run, task: str, options: dict, settings: AgentSettings, client, bridge: MCPBridge | None, store=None
-) -> None:
-    """Code mode: the coding agent edits a project folder and runs its tests until they pass. The agent of a
-    chat is kept: a later message, also after a stop, goes on with its whole conversation (kept in the store,
-    so also after a restart of the UI)."""
-    root = Path(str(options.get("folder", ""))).expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    if not task or task.startswith("(continue"):
-        task = "Continue the existing plan and finish the task."
-    run.push({"kind": "log", "text": f"Project folder: {root}"})
-    if coder_changes.is_repo(root):  # what was changed before the run is never undone in the Changes panel
-        run.push({"kind": "git_baseline", "dirty": coder_changes.dirty(root)})
-
-    extra_tools = {}
-    if bridge:
-        selected = options.get("servers")
-        allowed = (set(selected) if selected is not None else set(CODE_SERVERS)) - {"coder"}
-        if options.get("attachment_library"):  # a large attached file is read from the library
-            allowed.add("library")
-        extra_tools = bridge.as_tools(allowed)
-    if extra_tools:
-        active = sorted({bridge.tools[name].server for name in extra_tools})
-        run.push({"kind": "log", "text": f"Active MCP servers: {', '.join(active)} ({len(extra_tools)} tools)"})
-
-    speed = "quick" if options.get("quick") else "fast" if options.get("fast") else "normal"
-    chosen = {**SPEEDS.get(speed, {}), **run.settings}  # what the chat set in the settings drawer wins
-    if speed != "normal":
-        what = "no plan; the tests run once at the end" if speed == "quick" else "no review, no project map"
-        run.push({"kind": "log", "text": f"{speed.capitalize()} mode: {what}"})
-    llm = LLM(
-        client, settings.model, max_tokens=settings.max_tokens, temperature=settings.temperature, top_p=settings.top_p
-    )
-    if "max_thinking_chars" in chosen:
-        llm.max_thinking_chars = chosen["max_thinking_chars"]
-    tests = options.get("tests") if options.get("tests") in ("required", "optional") else "auto"
-    limits = Settings(speed=speed, tests=tests, **{k: chosen[k] for k in ("max_turns", "context_chars") if k in chosen})
-    if options.get("critic") is False:
-        limits.judge_rounds = 0
-        run.push({"kind": "log", "text": "Judge off"})
-    agent = CoderAgent(
-        llm,
-        root,
-        limits,
-        emit=lambda kind, **data: run.push({"kind": kind, **data}),
-        extra_tools=extra_tools,
-        trace=store.trace_path(run.id) if store else None,
-    )
-    earlier = run.agent if isinstance(run.agent, CoderAgent) and run.agent.root == root else None
-    if earlier:  # the same chat: its conversation goes on, with this message's model, limits and tools
-        agent.messages, agent.interrupted = earlier.messages, earlier.interrupted
-    elif store:
-        saved = store.load_messages(run.id)
-        agent.messages, agent.interrupted = saved.get("messages", []), bool(saved.get("interrupted"))
-    if not agent.messages:  # nothing to go on with: the earlier answer of the chat comes with the message
-        task = options.get("with_earlier_answer") or task
-    run.agent = agent
-    coder_state.moim_file().write_text(coder_state.IDLE, encoding="utf-8")
-    try:
-        outcome = await agent.run(task, options.get("image_paths"))
-    finally:  # also when the user stops the run: the conversation so far is what the next message goes on with
-        if store:
-            store.save_messages(run.id, {"messages": agent.messages, "interrupted": agent.interrupted})
-    if agent.steering:
-        text = "Your last message arrived after the agent's final step and was not read. Send it again."
-        run.push({"kind": "log", "level": "warning", "text": text})
-    run.push({"kind": "outcome", "finished": outcome.finished, "reason": outcome.reason})
-    if outcome.summary:
-        run.push({"kind": "answer", "text": outcome.summary, "html": render_markdown(outcome.summary)})
-    run.status = "done" if outcome.finished else "stopped"
-
-
 async def run_chat(
     run: Run, message: str, options: dict, settings: AgentSettings, client, bridge: MCPBridge | None, store=None
 ) -> None:
-    """Chat mode: one answer of a plain conversation. The conversation of the chat is kept like a code chat's."""
+    """Chat mode: one answer of a plain conversation. The conversation of the chat is kept (in the store, so also
+    after a restart of the UI): a later message, also after a stop, goes on with it."""
     selected = set(options.get("servers") or [])
-    tools = bridge.as_tools(selected - {"coder", settings.notebook_server}) if bridge and selected else {}
+    tools = bridge.as_tools(selected - {settings.notebook_server}) if bridge and selected else {}
     # a chat with a notebook, or with a large attached file (put into the library), searches and reads the library,
     # whatever else is switched on
     if bridge:  # a chat can always make a PDF or Word file of an answer, when the user asks for one
@@ -288,7 +207,7 @@ async def run_chat(
         max_tokens=settings.max_tokens,
         temperature=settings.temperature,
         top_p=settings.top_p,
-        # longer than in code mode, but a reply that thinks in circles is still stopped (and asked to answer)
+        # a reply that thinks in circles is stopped (and asked to answer)
         max_thinking_chars=run.settings.get("max_thinking_chars", CHAT_THINKING_CHARS),
     )
     context = run.settings.get("context_chars", 300_000)

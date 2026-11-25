@@ -37,7 +37,6 @@ def parse_skill(path: Path) -> dict:
         "name": meta.get("name") or path.stem,
         "description": meta.get("description", ""),
         "when_to_use": meta.get("when_to_use", ""),
-        "category": "code" if "coder" in path.parts else "research",
         "keywords": [k.strip().lower() for k in meta.get("keywords", "").split(",") if k.strip()],
         "limits": {k: int(meta[k]) for k in LIMITS if meta.get(k, "").isdigit()},
         "body": body.strip(),

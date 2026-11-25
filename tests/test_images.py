@@ -12,8 +12,7 @@ from local_ai.core.text import IMAGE_CHARS, size  # noqa: E402
 from local_ai.research.config import AgentSettings  # noqa: E402
 from local_ai.web.app import create_app  # noqa: E402
 from test_web import read_events  # noqa: E402
-from test_web_chats import FINISHING  # noqa: E402
-from test_web_code import ScriptedClient, own_workspace  # noqa: E402,F401
+from web_helpers import ScriptedClient, own_workspace  # noqa: E402,F401
 
 # The smallest valid PNG: one transparent pixel.
 PNG = base64.b64decode(
@@ -56,22 +55,22 @@ async def test_the_research_agent_gets_what_the_images_show(tmp_path):
     assert question.startswith("What does the plot show?") and "attached an image" in question and "E(z)" in question
 
 
-def test_a_code_chat_takes_images_with_its_messages(tmp_path):
-    client = ScriptedClient(list(FINISHING))
+def test_a_chat_takes_images_with_its_messages(tmp_path):
+    client = ScriptedClient([("Hazır.", [])])
     with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
-        body = {"mode": "code", "question": "", "folder": str(tmp_path / "app"), "images": [URL]}
+        body = {"mode": "chat", "question": "", "images": [URL]}
         assert ui.post("/api/runs", json={**body, "images": ["data:image/svg+xml;base64,PHN2Zz4="]}).status_code == 400
         run = ui.post("/api/runs", json=body).json()
         read_events(ui, run["id"])
         assert len(run["images"]) == 1 and run["question"].startswith("Look at the attached image")
-        first = client.requests[0]["messages"][1]["content"]  # the task, with the image
+        first = client.requests[0]["messages"][1]["content"]  # the message, with the image
         assert first[1] == {"type": "image_url", "image_url": {"url": URL}}
         name = run["images"][0]
         assert ui.get(f"/api/runs/{run['id']}/images/{name}").content == PNG
         assert ui.get(f"/api/runs/{run['id']}/images/..%2Findex.json").status_code == 404
         assert ui.get(f"/api/runs/{run['id']}/images/000000000000.png").status_code == 404
 
-        # while the agent works, a message with an image steers it; the event shows the image
+        # while the chat works, a message with an image waits for the reply; the event shows the image
         chat = ui.app.state.runs[run["id"]]
         chat.status = "running"
         assert ui.post(f"/api/runs/{run['id']}/messages", json={"question": "", "images": [URL]}).status_code == 202

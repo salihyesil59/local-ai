@@ -198,7 +198,7 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .error-box { border-color: var(--err); color: var(--err); }
 .badge { font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); color: var(--muted); font-weight: 500; }
 .badge.fact { color: var(--ok); } .badge.lesson { color: var(--warn); } .badge.preference { color: var(--accent); }
-.badge.code { color: var(--accent); } .badge.research { color: var(--ok); }
+.badge.research { color: var(--ok); }
 .calls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .calls > * { min-width: 0; }
 details.call summary { cursor: pointer; font-family: var(--mono); font-size: 12.5px; color: var(--muted); list-style: none;
@@ -231,25 +231,6 @@ div.problems { white-space: pre-wrap; padding-left: 0; }
 .live-text { white-space: pre-wrap; }
 .live-thinking:empty, .live-text:empty { display: none; }
 
-/* file edits as a diff, verify as a test result */
-details.call.diff summary::before, details.call.test summary::before { content: none; }
-details.call.diff summary, details.call.test summary { display: flex; gap: 8px; align-items: center; }
-details.call .path { color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
-details.call .counts { margin-left: auto; flex: none; }
-.plus { color: var(--ok); } .minus { color: var(--err); }
-.diff-body { font-family: var(--mono); font-size: 12.5px; border: 1px solid var(--border); border-radius: 8px; overflow: auto; margin: 6px 0; max-height: 420px; }
-.dl { display: flex; white-space: pre; min-width: max-content; }
-.dl .sign { flex: none; width: 2ch; text-align: center; color: var(--muted); user-select: none; }
-.dl.add { background: color-mix(in srgb, var(--ok) 14%, transparent); } .dl.add .sign { color: var(--ok); }
-.dl.del { background: color-mix(in srgb, var(--err) 14%, transparent); } .dl.del .sign { color: var(--err); }
-.dl.more { color: var(--muted); font-style: italic; padding-left: 2ch; }
-.call-note { font-size: 12.5px; color: var(--muted); margin: 2px 0 6px; }
-details.call.error .call-note { color: var(--err); }
-details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
-.verdict { display: inline-block; flex: none; font: 700 11px/1.6 system-ui, sans-serif; letter-spacing: .03em; padding: 0 8px; border-radius: 99px; background: var(--surface-2); color: var(--muted); }
-.verdict.pass { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
-.verdict.fail { background: color-mix(in srgb, var(--err) 18%, transparent); color: var(--err); }
-.verdict.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
 
 /* answers and reports */
 .report { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px; }
@@ -270,7 +251,6 @@ details.call.test .headline { overflow: hidden; text-overflow: ellipsis; }
 .ask textarea { display: block; width: 100%; border: 0; border-radius: 0; resize: none; background: transparent; outline: none; font-family: inherit;
   font-size: 15.5px; min-height: 30px; max-height: 30vh; padding: 2px 2px 6px; }
 .ask-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
-.folder-row { margin-bottom: 8px; }
 .target { font-size: 12.5px; margin-bottom: 6px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .chips:empty { display: none; }
@@ -370,7 +350,6 @@ details.advanced[open] > summary::before { content: "▾ "; }
 .facts dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .facts dd button { font-size: 13px; }
 .side-panel h4 { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.side-panel .goal { font-size: 14px; margin-bottom: 8px; overflow-wrap: anywhere; }
 .side-panel details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .side-panel ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
 .context-line { display: flex; align-items: center; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -384,17 +363,8 @@ details.advanced[open] > summary::before { content: "▾ "; }
 .steps li::before { content: "○"; color: var(--muted); display: inline-block; width: 20px; text-indent: 0; }
 .steps li.done { color: var(--muted); } .steps li.done::before { content: "✓"; color: var(--ok); }
 .steps li.current { font-weight: 600; } .steps li.current::before { content: "▶"; color: var(--accent); }
-.last-verify { font-size: 13px; overflow-wrap: anywhere; display: flex; gap: 8px; align-items: baseline; }
-.file-list, .source-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
-.file-list li { display: flex; gap: 8px; justify-content: space-between; font-family: var(--mono); font-size: 12.5px; }
-.file-list .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-list .counts { flex: none; }
+.source-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
 .source-list li { overflow-wrap: anywhere; }
-.file-list.changes li { align-items: center; justify-content: flex-start; }
-.file-list.changes .path { flex: 1; min-width: 0; text-align: left; text-decoration: none; color: var(--fg); }
-.file-list.changes .path:hover { text-decoration: underline; }
-.file-list.changes .badge, .file-list.changes button.small { flex: none; font-family: system-ui, sans-serif; }
-.change-view { margin: 0; border: 0; border-radius: 0; max-height: 72vh; }
 .source-list .n { color: var(--muted); font-family: var(--mono); font-size: 12px; margin-right: 4px; }
 .history-head { margin: 0; }
 details.round { width: auto; height: auto; border-radius: var(--radius); border: 1px solid var(--border); padding: 8px 10px; display: grid; gap: 14px; cursor: auto;
@@ -405,29 +375,7 @@ details.round > summary { cursor: pointer; display: grid; gap: 4px; list-style: 
 details.round > summary::-webkit-details-marker { display: none; }
 .round-title { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .round-facts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12.5px; font-family: var(--mono); }
-.verify-trail { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.vdot { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700;
-  background: var(--surface-2); color: var(--muted); }
-.vdot.pass { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
-.vdot.fail { background: color-mix(in srgb, var(--err) 18%, transparent); color: var(--err); }
-.vdot.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
 
-/* the file tree of a code project, and a file */
-.tree > summary { font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; margin-bottom: 4px; }
-.tree .dir { margin-left: 2px; }
-.tree .dir > summary { font-size: 13px; cursor: pointer; padding: 2px 0; list-style: none; display: flex; gap: 6px; align-items: center; }
-.tree .dir > summary .ic, .tree .file .ic { color: var(--muted); }
-.tree .dir > :not(summary) { margin-left: 14px; }
-.tree .file { display: flex; gap: 6px; align-items: center; width: calc(100% - 14px); border: 0; background: transparent; padding: 2px 4px; border-radius: 6px; cursor: pointer;
-  font-family: var(--mono); font-size: 12.5px; text-align: left; }
-.tree > .file { width: 100%; }
-.tree .file:hover { background: var(--surface-2); }
-.tree .file .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree .file .counts { flex: none; }
-.file-view { width: min(900px, calc(100vw - 32px)); max-width: none; padding: 0; }
-.file-head { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 13px; }
-.file-head strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.file-view pre { margin: 0; border-radius: 0; max-height: 72vh; overflow: auto; white-space: pre; word-break: normal; }
 
 /* -- rendered Markdown: streamed model output, findings, answers, reports ------------------------------------- */
 .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }

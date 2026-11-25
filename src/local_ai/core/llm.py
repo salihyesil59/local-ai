@@ -1,4 +1,4 @@
-"""The model connection: streamed completions from an OpenAI-compatible server (LM Studio)."""
+"""The model connection: streamed completions from an OpenAI-compatible server (Unsloth Studio, llama.cpp, ...)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-DEFAULT_BASE_URL = "http://localhost:1234/v1"
+DEFAULT_BASE_URL = "http://localhost:8888/v1"  # Unsloth Studio's usual port; set LOCAL_AI_BASE_URL for others
 STREAM_FLUSH = 0.15  # seconds between "token" events while streaming
 THINKING_TAIL = 1500  # characters of the thinking kept with a reply
 LOOP_SPAN = 300  # thinking goes in circles when its last LOOP_SPAN characters have come LOOP_TIMES times

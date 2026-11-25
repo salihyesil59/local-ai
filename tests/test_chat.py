@@ -16,7 +16,7 @@ from local_ai.research.config import AgentSettings  # noqa: E402
 from local_ai.web.app import create_app  # noqa: E402
 from test_images import PNG, URL  # noqa: E402
 from test_web import read_events  # noqa: E402
-from test_web_code import ScriptedClient, own_workspace  # noqa: E402,F401
+from web_helpers import ScriptedClient, own_workspace  # noqa: E402,F401
 
 
 @pytest.mark.anyio
@@ -162,28 +162,26 @@ def test_a_question_sent_during_a_research_waits_for_it():
         assert task.startswith("Basit soru") and "Derin soru" in task and "Derin cevap." in task
 
 
-def test_chats_of_every_mode_work_at_the_same_time_but_not_in_one_folder(tmp_path):
+def test_chats_work_at_the_same_time():
     class Busy(ScriptedClient):
         async def create(self, **kwargs):
-            if kwargs["messages"][0]["content"].startswith("You are a coding agent"):
+            if kwargs["messages"][-1]["content"] == "slow":
                 self.requests.append(kwargs)
-                await asyncio.sleep(60)  # a code run that works for long
+                await asyncio.sleep(60)  # a chat that works for long
             return await super().create(**kwargs)
 
     client = Busy([("Hemen.", [])])
     with TestClient(create_app([], AgentSettings(model="test"), client=client)) as ui:
 
-        def code(folder):
-            body = {"mode": "code", "question": "x", "folder": str(tmp_path / folder)}
-            return ui.app.state.runs[ui.post("/api/runs", json=body).json()["id"]]
+        def slow():
+            return ui.app.state.runs[ui.post("/api/runs", json={"mode": "chat", "question": "slow"}).json()["id"]]
 
-        first, other = code("app"), code("lib")
-        while len(client.requests) < 2:  # both work: different folders
+        first, other = slow(), slow()
+        while len(client.requests) < 2:  # both work
             time.sleep(0.01)
-        same = code("app")
         run = ui.post("/api/runs", json={"mode": "chat", "question": "Basit soru"}).json()
         events = read_events(ui, run["id"])
-        assert [e["text"] for e in events if e["kind"] == "answer"] == ["Hemen."]  # beside two code runs
-        assert (first.status, other.status, same.status) == ("running", "running", "queued")  # one folder: waits
-        for r in (first, other, same):
+        assert [e["text"] for e in events if e["kind"] == "answer"] == ["Hemen."]  # beside two working chats
+        assert (first.status, other.status) == ("running", "running")
+        for r in (first, other):
             ui.post(f"/api/runs/{r.id}/cancel")

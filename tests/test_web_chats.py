@@ -10,34 +10,18 @@ from starlette.testclient import TestClient  # noqa: E402
 from local_ai.research.config import AgentSettings  # noqa: E402
 from local_ai.web.app import create_app  # noqa: E402
 from test_web import read_events  # noqa: E402
-from test_web_code import PYTEST, ScriptedClient, call, own_workspace  # noqa: E402,F401
+from web_helpers import ScriptedClient, own_workspace  # noqa: E402,F401
 
-PLAN = call("plan", goal="Add", steps=["add"], criteria=["1 + 1 == 2"], verify_command=PYTEST)
-TEST_FILE = "def test_add():\n    assert 1 + 1 == 2\n"
-FINISHING = [
-    ("", [{"name": "load_skill", "arguments": json.dumps({"name": "new-feature"})}]),
-    ("", [PLAN]),
-    ("", [call("write_file", path="test_add.py", content=TEST_FILE)]),
-    ("", [call("verify", note="done")]),
-    ("", [call("verify", note="test_add covers it")]),
-    ("Hazır.", []),
-]
-# A follow-up message is a task of its own: a new plan, then verify until ALL DONE.
-FOLLOW_UP = [
-    ("", [{"name": "load_skill", "arguments": json.dumps({"name": "new-feature"})}]),
-    ("", [call("plan", goal="Check", steps=["check add"], criteria=["1 + 1 == 2"], verify_command=PYTEST)]),
-    ("", [call("verify", note="test_add in test_add.py covers it")]),
-    ("", [call("verify", note="test_add in test_add.py covers 1 + 1 == 2")]),
-    ("Yine hazır.", []),
-]
+FINISHING = [("Hazır.", [])]
+FOLLOW_UP = [("Yine hazır.", [])]
 
 
 def make_client(replies=()):
     return TestClient(create_app([], AgentSettings(model="test"), client=ScriptedClient(list(replies))))
 
 
-def start_code_run(client, tmp_path, **extra):
-    body = {"mode": "code", "question": "Add things", "folder": str(tmp_path / "app"), **extra}
+def start_chat(client, **extra):
+    body = {"mode": "chat", "question": "Add things", **extra}
     run = client.post("/api/runs", json=body).json()
     read_events(client, run["id"])  # wait for the end
     return run["id"]
@@ -56,15 +40,15 @@ def test_folders_can_be_created_renamed_and_deleted():
         assert client.delete("/api/folders/nope").status_code == 404
 
 
-def test_a_run_is_created_in_a_folder_and_can_be_titled_and_moved(tmp_path):
+def test_a_run_is_created_in_a_folder_and_can_be_titled_and_moved():
     with make_client(FINISHING) as client:
         a = client.post("/api/folders", json={"name": "A"}).json()["id"]
         b = client.post("/api/folders", json={"name": "B"}).json()["id"]
-        bad = client.post("/api/runs", json={"mode": "code", "folder": str(tmp_path), "chat_folder": "nope"})
+        bad = client.post("/api/runs", json={"mode": "chat", "question": "x", "chat_folder": "nope"})
         assert bad.status_code == 400
-        run_id = start_code_run(client, tmp_path, chat_folder=a)
+        run_id = start_chat(client, chat_folder=a)
         run = client.get("/api/runs").json()[0]
-        assert run["folder"] == a and run["mode"] == "code" and run["title"] == "" and run["status"] == "done"
+        assert run["folder"] == a and run["mode"] == "chat" and run["title"] == "" and run["status"] == "done"
 
         renamed = client.patch(f"/api/runs/{run_id}", json={"title": "  Hesap tablosu  "}).json()
         assert renamed["title"] == "Hesap tablosu"
@@ -80,10 +64,10 @@ def test_a_run_is_created_in_a_folder_and_can_be_titled_and_moved(tmp_path):
         assert client.get("/api/runs").json()[0]["folder"] is None
 
 
-def test_chats_survive_a_restart(tmp_path):
+def test_chats_survive_a_restart():
     with make_client(FINISHING) as client:
         folder = client.post("/api/folders", json={"name": "Programs"}).json()["id"]
-        run_id = start_code_run(client, tmp_path, chat_folder=folder)
+        run_id = start_chat(client, chat_folder=folder)
         client.patch(f"/api/runs/{run_id}", json={"title": "My program"})
 
     with make_client() as client:  # a new server process on the same workspace
@@ -92,14 +76,14 @@ def test_chats_survive_a_restart(tmp_path):
         assert (run["id"], run["title"], run["folder"], run["status"]) == (run_id, "My program", folder, "done")
         events = read_events(client, run_id)
         kinds = [e["kind"] for e in events]
-        assert {"turn", "tool_call", "state", "outcome", "answer"} <= set(kinds) and kinds[-1] == "end"
+        assert {"turn", "streamed", "answer"} <= set(kinds) and kinds[-1] == "end"
         assert "token" not in kinds  # live output is not kept
 
 
 def test_a_run_cut_off_by_a_restart_is_marked_interrupted(tmp_path):
     with make_client() as client:
         store = client.app.state.store
-        store.add_run("r1", question="q", project="p", mode="code", status="running")
+        store.add_run("r1", question="q", project="p", mode="chat", status="running")
         store.append_event("r1", {"kind": "log", "text": "started"})
     with make_client() as client:
         assert client.get("/api/runs").json()[0]["status"] == "interrupted"
@@ -108,9 +92,18 @@ def test_a_run_cut_off_by_a_restart_is_marked_interrupted(tmp_path):
         assert json.loads((tmp_path / "ws" / "ui" / "index.json").read_text())["runs"]["r1"]["status"] == "interrupted"
 
 
+def test_a_code_chat_of_an_earlier_version_can_be_read_but_not_continued():
+    with make_client() as client:
+        client.app.state.store.add_run("r1", question="q", project="C:/app", mode="code", status="done")
+    with make_client() as client:
+        assert client.get("/api/runs").json()[0]["mode"] == "code"
+        assert read_events(client, "r1")[-1]["kind"] == "end"
+        assert client.post("/api/runs/r1/messages", json={"question": "Go on"}).status_code == 400
+
+
 def test_runs_can_be_deleted_but_not_while_running(tmp_path):
     with make_client(FINISHING) as client:
-        run_id = start_code_run(client, tmp_path)
+        run_id = start_chat(client)
         log = tmp_path / "ws" / "ui" / "runs" / f"{run_id}.jsonl"
         assert log.is_file()
         app = client.app
@@ -141,7 +134,7 @@ def test_a_page_that_opens_a_working_chat_sees_the_reply_from_its_start():
     assert run.events[-1] == {"kind": "streamed", "index": None, "text": "The answer is", "thinking": "Let me think. "}
 
 
-def test_a_finished_chat_opened_later_shows_what_the_model_thought_and_wrote(tmp_path):
+def test_a_finished_chat_opened_later_shows_what_the_model_thought_and_wrote():
     with make_client([("Hazır cevap.", [])]) as client:
         run = client.post("/api/runs", json={"mode": "chat", "question": "Merhaba"}).json()
         read_events(client, run["id"])
@@ -150,10 +143,9 @@ def test_a_finished_chat_opened_later_shows_what_the_model_thought_and_wrote(tmp
     assert streamed["text"] == "Hazır cevap." and later.index(streamed) < [e["kind"] for e in later].index("answer")
 
 
-def test_a_follow_up_message_continues_the_same_chat(tmp_path):
-    more = FOLLOW_UP
-    with make_client([*FINISHING, *more]) as client:
-        run_id = start_code_run(client, tmp_path)
+def test_a_follow_up_message_continues_the_same_chat():
+    with make_client([*FINISHING, *FOLLOW_UP]) as client:
+        run_id = start_chat(client)
         assert client.post("/api/runs/nope/messages", json={"question": "x"}).status_code == 404
         assert client.post(f"/api/runs/{run_id}/messages", json={"question": "Check it again"}).status_code == 202
         events = read_events(client, run_id)  # the whole chat: the first message, then the follow-up
@@ -166,7 +158,7 @@ def test_a_follow_up_message_continues_the_same_chat(tmp_path):
 
         run = client.app.state.runs[run_id]
         assert "Check it again" in run.follow_up("And now?") and "Yine hazır." in run.follow_up("And now?")
-        # while a code run works, a message steers its agent; without an agent the chat is busy
+        # while a chat works, a message waits for the reply; without an agent the chat is busy
         run.status = "running"
         assert client.post(f"/api/runs/{run_id}/messages", json={"question": "Use tabs"}).status_code == 202
         assert run.agent.steering == [("Use tabs", [])] and run.events[-1] == {"kind": "steer", "text": "Use tabs"}
@@ -174,63 +166,46 @@ def test_a_follow_up_message_continues_the_same_chat(tmp_path):
         assert client.post(f"/api/runs/{run_id}/messages", json={"question": "x"}).status_code == 409
         run.status = "done"
 
-        # the file tree of the project and the preview of a file
-        listed = client.get(f"/api/runs/{run_id}/files").json()
-        assert listed["files"] == ["test_add.py"] and listed["more"] == 0  # .local-coder is not listed
-        shown = client.get(f"/api/runs/{run_id}/file", params={"path": "test_add.py"}).json()
-        assert shown["content"].startswith("def test_add")
-        assert client.get(f"/api/runs/{run_id}/file", params={"path": "../../etc/passwd"}).status_code == 404
-        assert client.get(f"/api/runs/{run_id}/file", params={"path": "nope.py"}).status_code == 404
-        assert client.get("/api/runs/nope/files").status_code == 404
 
-
-def test_a_chat_keeps_its_settings(tmp_path):
+def test_a_chat_keeps_its_settings():
     from local_ai.web.runs import clean_settings
 
-    assert clean_settings({"model": " m ", "temperature": "0.3", "max_tokens": 10, "max_turns": 40, "x": 1}) == {
+    assert clean_settings({"model": " m ", "temperature": "0.3", "max_tokens": 10, "max_steps": 40, "x": 1}) == {
         "model": "m",
         "temperature": 0.3,
-        "max_turns": 40,  # max_tokens is out of range, x is unknown
+        "max_steps": 40,  # max_tokens is out of range, x is unknown
     }
     assert clean_settings(None) == {}
     assert clean_settings({"max_thinking_chars": "20000", "context_chars": 5}) == {"max_thinking_chars": 20000}
 
-    more = FOLLOW_UP
-    with make_client([*FINISHING, *more]) as client:
-        chosen = {"temperature": 0.2, "max_turns": 30, "context_chars": 80_000}
-        run_id = start_code_run(client, tmp_path, settings=chosen)
+    with make_client([*FINISHING, *FOLLOW_UP]) as client:
+        chosen = {"temperature": 0.2, "context_chars": 80_000}
+        run_id = start_chat(client, settings=chosen)
         assert client.get("/api/runs").json()[0]["settings"] == chosen
         turn = next(e for e in read_events(client, run_id) if e["kind"] == "turn")
-        assert turn["max_turns"] == 30 and turn["context_limit"] == 80_000
-        client.post(f"/api/runs/{run_id}/messages", json={"question": "Again", "settings": {"max_turns": 12}})
-        assert [e["max_turns"] for e in read_events(client, run_id) if e["kind"] == "turn"][-1] == 12
+        assert turn["context_limit"] == 80_000
+        client.post(f"/api/runs/{run_id}/messages", json={"question": "Again", "settings": {"context_chars": 50_000}})
+        assert [e["context_limit"] for e in read_events(client, run_id) if e["kind"] == "turn"][-1] == 50_000
         assert client.get("/api/models").json()["models"] == []  # the scripted client lists none; the page still works
 
     with make_client() as client:  # after a restart
-        assert client.get("/api/runs").json()[0]["settings"] == {"max_turns": 12}
+        assert client.get("/api/runs").json()[0]["settings"] == {"context_chars": 50_000}
 
 
-def test_a_code_chat_keeps_its_conversation_with_the_model(tmp_path):
+def test_a_chat_keeps_its_conversation_with_the_model():
     """A follow-up goes on with everything that was said, also after the UI was restarted."""
-    with make_client([*FINISHING, *FOLLOW_UP]) as client:
-        run_id = start_code_run(client, tmp_path)
-        store = client.app.state.store
-        first = store.load_messages(run_id)
-        assert first["interrupted"] is False and first["messages"][1]["content"].startswith("Add things")
+    with make_client(FINISHING) as client:
+        run_id = start_chat(client)
+        first = client.app.state.store.load_messages(run_id)
+        assert first["messages"][1] == {"role": "user", "content": "Add things"}
         assert first["messages"][-1] == {"role": "assistant", "content": "Hazır."}
 
     with make_client(FOLLOW_UP) as client:  # a new server process: the conversation comes from the store
         client.post(f"/api/runs/{run_id}/messages", json={"question": "Check it again"})
         assert read_events(client, run_id)[-1] == {"kind": "end", "status": "done"}
         messages = client.app.state.store.load_messages(run_id)["messages"]
-        tasks = [
-            m["content"]
-            for m in messages
-            if m["role"] == "user" and not m["content"].startswith(("Verification", "REVIEW"))
-        ]
-        assert tasks[0].startswith("Add things") and tasks[-1].startswith("Check it again")
-        assert "Earlier in this chat" not in tasks[-1]  # the conversation itself is there, no retelling needed
-        assert len(messages) > len(first["messages"]) + 4
+        tasks = [m["content"] for m in messages if m["role"] == "user"]
+        assert tasks == ["Add things", "Check it again"]  # the conversation itself is there, no retelling needed
 
         assert client.delete(f"/api/runs/{run_id}").json() == {"ok": True}
         assert client.app.state.store.load_messages(run_id) == {}

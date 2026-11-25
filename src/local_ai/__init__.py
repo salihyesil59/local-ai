@@ -1,4 +1,4 @@
-"""Local research assistant: MCP tool servers and a research agent for LM Studio."""
+"""Local research assistant: MCP tool servers and a research agent for a local OpenAI-compatible model server."""
 
 import os
 

@@ -21,7 +21,8 @@ from mcp.client.stdio import stdio_client
 
 from local_ai.core.tools import Tool, parse_arguments
 
-DEFAULT_MCP_CONFIG = Path("~/.lmstudio/mcp.json").expanduser()
+DEFAULT_MCP_CONFIG = Path("~/.local-ai/mcp.json").expanduser()
+OLD_MCP_CONFIG = Path("~/.lmstudio/mcp.json").expanduser()  # where earlier versions kept it
 # Arguments a tool gets when the model leaves them out, for the run whose task sets them (a context variable: runs
 # that work at the same time each have their own; the web UI sets the scope of library__search_library to the
 # notebook of a chat).
@@ -40,16 +41,16 @@ class ServerConfig:
 
 
 def load_mcp_config(path: str | os.PathLike | None = None, only: list[str] | None = None) -> list[ServerConfig]:
-    """Read an mcp.json in the LM Studio / Cursor format:
+    """Read an mcp.json in the usual format (Claude Desktop, Cursor, LM Studio):
 
     {"mcpServers": {"library": {"command": "local-ai-library", "args": [], "env": {}}}}
 
-    Default: LOCAL_AI_MCP_CONFIG, else LM Studio's ~/.lmstudio/mcp.json. Disabled servers are left out.
+    Default: LOCAL_AI_MCP_CONFIG, else ~/.local-ai/mcp.json (see config_path). Disabled servers are left out.
     """
     path = config_path(path)
     if not path.is_file():
         raise FileNotFoundError(
-            f"MCP config not found: {path}. Pass --mcp-config or create it from config/lmstudio/mcp.json.example."
+            f"MCP config not found: {path}. Pass --mcp-config or create it from config/mcp.json.example."
         )
     return [
         server_config(name, spec)
@@ -59,9 +60,12 @@ def load_mcp_config(path: str | os.PathLike | None = None, only: list[str] | Non
 
 
 def config_path(path: str | os.PathLike | None = None) -> Path:
-    """The mcp.json in use: the given one, else LOCAL_AI_MCP_CONFIG, else LM Studio's ~/.lmstudio/mcp.json."""
+    """The mcp.json in use: the given one, else LOCAL_AI_MCP_CONFIG, else ~/.local-ai/mcp.json; while that does
+    not exist, the ~/.lmstudio/mcp.json of earlier versions when there is one."""
     path = path or os.environ.get("LOCAL_AI_MCP_CONFIG")
-    return Path(path).expanduser() if path else DEFAULT_MCP_CONFIG
+    if path:
+        return Path(path).expanduser()
+    return OLD_MCP_CONFIG if not DEFAULT_MCP_CONFIG.is_file() and OLD_MCP_CONFIG.is_file() else DEFAULT_MCP_CONFIG
 
 
 def server_config(name: str, spec: dict) -> ServerConfig:

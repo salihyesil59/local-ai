@@ -1,4 +1,4 @@
-"""Chat mode: a plain conversation with the model, like the chat of LM Studio. No plan, no agent loop and no tools
+"""Chat mode: a plain conversation with the model, like the chat of a model server app. No plan, no agent loop and no tools
 of its own; images go with a message, and the MCP tools the user switched on are offered (the model may call them)."""
 
 from __future__ import annotations

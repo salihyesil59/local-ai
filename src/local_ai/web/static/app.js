@@ -206,7 +206,7 @@ async function loadStatus() {
     state.status = await api("/api/status");
     const s = state.status;
     showStatus(s.error ? "failed" : "done", s.error || `${s.model || t("model: auto")} · ${s.tools} ${t("tools")}`,
-      `${t("Servers")}: ${s.servers.join(", ") || t("no servers")}\nWorkspace: ${s.workspace}\nLM Studio: ${s.base_url}`);
+      `${t("Servers")}: ${s.servers.join(", ") || t("no servers")}\nWorkspace: ${s.workspace}\n${t("Model server")}: ${s.base_url}`);
     renderMcpSelectors();
     schedulePanel();
   } catch (e) {
@@ -224,9 +224,9 @@ function showStatus(dot, text, details) {
 }
 
 // -- MCP servers for a message: a menu at the message box (the servers this message may use) --------
-// Remembered per mode. The notebook belongs to the research agent and the coder to the coding agent: not offered.
+// Remembered per mode. The notebook belongs to the research agent: not offered.
 function offeredServers() {
-  return (state.status.servers || []).filter((s) => s !== "notebook" && s !== "coder");
+  return (state.status.servers || []).filter((s) => s !== "notebook");
 }
 
 function chosenServers() {
@@ -293,7 +293,7 @@ function renderChips() {
   const chip = (label, clear) => el("span", { class: "chip", title: label }, el("span", {}, label),
     el("button", { type: "button", title: t("Remove"), "aria-label": `${t("Remove")}: ${label}`, onclick: clear }, icon("x")));
   $("#chips").replaceChildren(...[
-    state.mode !== "code" && $("#notebook").value ? chip(`${t("Notebook")}: ${$("#notebook").value}`, () => setNotebook("")) : null,
+    $("#notebook").value ? chip(`${t("Notebook")}: ${$("#notebook").value}`, () => setNotebook("")) : null,
   ].filter(Boolean));
 }
 
@@ -323,15 +323,8 @@ const PRESETS = {
     document: { label: "Document", time: "~10–20 min", note: "Fast research written up as a Word and PDF document",
       values: { ...PRESET_BASE, fast: true, short_thinking: true, critic: false, document: true } },
   },
-  code: {
-    normal: { label: "Normal", note: "Plan, verify, a project map and a review at the end", values: { fast: false, quick: false } },
-    fast: { label: "Fast", note: "Plan and verify, but no review at the end and no project map; shorter thinking",
-      values: { fast: true, quick: false } },
-    quick: { label: "Quick", note: "A small mechanical change (a rename): no plan, the tests run once at the end",
-      values: { fast: false, quick: true } },
-  },
 };
-const DEFAULT_PRESET = { research: "standard", code: "normal" };
+const DEFAULT_PRESET = { research: "standard" };
 state.preset = {};
 
 function controlValue(key) {
@@ -715,7 +708,7 @@ function editInPlace(node, value, save, placeholder = "") {
 }
 
 // -- chats in the sidebar -------------------------------------------------------------
-// Chats are sorted into the user's folders, like in LM Studio or Goose; they can be renamed, pinned, searched
+// Chats are sorted into the user's folders; they can be renamed, pinned, searched
 // and dragged into a folder.
 const chatTitle = (r) => r.title || shortTitle(r.question);
 
@@ -892,7 +885,7 @@ function shortTitle(text, max = 40) {
 }
 
 // -- the composer: starts a chat, or sends a follow-up message in the open one ----------------
-const MODES = ["chat", "research", "code"];
+const MODES = ["chat", "research"];
 const knownMode = (mode) => (MODES.includes(mode) ? mode : "research");
 
 function setMode(mode) {
@@ -907,34 +900,29 @@ function setMode(mode) {
 document.querySelectorAll(".mode[data-mode]").forEach((b) => b.addEventListener("click", () => { remember("mode", b.dataset.mode); setMode(b.dataset.mode); }));
 
 function updateComposer() {
-  const code = state.mode === "code", chat = state.mode === "chat";
+  const chat = state.mode === "chat";
   const run = state.runs[state.currentRun];
-  for (const n of document.querySelectorAll(".code-only, .research-only, .agent-only, .not-code, .new-only")) {
-    n.hidden = (n.classList.contains("code-only") && !code) || (n.classList.contains("research-only") && state.mode !== "research")
-      || (n.classList.contains("agent-only") && chat) || (n.classList.contains("not-code") && code) || (n.classList.contains("new-only") && !!run);
+  for (const n of document.querySelectorAll(".chat-only, .research-only, .agent-only, .new-only")) {
+    n.hidden = (n.classList.contains("chat-only") && !chat) || (n.classList.contains("research-only") && state.mode !== "research")
+      || (n.classList.contains("agent-only") && chat) || (n.classList.contains("new-only") && !!run);
   }
-  const steer = state.running && !!run; // a running chat takes a message: code reads it, chat and research queue it
-  const action = steer && code ? t("Steer") : run || chat ? t("Send") : code ? t("Code") : t("Research");
+  const steer = state.running && !!run; // a running chat takes a message: chat and research queue it
+  const action = run || chat ? t("Send") : t("Research");
   $("#run").replaceChildren(icon("up"));
   $("#run").title = `${action} (Ctrl+Enter)`;
   $("#run").setAttribute("aria-label", action);
   renderTitle();
-  $("#critic-opt small").textContent = code ? t("A judge checks a finished task against the request and may send it back (normal speed only)")
-    : t("A reviewer reads the report against the findings and sends real problems back to be fixed");
   $("#run").disabled = state.running && !steer;
   $("#cancel").hidden = !state.running;
-  if (!state.running) $("#compact").hidden = true; // shown by the first "turn" event, which only code runs send
   const q = $("#question");
   const resume = !!run && state.mode === "research" && !state.running && run.resumable; // a stopped research can go on
-  // code mode may continue an existing plan without a new task; a message of images alone needs no text
-  q.required = !state.images.length && !state.files.length &&((!code && !resume) || steer);
+  // a message of images alone needs no text
+  q.required = !state.images.length && !state.files.length && (!resume || steer);
   q.placeholder = chat && steer ? t("Write your next message: it is answered when the current reply is done.")
-    : steer && !code ? t("Write your next question: it is researched when this research is done.")
+    : steer ? t("Write your next question: it is researched when this research is done.")
     : chat ? t("Write a message — any language. Images can be pasted or dropped here.")
-    : steer ? t("Tell the agent what to change. It reads the message before its next reply.") : run
-    ? (code ? t("Next instruction for this project. Leave empty to continue the plan.")
-      : resume ? t("Ask something with what was found so far, or leave empty to go on with the research.") : t("Ask a follow-up question."))
-    : (code ? t("What to build, change or fix. Leave empty to continue the plan in the folder.") : t("Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”"));
+    : run ? (resume ? t("Ask something with what was found so far, or leave empty to go on with the research.") : t("Ask a follow-up question."))
+    : t("Ask a research question — any language. e.g. “Hidrojen atomunun taban durum enerjisini türet.”");
 }
 
 function setRunning(on) {
@@ -942,20 +930,6 @@ function setRunning(on) {
   updateComposer();
 }
 
-$("#browse").addEventListener("click", async () => {
-  const button = $("#browse");
-  button.disabled = true;
-  button.textContent = t("Waiting for the dialog…");
-  try {
-    const { path } = await api("/api/pick-folder", { method: "POST", body: JSON.stringify({ initial: $("#folder").value.trim() }) });
-    if (path) { $("#folder").value = path; remember("folder", path); }
-  } catch (e) {
-    fail(e);
-  } finally {
-    button.disabled = false;
-    button.textContent = t("Browse…");
-  }
-});
 
 // -- attachments: images (made smaller here) and other files (PDF, Word, notes, code), attached with the button,
 // pasted or dropped, and sent with the message; the server gives the model the text of the files ------
@@ -1057,10 +1031,10 @@ $("#ask").addEventListener("submit", async (ev) => {
   const images = [...state.images];
   const files = state.files.map(({ name, data }) => ({ name, data }));
   const empty = !question && !images.length && !files.length;
-  const code = state.mode === "code", chat = state.mode === "chat";
+  const chat = state.mode === "chat";
   const steer = state.running && state.currentRun;
   const resume = state.mode === "research" && state.currentRun && state.runs[state.currentRun]?.resumable;
-  if ((empty && ((!code && !resume) || steer)) || (state.running && !steer)) return;
+  if ((empty && (!resume || steer)) || (state.running && !steer)) return;
   if (steer) { // the live stream shows the message when the server has taken it
     try {
       await api(`/api/runs/${state.currentRun}/messages`, { method: "POST", body: JSON.stringify({ question, images, files }) });
@@ -1069,19 +1043,14 @@ $("#ask").addEventListener("submit", async (ev) => {
     return;
   }
   const options = { question, images, files, servers: getSelectedMcpServers(), settings: getSettings() };
-  if (!code && $("#notebook").value) options.notebook = $("#notebook").value;
-  if (!chat) Object.assign(options, { fast: $("#fast").checked, quick: $("#quick").checked, critic: $("#critic").checked });
-  if (state.mode === "code") options.tests = $("#tests").value;
-  if (state.mode === "research") Object.assign(options, researchOptions());
+  if ($("#notebook").value) options.notebook = $("#notebook").value;
+  if (!chat) Object.assign(options, { quick: $("#quick").checked }, researchOptions());
   try {
     let run;
     if (state.currentRun) {
       run = await api(`/api/runs/${state.currentRun}/messages`, { method: "POST", body: JSON.stringify(options) });
     } else {
-      const folder = $("#folder").value.trim();
-      if (code) remember("folder", folder);
-      const body = code ? { ...options, mode: "code", folder } : chat ? { ...options, mode: "chat" }
-        : { ...options, project: $("#project").value.trim() };
+      const body = chat ? { ...options, mode: "chat" } : { ...options, project: $("#project").value.trim() };
       run = await api("/api/runs", { method: "POST", body: JSON.stringify({ ...body, chat_folder: state.targetFolder }) });
     }
     sent();
@@ -1096,14 +1065,6 @@ $("#ask").addEventListener("submit", async (ev) => {
 
 $("#cancel").addEventListener("click", () => state.currentRun && api(`/api/runs/${state.currentRun}/cancel`, { method: "POST" }));
 
-$("#compact").addEventListener("click", async () => {
-  if (!state.currentRun) return;
-  try {
-    await api(`/api/runs/${state.currentRun}/compact`, { method: "POST" });
-    append(el("div", { class: "log" }, t("Compaction requested: it happens before the next model reply.")));
-  } catch (e) { fail(e); }
-});
-
 function resizeQuestion() {
   const q = $("#question");
   q.style.height = "auto";
@@ -1113,15 +1074,14 @@ $("#question").addEventListener("input", resizeQuestion);
 $("#question").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) $("#ask").requestSubmit(); });
 
 // -- settings of a chat: model, temperature and limits; empty fields use the server's defaults ----
-const SETTINGS = ["model", "temperature", "max_tokens", "max_turns", "context_chars", "max_thinking_chars", "max_steps"];
-const CODE_SETTINGS = ["max_turns", "context_chars", "max_thinking_chars"], RESEARCH_SETTINGS = ["max_steps"];
+const SETTINGS = ["model", "temperature", "max_tokens", "context_chars", "max_steps"];
+const CHAT_SETTINGS = ["context_chars"], RESEARCH_SETTINGS = ["max_steps"];
 
 function getSettings() {
-  const code = state.mode === "code", chat = state.mode === "chat";
+  const chat = state.mode === "chat";
   const settings = {};
   for (const key of SETTINGS) {
-    // the other agent's limits; a chat has none of them (its context limit is the code chat's field, kept)
-    if ((code ? RESEARCH_SETTINGS : chat ? [...RESEARCH_SETTINGS, "max_turns", "max_thinking_chars"] : CODE_SETTINGS).includes(key)) continue;
+    if ((chat ? RESEARCH_SETTINGS : CHAT_SETTINGS).includes(key)) continue; // the other mode's limits
     const value = $(`#set-${key}`).value.trim();
     if (value) settings[key] = key === "model" ? value : +value;
   }
@@ -1158,7 +1118,6 @@ async function loadModels() {
 }
 
 $("#settings-toggle").addEventListener("click", () => { if (togglePopover("#settings")) loadModels(); });
-$("#folder").addEventListener("input", () => schedulePanel());
 $("#settings").addEventListener("change", () => { remember("settings", JSON.stringify(getSettings())); renderSettingsButton(); });
 $("#set-reset").addEventListener("click", () => { setSettings({}); remember("settings", "{}"); });
 
@@ -1185,15 +1144,12 @@ function renderMeter(e) {
 const MODE_HINTS = {
   chat: "Chat answers at once, with the tools you switch on in the + menu.",
   research: "Research answers a question from your library, Wikipedia and arXiv, with sources.",
-  code: "Code writes, runs and tests a project in a folder of yours.",
 };
 const EXAMPLES = {
   chat: ["Explain the difference between TCP and UDP in simple terms.", "Write a polite email that moves a meeting to Friday.",
     "What is a Fourier transform used for?"],
   research: ["Derive the ground state energy of the hydrogen atom.", "What limits the efficiency of silicon solar cells?",
     "How does CRISPR-Cas9 cut DNA?"],
-  code: ["Add unit tests for the main module and make them pass.", "Find and fix the bug that makes the tests fail.",
-    "Write a command-line tool that renames photos by the date they were taken."],
 };
 
 function renderWelcome() {
@@ -1223,9 +1179,8 @@ function newChat() {
 
 function newContext(title) {
   // cards, calls, live: what the current message has put on the timeline; panel: what the progress panel shows;
-  // contents: the files the agent has written in this chat, to show what a later write changes
-  return { cards: {}, calls: {}, live: {}, current: null, contents: new Map(),
-    panel: { rounds: [newRound(title)], openRounds: {}, tree: null, dirs: {}, treeOpen: false, changes: null } };
+  return { cards: {}, calls: {}, live: {}, current: null,
+    panel: { rounds: [newRound(title)], openRounds: {} } };
 }
 
 // A new message of the user: its turns start counting again, and the panel opens a new entry for it.
@@ -1292,7 +1247,7 @@ function addSendNow() {
   button.addEventListener("click", async () => {
     button.disabled = true;
     const options = { servers: getSelectedMcpServers(), settings: getSettings() };
-    if (state.mode !== "code" && $("#notebook").value) options.notebook = $("#notebook").value;
+    if ($("#notebook").value) options.notebook = $("#notebook").value;
     try {
       await api(`/api/runs/${state.currentRun}/send-now`, { method: "POST", body: JSON.stringify(options) });
       attach(state.currentRun); // the stopped part has ended: follow the new one
@@ -1364,123 +1319,23 @@ function closeLive(ctx, key) {
   box.replaceWith(...parts);
 }
 
-// -- tool calls: file edits as a diff, verify as a test result, everything else as text ------------
-const toolName = (name) => name.split("__").pop(); // "coder__verify" -> "verify"
+// -- tool calls: shown as text, a row of plain calls folded into one line ------------------------
+const toolName = (name) => name.split("__").pop(); // "library__search_library" -> "search_library"
 const parseArgs = (args) => { try { const a = JSON.parse(args); return a && typeof a === "object" ? a : null; } catch { return null; } };
 const prettyArgs = (args) => { try { return JSON.stringify(JSON.parse(args), null, 2); } catch { return args; } };
-const DIFF_LINES = 400; // of one edit shown on the page
-const DIFF_OPEN = 40; // an edit with at most this many lines is shown open
-
-// The lines of b against a: [kind, text] with kind "ctx", "del" or "add" (longest common subsequence).
-function lineDiff(a, b) {
-  const n = a.length, m = b.length;
-  if (n * m > 250000) return [...a.map((t) => ["del", t]), ...b.map((t) => ["add", t])];
-  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-  const out = [];
-  let i = 0, j = 0;
-  while (i < n && j < m) {
-    if (a[i] === b[j]) { out.push(["ctx", a[i]]); i++; j++; }
-    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(["del", a[i++]]);
-    else out.push(["add", b[j++]]);
-  }
-  while (i < n) out.push(["del", a[i++]]);
-  while (j < m) out.push(["add", b[j++]]);
-  return out;
-}
-
-const SIGN = { add: "+", del: "−", ctx: " " };
-const counts = (added, removed) => el("span", { class: "counts" }, el("span", { class: "plus" }, `+${added}`), " ", el("span", { class: "minus" }, `−${removed}`));
-
-const DIFF_CONTEXT = 3; // unchanged lines shown around a change
-
-// Fold the unchanged lines that are far from a change into one row.
-function foldContext(rows) {
-  const near = rows.map(() => false);
-  rows.forEach((r, i) => {
-    if (r[0] !== "ctx") for (let k = Math.max(0, i - DIFF_CONTEXT); k <= Math.min(rows.length - 1, i + DIFF_CONTEXT); k++) near[k] = true;
-  });
-  const out = [];
-  for (let i = 0; i < rows.length; i++) {
-    if (near[i]) { out.push(rows[i]); continue; }
-    let j = i;
-    while (j < rows.length && !near[j]) j++;
-    out.push(["gap", `⋯ ${j - i} ${t("unchanged lines")}`]);
-    i = j - 1;
-  }
-  return out;
-}
-
-function diffCall(e, a, ctx) {
-  const lines = (s) => String(s ?? "").replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
-  const edit = toolName(e.name) === "edit_file";
-  const path = String(a.path ?? "");
-  const known = ctx.contents.get(path); // what this chat wrote to the file before, if it did
-  let rows, after;
-  if (edit) {
-    rows = lineDiff(lines(a.old), lines(a.new));
-    if (known != null && typeof a.old === "string" && known.includes(a.old)) after = known.replace(a.old, () => String(a.new ?? ""));
-  } else {
-    after = String(a.content ?? "");
-    rows = known != null ? lineDiff(lines(known), lines(after)) : lines(after).map((line) => ["add", line]);
-  }
-  const added = rows.filter((r) => r[0] === "add").length, removed = rows.filter((r) => r[0] === "del").length;
-  const folded = foldContext(rows);
-  const body = el("div", { class: "diff-body" }, folded.slice(0, DIFF_LINES).map(([kind, text]) =>
-    kind === "gap" ? el("div", { class: "dl more" }, text) : el("div", { class: `dl ${kind}` }, el("span", { class: "sign" }, SIGN[kind]), el("span", {}, text))));
-  if (folded.length > DIFF_LINES) body.append(el("div", { class: "dl more" }, `… ${folded.length - DIFF_LINES} ${t("more lines")}`));
-  const d = el("details", { class: "call diff pending", open: folded.length <= DIFF_OPEN },
-    el("summary", {}, el("span", {}, edit ? "edit" : "write"), el("span", { class: "path" }, path), counts(added, removed)), body);
-  const files = round(ctx).files;
-  d.commit = () => { // the tool has done it: count the change for this message and remember the file
-    const file = files.get(path) || { added: 0, removed: 0 };
-    files.set(path, { added: file.added + added, removed: file.removed + removed });
-    if (after != null) ctx.contents.set(path, after);
-    else ctx.contents.delete(path); // edited a file this chat has not seen whole
-    schedulePanel();
-  };
-  return d;
-}
-
-function testCall(title) {
-  return el("details", { class: "call test pending" },
-    el("summary", {}, el("span", { class: "verdict" }, "RUNNING"), el("span", { class: "headline" }, title)));
-}
-
-// What a verify result says: [class, label].
-function verdict(output) {
-  if (/^PASSED/.test(output)) return /ALL DONE/.test(output) ? ["pass", "ALL DONE"] : /but (the review is still open|no file has changed)/.test(output) ? ["warn", "PASSED · OPEN"] : ["pass", "PASSED"];
-  if (/^FAILED/.test(output)) return ["fail", "FAILED"];
-  return ["warn", /^CANNOT VERIFY/.test(output) ? "NO TESTS" : "NOT RUN"];
-}
-
-function testResult(d, output) {
-  const [cls, label] = verdict(output);
-  const badge = d.querySelector(".verdict");
-  badge.className = `verdict ${cls}`;
-  badge.textContent = label;
-  d.querySelector(".headline").textContent = output.split("\n")[0];
-  d.append(el("pre", {}, output));
-  d.open = cls === "fail";
-}
 
 function renderToolCall(e, ctx) {
   const key = e.index ?? ctx.current ?? "misc";
   const c = ctx.cards[key] || card(ctx, key, t("Tool calls"));
   const tool = toolName(e.name);
   const a = parseArgs(e.arguments);
-  let d;
-  if (a && (tool === "write_file" || tool === "edit_file")) d = diffCall(e, a, ctx);
-  else if (tool === "verify") d = testCall(a && a.note ? a.note : "verify");
-  else d = el("details", { class: "call pending plain", "data-tool": tool }, el("summary", {}, `${e.name} ${e.arguments}`), el("pre", {}, prettyArgs(e.arguments)));
+  const d = el("details", { class: "call pending plain", "data-tool": tool }, el("summary", {}, `${e.name} ${e.arguments}`), el("pre", {}, prettyArgs(e.arguments)));
   if (a && tool === "add_source") d.source = a; // numbered by its result, for the progress panel
   ctx.calls[e.id + key] = d;
-  const calls = c.querySelector(".calls");
-  if (d.classList.contains("plain")) groupCall(calls, d);
-  else calls.append(d);
+  groupCall(c.querySelector(".calls"), d);
 }
 
-// Plain tool calls in a row (searches, reads) fold into one line; edits and verifications stay in sight.
+// Plain tool calls in a row (searches, reads) fold into one line.
 function groupCall(calls, d) {
   const last = calls.lastElementChild;
   if (last && last.classList.contains("group")) last.querySelector(".group-calls").append(d);
@@ -1506,14 +1361,7 @@ function renderToolResult(e, ctx) {
   if (e.error) d.classList.add("error");
   const group = d.closest(".group");
   if (group && e.error) { renderGroup(group); group.open = true; }
-  if (d.classList.contains("test")) { testResult(d, e.output); round(ctx).verifies.push(verdict(e.output)); schedulePanel(); }
-  else if (d.classList.contains("diff")) {
-    d.append(el("div", { class: "call-note" }, e.output));
-    if (e.error) d.open = true;
-    else d.commit();
-    refreshFiles(ctx);
-  }
-  else d.append(el("pre", {}, e.output));
+  d.append(el("pre", {}, e.output));
   const n = d.source && !e.error && /\[(\d+)\]/.exec(e.output);
   if (n) { round(ctx).sources.set(+n[1], d.source); schedulePanel(); }
   // the files the documents server made (a PDF, and its Word copy when asked for)
@@ -1524,136 +1372,7 @@ function renderToolResult(e, ctx) {
   }
 }
 
-// -- the files of a code project: a tree in the progress panel; a click shows the file ----------
-const FILE_LANGUAGE = { py: "python", js: "js", mjs: "js", ts: "ts", tsx: "tsx", jsx: "jsx", json: "json", sh: "bash", ps1: "powershell",
-  yml: "yaml", yaml: "yaml", toml: "toml", c: "c", h: "c", cpp: "cpp", hpp: "cpp", java: "java", go: "go", rs: "rust", cs: "csharp" };
-const TREE_OPEN = 40; // a project with at most this many files shows its folders open
-
-// Read the file list again; calls that arrive while one is under way are folded into one more.
-function refreshFiles(ctx) {
-  const run = state.runs[state.currentRun];
-  if (!run || run.mode !== "code") return;
-  if (ctx.filesBusy) { ctx.filesAgain = true; return; }
-  ctx.filesBusy = true;
-  api(`/api/runs/${run.id}/files`).catch(() => null).then((tree) => {
-    ctx.filesBusy = false;
-    if (tree && state.currentRun === run.id) { ctx.panel.tree = tree; schedulePanel(); }
-    if (ctx.filesAgain) { ctx.filesAgain = false; refreshFiles(ctx); }
-  });
-  refreshChanges(ctx);
-}
-
-// -- what a code chat changed in its git project, file by file: a diff to read and an Undo per file ----
-function refreshChanges(ctx) {
-  const run = state.runs[state.currentRun];
-  if (!run || run.mode !== "code") return;
-  if (ctx.changesBusy) { ctx.changesAgain = true; return; }
-  ctx.changesBusy = true;
-  api(`/api/runs/${run.id}/changes`).catch(() => null).then((changes) => {
-    ctx.changesBusy = false;
-    if (changes && state.currentRun === run.id) { ctx.panel.changes = changes; schedulePanel(); }
-    if (ctx.changesAgain) { ctx.changesAgain = false; refreshChanges(ctx); }
-  });
-}
-
-const CHANGE_KIND = { added: "new", deleted: "deleted", modified: "changed" };
-
-function changesSection(ctx) {
-  const { changes } = ctx.panel;
-  if (!changes.git) return section(t("Changes"), null, el("div", { class: "muted" }, t("Changes need a git repository.")));
-  const sum = changes.files.reduce((s, f) => ({ added: s.added + f.added, removed: s.removed + f.removed }), { added: 0, removed: 0 });
-  return section(t("Changes"), counts(sum.added, sum.removed),
-    el("ul", { class: "file-list changes" }, changes.files.map((f) => {
-      const why = changes.running ? t("Wait until the run has stopped.") : f.before_run ? t("Changed before this chat: kept as it is.") : "";
-      return el("li", {},
-        el("button", { type: "button", class: "path link", title: f.path, onclick: () => showChange(f) }, f.path),
-        el("span", { class: "badge" }, t(CHANGE_KIND[f.status])),
-        counts(f.added, f.removed),
-        el("button", { type: "button", class: "ghost small", disabled: Boolean(why), title: why || t("Undo the change of this file"),
-          onclick: () => undoChange(ctx, f) }, t("Undo")));
-    })));
-}
-
-function showChange(f) {
-  const rows = f.diff.split("\n").filter((line) => !/^(diff --git|index |--- |\+\+\+ |new file mode|deleted file mode)/.test(line));
-  const kind = (line) => line.startsWith("@@") ? "gap" : line[0] === "+" ? "add" : line[0] === "-" ? "del" : "ctx";
-  const body = el("div", { class: "diff-body change-view" }, rows.map((line) => kind(line) === "gap"
-    ? el("div", { class: "dl more" }, line)
-    : el("div", { class: `dl ${kind(line)}` }, el("span", { class: "sign" }, SIGN[kind(line)]), el("span", {}, line.slice(1)))));
-  if (!f.diff) body.append(el("div", { class: "dl more" }, t("No text to show (a binary or very large file).")));
-  if (f.cut) body.append(el("div", { class: "dl more" }, t("The rest of the diff is cut off.")));
-  const close = () => { dialog.close(); dialog.remove(); };
-  const dialog = el("dialog", { class: "dialog file-view" },
-    el("div", { class: "file-head" }, icon("file"), el("strong", {}, f.path), counts(f.added, f.removed),
-      el("button", { class: "icon", type: "button", title: t("Close"), onclick: close }, icon("x"))),
-    body);
-  dialog.addEventListener("click", (ev) => { if (ev.target === dialog) close(); }); // a click on the backdrop
-  dialog.addEventListener("close", () => dialog.remove()); // closed with Escape
-  document.body.append(dialog);
-  dialog.showModal();
-}
-
-async function undoChange(ctx, f) {
-  const run = state.runs[state.currentRun];
-  if (!run) return;
-  const text = f.status === "added" ? t("Delete the new file {path}?", { path: f.path })
-    : t("Put {path} back as it is in the last commit? Its changes are lost.", { path: f.path });
-  if (!(await confirmDialog(text, t("Undo")))) return;
-  try {
-    await api(`/api/runs/${run.id}/changes/undo`, { method: "POST", body: JSON.stringify({ path: f.path }) });
-    toast(t("Undone: {path}", { path: f.path }));
-  } catch (e) { fail(e); }
-  refreshFiles(ctx);
-}
-
-function fileTree(ctx) {
-  const { tree, dirs } = ctx.panel;
-  const files = allFiles(ctx);
-  const root = { dirs: {}, files: [] };
-  for (const path of tree.files) {
-    let node = root;
-    for (const name of path.split("/").slice(0, -1)) node = node.dirs[name] ||= { dirs: {}, files: [] };
-    node.files.push(path);
-  }
-  const level = (node, prefix) => [
-    ...Object.entries(node.dirs).map(([name, child]) => {
-      const path = `${prefix}${name}/`;
-      return el("details", { class: "dir", open: dirs[path] ?? tree.files.length <= TREE_OPEN, ontoggle: (ev) => { dirs[path] = ev.currentTarget.open; } },
-        el("summary", {}, icon("folder"), name), level(child, path));
-    }),
-    ...node.files.map((path) => {
-      const changed = files.get(path);
-      return el("button", { class: "file", type: "button", title: path, onclick: () => openFile(path) },
-        icon("file"), el("span", { class: "path" }, path.split("/").pop()), changed ? counts(changed.added, changed.removed) : null);
-    }),
-  ];
-  return el("details", { class: "tree", open: ctx.panel.treeOpen, ontoggle: (ev) => { ctx.panel.treeOpen = ev.currentTarget.open; } },
-    el("summary", {}, `${t("Project files")} (${tree.files.length}${tree.more ? "+" : ""})`), level(root, ""));
-}
-
-async function openFile(path) {
-  const run = state.runs[state.currentRun];
-  if (!run) return;
-  let file;
-  try {
-    file = await api(`/api/runs/${run.id}/file?path=${encodeURIComponent(path)}`);
-  } catch (e) {
-    toast(e.message === "not a text file" ? t("This file cannot be shown as text.") : e.message, "error");
-    return;
-  }
-  const code = el("code");
-  code.innerHTML = highlight(file.content, FILE_LANGUAGE[path.split(".").pop().toLowerCase()]); // escaped by highlight
-  const close = () => { dialog.close(); dialog.remove(); };
-  const dialog = el("dialog", { class: "dialog file-view" },
-    el("div", { class: "file-head" }, icon("file"), el("strong", {}, path), el("button", { class: "icon", type: "button", title: t("Close"), onclick: close }, icon("x"))),
-    el("pre", {}, code));
-  dialog.addEventListener("click", (ev) => { if (ev.target === dialog) close(); }); // a click on the backdrop
-  dialog.addEventListener("close", () => dialog.remove()); // closed with Escape
-  document.body.append(dialog);
-  dialog.showModal();
-}
-
-// -- the progress panel: the plan of a code chat, the sub-questions and sources of a research chat --
+// -- the progress panel: the sub-questions and sources of a research chat ------------------------
 function section(title, extra, ...children) {
   return el("section", {}, el("h4", {}, title, extra), ...children);
 }
@@ -1662,56 +1381,13 @@ const progress = (done, total) => el("div", { class: "progress" }, el("div", { s
 
 // What one message of the user led to; the panel shows the newest one open and the earlier ones as a history.
 function newRound(title) {
-  return { title, plan: null, files: new Map(), verifies: [], subs: [], sources: new Map() };
+  return { title, subs: [], sources: new Map() };
 }
 const round = (ctx) => ctx.panel.rounds[ctx.panel.rounds.length - 1];
 
-function totals(files) {
-  let added = 0, removed = 0;
-  for (const f of files.values()) { added += f.added; removed += f.removed; }
-  return { added, removed };
-}
-
-// The changes of the whole chat per file, for the file tree.
-function allFiles(ctx) {
-  const all = new Map();
-  for (const r of ctx.panel.rounds) {
-    for (const [path, f] of r.files) {
-      const sum = all.get(path) || { added: 0, removed: 0 };
-      all.set(path, { added: sum.added + f.added, removed: sum.removed + f.removed });
-    }
-  }
-  return all;
-}
-
-const VERDICT_SIGN = { pass: "✓", fail: "✕", warn: "•" };
-
 function roundParts(r) {
-  const { plan, files, verifies, subs, sources } = r;
+  const { subs, sources } = r;
   const parts = [];
-  if (plan) {
-    const done = plan.steps.filter((s) => s.done).length;
-    parts.push(section(t("Plan"), el("span", {}, `${done}/${plan.steps.length} ${t("steps")}`),
-      el("div", { class: "goal" }, plan.goal),
-      progress(done, plan.steps.length),
-      el("ul", { class: "steps" }, plan.steps.map((s, i) => el("li", { class: s.done ? "done" : i === plan.current ? "current" : "" }, s.text))),
-      el("details", {}, el("summary", {}, `${t("Acceptance criteria")} (${plan.criteria.length})`), el("ol", {}, plan.criteria.map((c) => el("li", {}, c))))));
-  }
-  if (plan || verifies.length) {
-    const last = plan ? (plan.finished ? "ALL DONE" : plan.last) : "";
-    const [cls, label] = !plan ? verifies[verifies.length - 1]
-      : plan.finished ? ["pass", "ALL DONE"] : /^PASSED/.test(last) ? ["pass", "PASSED"] : /^FAILED/.test(last) ? ["fail", "FAILED"] : ["", "NOT RUN"];
-    parts.push(section(t("Verifications"), el("span", {}, plan && plan.review ? `${t("review")}: ${t(plan.review)}` : verifies.length || null),
-      // every verify of this message in order: the way from the first failure to ALL DONE
-      verifies.length ? el("div", { class: "verify-trail" }, verifies.map(([c, l]) => el("span", { class: `vdot ${c}`, title: l }, VERDICT_SIGN[c] || "•"))) : null,
-      el("div", { class: "last-verify" }, el("span", { class: `verdict ${cls}` }, label),
-        el("span", { class: "muted" }, last.replace(/^(PASSED|FAILED|ALL DONE|not run yet)\s*/, "")))));
-  }
-  if (files.size) {
-    const sum = totals(files);
-    parts.push(section(t("Files changed"), counts(sum.added, sum.removed),
-      el("ul", { class: "file-list" }, [...files].map(([path, f]) => el("li", {}, el("span", { class: "path", title: path }, path), counts(f.added, f.removed))))));
-  }
   if (subs.length) {
     const done = subs.filter((s) => s.state === "done").length;
     parts.push(section(t("Sub-questions"), el("span", {}, `${done}/${subs.length}`), progress(done, subs.length),
@@ -1726,17 +1402,13 @@ function roundParts(r) {
   return parts;
 }
 
-// One line for a message in the history: what was asked, how far it got, how much it changed.
+// One line for a message in the history: what was asked and how far it got.
 function roundSummary(r, number) {
-  const sum = totals(r.files);
-  const last = r.plan && r.plan.finished ? ["pass", "ALL DONE"] : r.verifies[r.verifies.length - 1];
   const auto = /^\((continue|resume)\b/.test(r.title);
   return el("summary", {},
     el("span", { class: "round-title", title: r.title }, `${number}. ${shortTitle(auto ? t(r.title.slice(1, -1)) : r.title, 60)}`),
     el("span", { class: "round-facts" },
-      r.plan ? el("span", { class: "muted" }, `${r.plan.steps.filter((s) => s.done).length}/${r.plan.steps.length}`) : null,
-      last ? el("span", { class: `verdict ${last[0]}` }, last[1]) : null,
-      r.files.size ? counts(sum.added, sum.removed) : null));
+      r.subs.length ? el("span", { class: "muted" }, `${r.subs.filter((s) => s.state === "done").length}/${r.subs.length}`) : null));
 }
 
 // The panel is drawn at most once per frame, for the chat that is shown.
@@ -1751,14 +1423,14 @@ function contextCard() {
   if (!e) return null;
   const speed = e.tokens && e.seconds > 0.05 ? `${Math.round(e.tokens / e.seconds)} tok/s` : null;
   const full = e.context_limit ? contextFull(e) : null;
-  const turn = `${t("Turn")} ${e.turn}${e.max_turns ? `/${e.max_turns}` : ""}`;
+  const turn = `${t("Turn")} ${e.turn}`;
   return el("section", { class: "pcard context-card", title: e.context_limit ? contextTitle(e) : "" },
     el("div", { class: "context-line" }, el("span", { class: "muted" }, t("Context")), full != null ? contextGauge(full) : el("span", { class: "spacer" }),
       full != null ? el("span", {}, `${full}%`) : null),
     el("div", { class: "context-facts muted" }, [turn, speed].filter(Boolean).join(" · ")));
 }
 
-// The panel shows how far the open chat is: the context, the plan or the steps, the sources, the files. Until it
+// The panel shows how far the open chat is: the context, the sub-questions, the sources. Until it
 // is opened or closed by hand it opens by itself when there is progress to show, and closes when there is none.
 function renderPanel(ctx) {
   const progress = ctx ? progressParts(ctx) : [];
@@ -1769,9 +1441,9 @@ function renderPanel(ctx) {
   }
 }
 
-// What the messages of the chat led to: the newest open, the earlier ones folded; the files of a code project.
+// What the messages of the chat led to: the newest open, the earlier ones folded.
 function progressParts(ctx) {
-  const { rounds, tree, openRounds } = ctx.panel;
+  const { rounds, openRounds } = ctx.panel;
   const shown = rounds.map((r, i) => [r, i, roundParts(r)]).filter(([, , parts]) => parts.length);
   const parts = [];
   if (shown.length === 1) parts.push(...shown[0][2]); // a chat with one message needs no history
@@ -1785,9 +1457,6 @@ function progressParts(ctx) {
       parts.push(entry);
     }
   }
-  const { changes } = ctx.panel;
-  if (changes && (changes.files.length || !changes.git)) parts.push(changesSection(ctx));
-  if (tree && tree.files.length) parts.push(fileTree(ctx));
   return parts;
 }
 
@@ -1815,7 +1484,7 @@ function renderEvent(e, ctx) {
       clearSendNow();
       if (!e.queued) userBubble(e.text, e.images, e.files); // a queued message is on the page already
       break;
-    case "steer": // sent while the agent was working: read by a code run, queued by a chat or a research
+    case "steer": // sent while the agent was working: queued by a chat or a research
       userBubble(e.text, e.images, e.files);
       if (state.running) addSendNow();
       break;
@@ -1925,7 +1594,6 @@ function renderEvent(e, ctx) {
       append(el("article", { class: "report" }, el("div", { html: e.html })));
       break;
     case "turn": {
-      $("#compact").hidden = !state.running || ctx.mode === "chat";
       renderMeter(e);
       if (ctx.mode === "chat" && !e.tool_calls.length && e.finish !== "length") break; // a plain answer: no turn card
       const key = `turn-${e.turn}`;
@@ -1938,38 +1606,6 @@ function renderEvent(e, ctx) {
       }
       break;
     }
-    case "state":
-      round(ctx).plan = e;
-      schedulePanel();
-      if (!ctx.panel.tree) refreshFiles(ctx);
-      break;
-    case "auto_verify": {
-      const d = testCall(t("run by the program"));
-      d.classList.remove("pending");
-      testResult(d, e.output);
-      round(ctx).verifies.push(verdict(e.output));
-      schedulePanel();
-      append(el("div", { class: "card" }, el("div", { class: "calls" }, d)));
-      break;
-    }
-    case "restart": // stuck too often: the run starts again with a clean context
-      append(el("div", { class: "log warning" }, t("Stuck in long thinking {n} times: starting again with a clean context{notes}.",
-        { n: e.stuck, notes: e.noted ? t(" and the model's notes") : "" })));
-      break;
-    case "judge": // the check of a finished task against the task itself, in a conversation of its own
-      if (e.solved) append(el("div", { class: "log success" }, t("Judge: the change solves the task.")));
-      else append(el("div", { class: "card" }, el("h4", {}, t("Judge: not solved yet")), el("div", { class: "problems" }, e.reasons)));
-      break;
-    case "compact":
-      append(el("div", { class: "log" }, e.dropped
-        ? t(e.manual ? "Context compacted on request: {n} old messages replaced by the plan, the file list{notes}." : "Context compacted: {n} old messages replaced by the plan, the file list{notes}.",
-          { n: e.dropped, notes: e.noted ? t(" and the model's notes") : "" })
-        : t("Nothing to compact yet.")));
-      break;
-    case "outcome":
-      refreshFiles(ctx);
-      append(el("div", { class: `log ${e.finished ? "success" : "warning"}` }, e.finished ? t("Finished: verification passes.") : `${t("Stopped")}: ${e.reason}.`));
-      break;
     case "error":
       append(el("div", { class: "card error-box" }, e.text));
       break;
@@ -2109,7 +1745,7 @@ async function loadSkills() {
   const skills = await api("/api/skills").catch(() => []);
   $("#skills-list").replaceChildren(...skills.map((s) =>
     el("div", { class: "card" },
-      el("h4", {}, s.name, s.category ? el("span", { class: `badge ${s.category}` }, s.category) : null),
+      el("h4", {}, s.name),
       el("div", {}, s.description),
       s.when_to_use ? el("div", { class: "muted" }, `${t("Use when")}: ${s.when_to_use}`) : null)));
 }
@@ -2203,14 +1839,12 @@ function commands() {
   return [
     { label: t("New chat"), hint: "Alt+N", action: newChat },
     { label: t("New chat in Research mode"), action: () => { newChat(); remember("mode", "research"); setMode("research"); } },
-    { label: t("New chat in Code mode"), action: () => { newChat(); remember("mode", "code"); setMode("code"); } },
     { label: t("Model and settings of this chat"), hint: "Ctrl+,", action: toggleSettings },
     { label: t("Search chats"), hint: "/", action: focusSearch },
     { label: t("New folder"), action: () => newFolder() },
     { label: t("Show or hide the sidebar"), hint: "Ctrl+B", action: toggleSidebar },
     { label: t("Show or hide the panel"), hint: "Ctrl+.", action: () => { show("new"); togglePanel(); } },
     state.running && { label: t("Cancel the run"), action: () => $("#cancel").click() },
-    !$("#compact").hidden && { label: t("Compact the conversation"), action: () => $("#compact").click() },
     run && { label: run.pinned ? t("Unpin this chat") : t("Pin this chat"), action: () => patchRun(run.id, { pinned: !run.pinned }) },
     run && { label: t("Rename this chat"), action: () => { show("new"); $("#chat-search").value = ""; renderChats(); renameChat(run); } },
     { label: t("Switch the theme"), action: nextTheme },
@@ -2278,7 +1912,6 @@ document.addEventListener("keydown", (ev) => {
 $("#palette").addEventListener("click", openPalette);
 
 // -- init -------------------------------------------------------------------------------
-$("#folder").value = recall("folder");
 state.targetFolder = recall("target") || null;
 translatePage(document.body);
 applyTheme(currentTheme());

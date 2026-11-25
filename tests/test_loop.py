@@ -1,4 +1,4 @@
-"""End-to-end loop tests with a scripted model instead of LM Studio."""
+"""End-to-end loop tests with a scripted model instead of a model server."""
 
 import asyncio
 import json

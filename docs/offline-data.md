@@ -4,7 +4,8 @@
 
 Kiwix publishes topic archives of Wikipedia and the DevDocs documentation as single files, updated monthly.
 `nopic` archives keep the full text and the formulas (as TeX) without images. Put them into `LOCAL_AI_ZIM_DIR`
-(default `%USERPROFILE%\wiki-zim`, on Linux `~/wiki-zim`) and restart LM Studio so the servers reload.
+(default `%USERPROFILE%\wiki-zim`, on Linux `~/wiki-zim`) and restart `local-ai ui` (or the agent) so the
+servers reload.
 
 | Archive | Size |
 |---|---|
@@ -36,7 +37,7 @@ Free sources that work well:
 
 ## Data commands (online)
 
-The data commands run in your shell, not in LM Studio, so they read `LOCAL_AI_ZIM_DIR` from the shell. PowerShell,
+The data commands run in your shell, not in an MCP server, so they read `LOCAL_AI_ZIM_DIR` from the shell. PowerShell,
 with the environment activated:
 
 ```powershell

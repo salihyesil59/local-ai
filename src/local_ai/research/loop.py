@@ -97,7 +97,7 @@ class ResearchAgent:
         self.reads = 0  # successful calls of a reading tool in this run (read_before_cite)
         self.nb = settings.notebook_server
         if not bridge.has(f"{self.nb}__write_note"):
-            raise RuntimeError(f"The '{self.nb}' MCP server is required (see config/lmstudio/mcp.json.example).")
+            raise RuntimeError(f"The '{self.nb}' MCP server is required (see config/mcp.json.example).")
         self.roles = ToolRoles.detect(list(bridge.tools), settings.role_overrides)
         self.memory = ""
         self.preferences = ""

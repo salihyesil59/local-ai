@@ -9,7 +9,7 @@ All servers are stdio MCP servers installed as commands: `.venv\Scripts\local-ai
 | find passages in your library (and offline arXiv abstracts, ZIM archives) | `library` → `search_library` |
 | read pages or a passage in context | `library` → `read_library` |
 | a Wikipedia article or section | `library` → `wikipedia` |
-| programming documentation | `library` → `docs` (also served alone by `docs`, for Goose) |
+| programming documentation | `library` → `docs` |
 | arXiv online | `library` → `search_arxiv`, `read_arxiv` |
 | calculations, units, algebra | `compute` → `python`, `check_units`, `solve` |
 | notes, sources, reports, memory, skills | `notebook` |
@@ -41,7 +41,7 @@ local-ai-index --arxiv $HOME\local-ai-workspace\arxiv\metadata.jsonl --categorie
 local-ai-index --status
 ```
 
-On Linux the paths are `~/papers`, `~/Zotero`, ... The indexer runs outside LM Studio, so set the `LOCAL_AI_*`
+On Linux the paths are `~/papers`, `~/Zotero`, ... The indexer runs in your shell, so set the `LOCAL_AI_*`
 variables in the shell too if you changed them in `mcp.json` (the Terminal shortcut does this).
 
 **Ranking.** Keyword search (SQLite FTS5 / BM25) always runs. With an embedding model, semantic ranking is added
@@ -77,12 +77,12 @@ database:
 **Changing the embedding model.** Vectors of different models are not comparable. Each database records the
 model that produced its vectors (`meta` table). After a model change, semantic ranking turns off and keyword
 search keeps working until `local-ai-index --reembed` embeds the library and memory again. Qwen3-Embedding
-expects a task instruction before queries; the servers add one automatically (`LOCAL_AI_EMBED_QUERY_TASK`).
+expects a task instruction before queries; the servers add one automatically for it and for the server's
+`default` embedding model (`LOCAL_AI_EMBED_QUERY_TASK`, empty turns it off).
 
-## docs
-
-[`src/local_ai/servers/docs/server.py`](../src/local_ai/servers/docs/server.py) serves only the `docs` tool, for
-coding agents (Goose) that need documentation without the other tools inflating the prompt.
+**Where the embeddings come from.** `POST /embeddings` of `LOCAL_AI_EMBED_BASE_URL`, else `LOCAL_AI_BASE_URL`,
+with `LOCAL_AI_API_KEY` as the bearer token, for the model `LOCAL_AI_EMBED_MODEL` (default `default`, the embedding
+model Unsloth Studio is set up with).
 
 ## compute
 

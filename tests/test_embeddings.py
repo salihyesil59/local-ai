@@ -17,7 +17,10 @@ class Recorder(HashEmbedder):
 def test_default_model_and_query_instruction(monkeypatch):
     monkeypatch.delenv("LOCAL_AI_EMBED_MODEL", raising=False)
     monkeypatch.delenv("LOCAL_AI_EMBED_QUERY_TASK", raising=False)
-    sent = []
+    monkeypatch.delenv("LOCAL_AI_EMBED_BASE_URL", raising=False)
+    monkeypatch.setenv("LOCAL_AI_BASE_URL", "http://localhost:8888/v1")
+    monkeypatch.setenv("LOCAL_AI_API_KEY", "sk-unsloth-test")
+    sent, requests = [], []
 
     class Response:
         def __enter__(self):
@@ -31,12 +34,15 @@ def test_default_model_and_query_instruction(monkeypatch):
 
     def urlopen(req, timeout):
         sent.append(json.loads(req.data))
+        requests.append(req)
         return Response()
 
     monkeypatch.setattr(common.urllib.request, "urlopen", urlopen)
     e = Embedder()
-    assert e.model == DEFAULT_EMBED_MODEL == "text-embedding-qwen3-embedding-0.6b"
+    assert e.model == DEFAULT_EMBED_MODEL == "default"
     e.embed(["Kara cisim nedir?"], query=True)
+    assert requests[0].full_url == "http://localhost:8888/v1/embeddings"
+    assert requests[0].get_header("Authorization") == "Bearer sk-unsloth-test"  # the server's API key goes with it
     e.embed(["A black body absorbs all radiation."])
     assert sent[0]["input"][0].startswith("Instruct: ") and sent[0]["input"][0].endswith("\nQuery: Kara cisim nedir?")
     assert sent[1]["input"] == ["A black body absorbs all radiation."]  # documents get no instruction
@@ -46,6 +52,16 @@ def test_default_model_and_query_instruction(monkeypatch):
     monkeypatch.setenv("LOCAL_AI_EMBED_QUERY_TASK", "")
     monkeypatch.setenv("LOCAL_AI_EMBED_MODEL", DEFAULT_EMBED_MODEL)
     assert Embedder().query_task == ""  # empty string turns it off
+
+
+def test_embeddings_may_come_from_another_server(monkeypatch):
+    monkeypatch.setenv("LOCAL_AI_BASE_URL", "http://localhost:8888/v1")
+    monkeypatch.setenv("LOCAL_AI_EMBED_BASE_URL", "http://localhost:8081/v1/")
+    monkeypatch.delenv("LOCAL_AI_API_KEY", raising=False)
+    e = common.make_embedder()
+    assert e.base_url == "http://localhost:8081/v1" and e.api_key == "" and e.available
+    assert not common.make_embedder({"LOCAL_AI_EMBED_BACKEND": "none"}).available
+    assert common.make_embedder({"LOCAL_AI_EMBED_BACKEND": "lmstudio"}).available  # the name of earlier versions
 
 
 def test_library_model_change_disables_dense_until_reembed(tmp_path):
